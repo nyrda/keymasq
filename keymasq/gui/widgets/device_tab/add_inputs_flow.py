@@ -26,7 +26,6 @@ from keymasq.gui.widgets.device_control_layout import resolve_device_layout_kind
 from keymasq.gui.widgets.device_tab.capture_helpers import (
     _make_capture_status_row,
     _set_capture_status,
-    make_unlock_button_content,
 )
 from keymasq.gui.widgets.device_tab.input_helpers import label_from_evdev
 
@@ -90,12 +89,6 @@ class AddInputsFlow:
         row.append(spin)
         box.append(row)
 
-        privilege_status = Gtk.Label(label="")
-        privilege_status.add_css_class("dim-label")
-        privilege_status.set_halign(Gtk.Align.START)
-        privilege_status.set_wrap(True)
-        box.append(privilege_status)
-
         status = Gtk.Label(label="")
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
@@ -110,21 +103,6 @@ class AddInputsFlow:
         start_btn = Gtk.Button(label="Start Capture")
         start_btn.add_css_class("suggested-action")
 
-        unlock_btn = Gtk.Button()
-        unlock_btn.set_child(make_unlock_button_content("Unlock"))
-        unlock_btn.set_tooltip_text(
-            "Authorize raw original-input capture so Keymasq can detect additional "
-            "keys and mouse buttons before remapping."
-        )
-        unlock_btn.connect(
-            "clicked",
-            self._on_unlock_clicked,
-            start_btn,
-            privilege_status,
-            status,
-        )
-        btn_row.append(unlock_btn)
-
         def on_start(_button) -> None:
             if self._capturing:
                 return
@@ -134,19 +112,12 @@ class AddInputsFlow:
             self._captured_evdev_devices = []
             _set_capture_status(status, self._waiting_label(), recording=True)
             start_btn.set_sensitive(False)
-            self._start_capture(
-                status,
-                dialog,
-                start_btn=start_btn,
-                unlock_btn=unlock_btn,
-                privilege_status=privilege_status,
-            )
+            self._start_capture(status, dialog, start_btn=start_btn)
 
         start_btn.connect("clicked", on_start)
         btn_row.append(start_btn)
         box.append(btn_row)
 
-        self._update_capture_controls(start_btn, unlock_btn, privilege_status)
         dialog.set_child(box)
         dialog.present(self.parent_window)
 
@@ -156,8 +127,6 @@ class AddInputsFlow:
         parent_dialog: Adw.Dialog,
         *,
         start_btn: Gtk.Button | None = None,
-        unlock_btn: Gtk.Button | None = None,
-        privilege_status: Gtk.Label | None = None,
     ) -> None:
         self._capture_active_hardware_id = self.hardware_config.hardware_id
 
@@ -167,8 +136,6 @@ class AddInputsFlow:
                 status_label,
                 parent_dialog,
                 start_btn=start_btn,
-                unlock_btn=unlock_btn,
-                privilege_status=privilege_status,
             )
 
         self._session_request_async(
@@ -188,13 +155,11 @@ class AddInputsFlow:
         parent_dialog: Adw.Dialog,
         *,
         start_btn: Gtk.Button | None = None,
-        unlock_btn: Gtk.Button | None = None,
-        privilege_status: Gtk.Label | None = None,
     ) -> bool:
         if not result or result.get("status") != "ok":
             _set_capture_status(status_label, (result or {}).get("message", "Capture failed"))
             self.stop_capture()
-            self._update_capture_controls(start_btn, unlock_btn, privilege_status)
+            self._update_capture_controls(start_btn)
             return False
 
         self._capturing = True
@@ -204,8 +169,6 @@ class AddInputsFlow:
             status_label,
             parent_dialog,
             start_btn,
-            unlock_btn,
-            privilege_status,
         )
         return False
 
@@ -214,8 +177,6 @@ class AddInputsFlow:
         status_label: Gtk.Label,
         parent_dialog: Adw.Dialog,
         start_btn: Gtk.Button | None = None,
-        unlock_btn: Gtk.Button | None = None,
-        privilege_status: Gtk.Label | None = None,
     ) -> bool:
         if not self._capturing:
             return False
@@ -231,8 +192,6 @@ class AddInputsFlow:
                 status_label,
                 parent_dialog,
                 start_btn=start_btn,
-                unlock_btn=unlock_btn,
-                privilege_status=privilege_status,
             )
 
         self._session_request_async(
@@ -251,8 +210,6 @@ class AddInputsFlow:
         parent_dialog: Adw.Dialog,
         *,
         start_btn: Gtk.Button | None = None,
-        unlock_btn: Gtk.Button | None = None,
-        privilege_status: Gtk.Label | None = None,
     ) -> bool:
         self._poll_inflight = False
         if not self._capturing:
@@ -264,7 +221,7 @@ class AddInputsFlow:
         if result.get("status") != "ok":
             _set_capture_status(status_label, result.get("message", "Capture failed"))
             self.stop_capture()
-            self._update_capture_controls(start_btn, unlock_btn, privilege_status)
+            self._update_capture_controls(start_btn)
             return False
 
         captured = result.get("captured")
@@ -351,95 +308,9 @@ class AddInputsFlow:
         self._on_complete(result)
         parent_dialog.close()
 
-    def _unlock_state(self) -> tuple[bool, bool, bool]:
-        unlock_required = bool(getattr(self.parent_window, "_recording_unlock_required", True))
-        recording_unlocked = bool(getattr(self.parent_window, "_recording_unlocked", False))
-        refresh_owner = bool(getattr(self.parent_window, "_recording_refresh_owner", False))
-        return unlock_required, recording_unlocked, refresh_owner
-
-    def _update_capture_controls(
-        self,
-        start_btn: Gtk.Button | None,
-        unlock_btn: Gtk.Button | None,
-        privilege_status: Gtk.Label | None,
-    ) -> None:
-        if start_btn is None or unlock_btn is None or privilege_status is None:
-            return
-
-        unlock_required, recording_unlocked, refresh_owner = self._unlock_state()
-        can_capture = not unlock_required or (recording_unlocked and refresh_owner)
-
-        start_btn.set_sensitive(can_capture and not self._capturing)
-        if can_capture:
-            start_btn.add_css_class("suggested-action")
-        else:
-            start_btn.remove_css_class("suggested-action")
-
-        if not unlock_required:
-            unlock_btn.set_visible(False)
-            privilege_status.set_text(
-                "Unlock not required. Add-input capture reads raw key events before remapping."
-            )
-            return
-
-        if can_capture:
-            unlock_btn.set_visible(False)
-            privilege_status.set_text(
-                "Original-input capture is unlocked. Add inputs reads raw key events before "
-                "remapping."
-            )
-            return
-
-        unlock_btn.set_visible(True)
-        label = "Claim" if recording_unlocked else "Unlock"
-        unlock_btn.set_child(make_unlock_button_content(label))
-        if recording_unlocked:
-            unlock_btn.set_tooltip_text(
-                "Claim this GUI as the active owner before capturing additional inputs."
-            )
-            privilege_status.set_text(
-                "Unlock active in another session. Claim unlock to add additional keys and "
-                "mouse buttons."
-            )
-        else:
-            unlock_btn.set_tooltip_text(
-                "Authorize raw original-input capture so Keymasq can detect additional "
-                "keys and mouse buttons before remapping."
-            )
-            privilege_status.set_text(
-                "Original-input capture uses privileged raw events. Unlock to add additional "
-                "keys and mouse buttons."
-            )
-
-    def _on_unlock_clicked(
-        self,
-        button: Gtk.Button,
-        start_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
-        status_label: Gtk.Label,
-    ) -> None:
-        present_unlock = getattr(self.parent_window, "present_unlock_dialog", None)
-        if callable(present_unlock):
-            present_unlock(
-                on_success=lambda: self._on_unlock_success(
-                    start_btn,
-                    button,
-                    privilege_status,
-                    status_label,
-                )
-            )
-            return
-        _set_capture_status(status_label, "Unlock is only available from the main window.")
-
-    def _on_unlock_success(
-        self,
-        start_btn: Gtk.Button,
-        unlock_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
-        status_label: Gtk.Label,
-    ) -> None:
-        _set_capture_status(status_label, "")
-        self._update_capture_controls(start_btn, unlock_btn, privilege_status)
+    def _update_capture_controls(self, start_btn: Gtk.Button | None) -> None:
+        if start_btn is not None:
+            start_btn.set_sensitive(not self._capturing)
 
     def stop_capture(self) -> None:
         self._capturing = False

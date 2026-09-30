@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import time
 import uuid
 from collections.abc import Coroutine
@@ -17,13 +16,13 @@ from keymasq.common.model.actions import (
     profile_deactivation_policy_to_dict,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.recording_policy import is_macro_recording_disabled_error
 
 from . import (
     compositor,
     device_inspector,
     recording_device_selection,
     recording_lifecycle,
-    recording_unlock,
 )
 from .common import JsonObject, device_name_for_hardware, json_list
 from .constants import (
@@ -430,19 +429,10 @@ async def handle_start_macro_trigger(
         )
         return
 
-    status = await recording_unlock.resolve_macro_recording_status_async(
-        manager,
-        os.getuid(),
-    )
-    if not bool(status.get("unlocked", False)):
+    if not manager.security_policy.macro_recording_allowed:
         log.info("Ignored start_macro_recording trigger: macro recording is disabled")
         recording_lifecycle.notify_macro_recording_disabled(manager)
-        manager.broadcast_to_session_clients(
-            {
-                "event": "macro_recording_disabled",
-                **recording_unlock.serialize_macro_recording_state(status),
-            }
-        )
+        manager.broadcast_to_session_clients({"event": "macro_recording_disabled"})
         return
 
     result = await recording_lifecycle.start_recording(
@@ -451,13 +441,9 @@ async def handle_start_macro_trigger(
         recording_slot=recording_slot,
     )
     if result.get("status") != "ok":
-        if recording_lifecycle.is_macro_recording_disabled_error(result):
+        if is_macro_recording_disabled_error(result):
             recording_lifecycle.notify_macro_recording_disabled(manager)
             manager.broadcast_to_session_clients({"event": "macro_recording_disabled"})
-            return
-        if recording_unlock.is_recording_unlock_required_error(result):
-            recording_unlock.notify_recording_unlock_required(manager, result)
-            manager.broadcast_to_session_clients({"event": "recording_auth_requested"})
 
 
 async def handle_stop_macro_trigger(

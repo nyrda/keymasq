@@ -243,7 +243,9 @@ def restricted():
 def mask():
     with contextlib.ExitStack() as stack:
         client = stack.enter_context(contextlib.closing(Client()))
-        client.request("claim_recording_unlock_refresh")
+        # Baselines from before the capture unlock removal gate masking behind it.
+        if client.request("get_status").get("recording_unlock_required"):
+            client.request("claim_recording_unlock_refresh")
         attachment = target(client)
         opened = [
             stack.enter_context(open(node, "rb", buffering=0))
@@ -293,6 +295,7 @@ def removed_files(*, appimage=False):
             "/etc/udev/rules.d/99-keymasq-hide-grabbed.rules",
             "/etc/polkit-1/rules.d/49-keymasq-hardware.rules",
             "/etc/polkit-1/rules.d/50-keymasq-helper.rules",
+            "/etc/polkit-1/rules.d/50-keymasq-record.rules",
             "/etc/atomic-update.conf.d/keymasq.conf",
             "/etc/profile.d/keymasq.sh",
             "/etc/sysusers.d/keymasq.conf",

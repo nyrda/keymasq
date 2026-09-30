@@ -32,7 +32,7 @@ assert_file /usr/lib/udev/rules.d/91-keymasq-acl.rules
 assert_file /usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
 assert_file /usr/lib/sysusers.d/keymasq.conf
 assert_file /usr/lib/tmpfiles.d/keymasq.conf
-assert_file /usr/share/polkit-1/actions/com.keymasq.helper.policy
+assert_file /usr/share/polkit-1/rules.d/49-keymasq-hardware.rules
 assert_file /usr/share/applications/tools.keymasq.keymasq.desktop
 assert_file /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
 assert_file /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg

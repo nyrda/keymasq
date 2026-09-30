@@ -47,7 +47,7 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 
 ## Reference
 
-- [Security model](security.md) — daemon/session split, capture unlock flow,
+- [Security model](security.md) — daemon/session split, threat model,
   owner checks.
 - [Troubleshooting](troubleshooting.md) — diagnostics for common problems.
 

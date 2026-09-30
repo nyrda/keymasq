@@ -335,25 +335,12 @@ def status_cli(*, json_output: bool = False) -> None:
     recording_state = _bool_status(result.get("recording_active"), "active", "idle")
     print(f"recording: {recording_state}")
 
-    macro_recording_enabled = bool(result.get("macro_recording_enabled", False))
-    if macro_recording_enabled:
-        source = str(result.get("macro_recording_source") or "unknown")
-        macro_recording_state = f"enabled ({source})"
-    else:
-        macro_recording_state = "disabled"
+    macro_recording_state = _bool_status(
+        result.get("macro_recording_allowed"),
+        "allowed",
+        "disabled by policy",
+    )
     print(f"macro recording: {macro_recording_state}")
-
-    unlock_required = bool(result.get("recording_unlock_required", True))
-    raw_unlocked = bool(result.get("recording_unlocked", False))
-    unlocked = raw_unlocked or not unlock_required
-    if not unlock_required:
-        unlock_state = "not required"
-    elif unlocked:
-        source = str(result.get("recording_unlock_source") or "unknown")
-        unlock_state = f"unlocked ({source})"
-    else:
-        unlock_state = "locked"
-    print(f"capture unlock: {unlock_state}")
 
     if "active_profiles" in result:
         print(f"active profiles: {_names(result.get('active_profiles'))}")

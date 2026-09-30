@@ -99,8 +99,7 @@ class RecordingRequest:
 @dataclass(slots=True)
 class RecordingState:
     active: bool = False
-    unlocked: bool = False
-    enabled: bool = False
+    allowed: bool = True
     selected_slot: int = 1
     active_slot: int = 0
 
@@ -114,7 +113,7 @@ class RecordingState:
         return int(index)
 
     def next_request(self) -> RecordingRequest | None:
-        if not self.active and not self.enabled:
+        if not self.active and not self.allowed:
             return None
         command = "stop_recording" if self.active else "start_recording"
         slot = self.active_slot or self.selected_slot if self.active else self.selected_slot
@@ -124,8 +123,7 @@ class RecordingState:
 
     def recording_started(self, slot: int, *, max_slots: int) -> None:
         self.active = True
-        self.unlocked = True
-        self.enabled = True
+        self.allowed = True
         if 1 <= slot <= max_slots:
             self.selected_slot = slot
             self.active_slot = slot

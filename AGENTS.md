@@ -6,7 +6,7 @@ two long-running processes, a GUI/CLI, and a short-lived root helper:
   combo and superkey runtime and state machines, and live input/combo capture
 - `keymasq-session` - per-user broker, only path from GUI/CLI to the daemon; owns profile layering and compositor integration
 - `keymasq` - GTK4 GUI and CLI
-- `keymasq-helper` - root helper, never resident: runs the capture unlock and performs hardware masking
+- `keymasq-helper` - root helper, never resident: runs bounded hardware jobs (masking, source hiding, HID-BPF attach) and recovery
 
 ## Work Rules
 
@@ -38,9 +38,10 @@ two long-running processes, a GUI/CLI, and a short-lived root helper:
   Axes can have multiple analog controls assigned.
 - Combo: a chord or sequence trigger across one or more grabbed input devices.
   Prefix-shadowing between combos is valid runtime behavior.
-- Capture unlock: runtime or permanent lease that guards privileged input data
-  (live capture, combo capture, saving recordings).
-  New features exposing raw input must require it.
+- Security model: code running as the desktop user is trusted. Boundaries are
+  between UIDs, between sandboxed apps and the host, and around the privileged
+  daemon and helper. New features must not widen them, e.g. never accept
+  commands or expose input across UIDs. See `docs/security.md`.
 - Hardware masking: blocks other applications from opening a physical device while Keymasq keeps access.
 - `keymasq/masking/` is shared masking code used by the daemon and the helper.
   The daemon side is `keymasq/keymasqd/hardware_masking.py`.

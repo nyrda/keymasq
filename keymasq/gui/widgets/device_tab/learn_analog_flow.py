@@ -20,7 +20,6 @@ from keymasq.gui.session_client import JsonDict
 from keymasq.gui.widgets.device_tab.capture_helpers import (
     _make_capture_status_row,
     _set_capture_status,
-    make_unlock_button_content,
 )
 
 SessionRequestAsync = Callable[[JsonDict, Callable[[JsonDict | None], bool]], object]
@@ -114,12 +113,6 @@ class LearnAnalogFlow:
         form_grid.attach(label_label, 0, 2, 1, 1)
         form_grid.attach(label_entry, 1, 2, 1, 1)
 
-        privilege_status = Gtk.Label(label="")
-        privilege_status.add_css_class("dim-label")
-        privilege_status.set_halign(Gtk.Align.START)
-        privilege_status.set_wrap(True)
-        box.append(privilege_status)
-
         status = Gtk.Label(label="")
         status.add_css_class("dim-label")
         status.set_halign(Gtk.Align.START)
@@ -139,20 +132,7 @@ class LearnAnalogFlow:
         btn_row.append(cancel_btn)
 
         start_btn = Gtk.Button(label="Start Capture")
-        unlock_btn = Gtk.Button()
-        unlock_btn.set_child(make_unlock_button_content("Unlock"))
-        unlock_btn.set_tooltip_text(
-            "Authorize raw original-input capture so Keymasq can detect analog axes before "
-            "remapping."
-        )
-        unlock_btn.connect(
-            "clicked",
-            self._on_unlock_clicked,
-            start_btn,
-            privilege_status,
-            status,
-        )
-        btn_row.append(unlock_btn)
+        start_btn.add_css_class("suggested-action")
 
         save_btn = Gtk.Button(label="Save")
         save_btn.add_css_class("suggested-action")
@@ -179,8 +159,6 @@ class LearnAnalogFlow:
             review_list,
             status,
             save_btn,
-            unlock_btn,
-            privilege_status,
         )
         btn_row.append(start_btn)
         btn_row.append(save_btn)
@@ -195,11 +173,8 @@ class LearnAnalogFlow:
             "status": status,
             "start_btn": start_btn,
             "save_btn": save_btn,
-            "unlock_btn": unlock_btn,
-            "privilege_status": privilege_status,
             "candidates": {},
         }
-        self._update_capture_controls(start_btn, unlock_btn, privilege_status)
         dialog.set_child(box)
         dialog.present(self.parent_window)
 
@@ -213,8 +188,6 @@ class LearnAnalogFlow:
         review_list: Gtk.ListBox,
         status: Gtk.Label,
         save_btn: Gtk.Button,
-        unlock_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
     ) -> None:
         if self._capturing:
             self.stop_capture()
@@ -226,11 +199,7 @@ class LearnAnalogFlow:
             )
             start_btn.set_label("Start Capture")
             save_btn.set_visible(save_btn.get_sensitive())
-            self._update_capture_controls(
-                start_btn,
-                unlock_btn,
-                privilege_status,
-            )
+            self._update_capture_controls(start_btn)
             return
 
         _ = dialog, id_entry, label_entry
@@ -260,8 +229,6 @@ class LearnAnalogFlow:
                 capture_generation,
                 status,
                 start_btn,
-                unlock_btn,
-                privilege_status,
             ),
         )
 
@@ -272,8 +239,6 @@ class LearnAnalogFlow:
         expected_generation: int,
         status: Gtk.Label,
         start_btn: Gtk.Button,
-        unlock_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
     ) -> bool:
         if (
             self._capture_active_hardware_id is None
@@ -290,11 +255,7 @@ class LearnAnalogFlow:
             _set_capture_status(status, (result or {}).get("message", "Capture failed"))
             self.stop_capture()
             start_btn.set_label("Start Capture")
-            self._update_capture_controls(
-                start_btn,
-                unlock_btn,
-                privilege_status,
-            )
+            self._update_capture_controls(start_btn)
             return False
 
         self._capturing = True
@@ -334,19 +295,9 @@ class LearnAnalogFlow:
                 )
             self.stop_capture()
             start_btn = self._context.get("start_btn")
-            unlock_btn = self._context.get("unlock_btn")
-            privilege_status = self._context.get("privilege_status")
-            if (
-                isinstance(start_btn, Gtk.Button)
-                and isinstance(unlock_btn, Gtk.Button)
-                and isinstance(privilege_status, Gtk.Label)
-            ):
+            if isinstance(start_btn, Gtk.Button):
                 cast(Gtk.Button, start_btn).set_label("Start Capture")
-                self._update_capture_controls(
-                    cast(Gtk.Button, start_btn),
-                    cast(Gtk.Button, unlock_btn),
-                    cast(Gtk.Label, privilege_status),
-                )
+                self._update_capture_controls(cast(Gtk.Button, start_btn))
             return False
         captured = result.get("captured")
         if isinstance(captured, dict):
@@ -665,93 +616,8 @@ class LearnAnalogFlow:
         self.stop_capture()
         self._context = {}
 
-    def _update_capture_controls(
-        self,
-        start_btn: Gtk.Button | None,
-        unlock_btn: Gtk.Button | None,
-        privilege_status: Gtk.Label | None,
-    ) -> None:
-        if start_btn is None or unlock_btn is None or privilege_status is None:
-            return
-
-        unlock_required, recording_unlocked, refresh_owner = self._unlock_state()
-        can_capture = not unlock_required or (recording_unlocked and refresh_owner)
-
-        start_btn.set_sensitive(can_capture and not self._capturing)
-        if can_capture:
-            start_btn.add_css_class("suggested-action")
-        else:
-            start_btn.remove_css_class("suggested-action")
-
-        if not unlock_required:
-            unlock_btn.set_visible(False)
-            privilege_status.set_text(
-                "Unlock not required. Analog capture reads raw axis events before remapping."
-            )
-            return
-
-        if can_capture:
-            unlock_btn.set_visible(False)
-            privilege_status.set_text(
-                "Original-input capture is unlocked. Analog capture reads raw axis events before "
-                "remapping."
-            )
-            return
-
-        unlock_btn.set_visible(True)
-        label = "Claim" if recording_unlocked else "Unlock"
-        unlock_btn.set_child(make_unlock_button_content(label))
-        if recording_unlocked:
-            unlock_btn.set_tooltip_text(
-                "Claim this GUI as the active owner before capturing analog axes."
-            )
-            privilege_status.set_text(
-                "Unlock active in another session. Claim unlock to learn analog inputs."
-            )
-        else:
-            unlock_btn.set_tooltip_text(
-                "Authorize raw original-input capture so Keymasq can detect analog axes before "
-                "remapping."
-            )
-            privilege_status.set_text(
-                "Original-input capture uses privileged raw events. Unlock to learn analog inputs."
-            )
-
-    def _on_unlock_clicked(
-        self,
-        button: Gtk.Button,
-        start_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
-        status_label: Gtk.Label,
-    ) -> None:
-        present_unlock = getattr(self.parent_window, "present_unlock_dialog", None)
-        if callable(present_unlock):
-            present_unlock(
-                on_success=lambda: self._on_unlock_success(
-                    start_btn,
-                    button,
-                    privilege_status,
-                    status_label,
-                )
-            )
-            return
-        _set_capture_status(status_label, "Unlock is only available from the main window.")
-
-    def _on_unlock_success(
-        self,
-        start_btn: Gtk.Button,
-        unlock_btn: Gtk.Button,
-        privilege_status: Gtk.Label,
-        status_label: Gtk.Label,
-    ) -> None:
-        _set_capture_status(status_label, "")
-        self._update_capture_controls(start_btn, unlock_btn, privilege_status)
-
-    def _unlock_state(self) -> tuple[bool, bool, bool]:
-        unlock_required = bool(getattr(self.parent_window, "_recording_unlock_required", True))
-        recording_unlocked = bool(getattr(self.parent_window, "_recording_unlocked", False))
-        refresh_owner = bool(getattr(self.parent_window, "_recording_refresh_owner", False))
-        return unlock_required, recording_unlocked, refresh_owner
+    def _update_capture_controls(self, start_btn: Gtk.Button) -> None:
+        start_btn.set_sensitive(not self._capturing)
 
     def _on_close_dialog_clicked(self, _button: Gtk.Button, dialog: Adw.Dialog) -> None:
         dialog.close()

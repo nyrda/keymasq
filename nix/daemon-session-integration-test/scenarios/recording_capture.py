@@ -57,10 +57,6 @@ def run(ctx: ScenarioContext) -> None:
     if events != expected:
         raise AssertionError(f"unexpected captured combo events: {combo}")
 
-    status = ctx.request({"command": "get_status"})
-    if status.get("macro_recording_enabled") is not True:
-        raise AssertionError(f"macro recording opt-in was not enabled: {status}")
-
     ctx.request({"command": "list_devices_for_recording"})
     start = ctx.request({"command": "start_recording", "recording_slot": RECORDING_SLOT})
     if start.get("status") != "ok":
@@ -99,7 +95,6 @@ def run(ctx: ScenarioContext) -> None:
 def run_mapped_slot_actions(ctx: ScenarioContext) -> None:
     try:
         ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=True)
-        assert_macro_recording_enabled(ctx)
 
         ctx.tap_source(evdev.ecodes.KEY_F23)
         wait_for_recording_state(ctx, active=True, recording_slot=RECORDING_SLOT)
@@ -118,38 +113,34 @@ def run_mapped_slot_actions(ctx: ScenarioContext) -> None:
         ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=False)
 
 
-def run_mapped_slot_playback_without_unlock(ctx: ScenarioContext) -> None:
-    try:
-        ctx.enable_macro_recording_opt_in()
-        assert_macro_recording_enabled(ctx)
-        assert_recording_locked_if_required(ctx)
-
-        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=True)
-        assert_macro_recording_enabled(ctx)
-
-        ctx.tap_source(evdev.ecodes.KEY_F23)
-        wait_for_recording_state(ctx, active=True, recording_slot=RECORDING_SLOT)
-
-        ctx.tap_source(evdev.ecodes.KEY_Q)
-
-        ctx.tap_source(evdev.ecodes.KEY_F23)
-        wait_for_recording_state(ctx, active=False, recording_slot=0)
-        assert_recording_slot_listed(ctx, RECORDING_SLOT)
-
-        assert_recording_locked_if_required(ctx)
-
-        ctx.drain_outputs()
-        ctx.tap_source(evdev.ecodes.KEY_F24)
-        ctx.expect_keys([(evdev.ecodes.KEY_Q, 1), (evdev.ecodes.KEY_Q, 0)])
-    finally:
-        ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT}, ok=False)
-        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=False)
-
-
-def assert_macro_recording_enabled(ctx: ScenarioContext) -> None:
+def run_disabled_by_policy(ctx: ScenarioContext) -> None:
     status = ctx.request({"command": "get_status"})
-    if status.get("macro_recording_enabled") is not True:
-        raise AssertionError(f"macro recording opt-in was not enabled: {status}")
+    if status.get("macro_recording_allowed") is not False:
+        raise AssertionError(f"security policy did not disable macro recording: {status}")
+
+    result = ctx.request(
+        {"command": "start_recording", "recording_slot": RECORDING_SLOT},
+        ok=False,
+    )
+    if result.get("status") == "ok":
+        ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT}, ok=False)
+        raise AssertionError(f"start_recording succeeded while disabled by policy: {result}")
+    if result.get("error_code") != "macro_recording_disabled" and (
+        "macro_recording_disabled" not in str(result.get("message", ""))
+    ):
+        raise AssertionError(f"start_recording failed for an unexpected reason: {result}")
+    if ctx.request({"command": "get_status"}).get("recording_active") is not False:
+        raise AssertionError("recording became active while disabled by policy")
+
+    try:
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=True)
+        ctx.tap_source(evdev.ecodes.KEY_F23)
+        time.sleep(0.5)
+        if ctx.request({"command": "get_status"}).get("recording_active") is not False:
+            raise AssertionError("mapped recording trigger started a disabled recording")
+    finally:
+        ctx.request({"command": "stop_recording", "recording_slot": RECORDING_SLOT}, ok=False)
+        ctx.set_profile_enabled(MACRO_SLOT_PROFILE_NAME, enabled=False)
 
 
 def wait_for_recording_state(
@@ -166,13 +157,6 @@ def wait_for_recording_state(
 
     label = f"recording active={active} slot={recording_slot}"
     ctx.wait_until(label, matches, timeout_s=5)
-
-
-def assert_recording_locked_if_required(ctx: ScenarioContext) -> None:
-    status = ctx.request({"command": "get_status"})
-    if status.get("recording_unlock_required") is True:
-        if status.get("recording_unlocked") is not False:
-            raise AssertionError(f"capture unlock was unexpectedly active: {status}")
 
 
 def assert_recording_slot_listed(ctx: ScenarioContext, recording_slot: int) -> None:

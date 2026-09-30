@@ -12,7 +12,7 @@ from keymasq.common.paths import (
 )
 from keymasq.common.security import PeerCredentials, get_peer_credentials, uid_allowed
 
-from .. import commands, device_inspector, recording_capture, recording_lifecycle, recording_unlock
+from .. import commands, device_inspector, recording_capture, recording_lifecycle
 from ..common import JsonObject
 
 log = logging.getLogger("keymasq-session")
@@ -142,7 +142,6 @@ class SessionServerMixin:
             except Exception:
                 log.exception("Failed to clear captures for disconnected session client")
             recording_lifecycle.clear_active_recording_owner_if_writer(self, writer)
-            await recording_unlock.clear_recording_refresh_owner_if_writer(self, peer, writer)
             self._drop_session_client_writer(writer)
             await self._close_session_writer(writer, peer)
 

@@ -1,12 +1,10 @@
-import asyncio
 from typing import TYPE_CHECKING, cast
 
 from keymasq.common.coercion import coerce_str
 from keymasq.common.model.actions import parse_mpris_command
-from keymasq.common.security import PeerCredentials
 from keymasq.session.mpris import MprisDBusError
 
-from .. import compositor, recording_unlock
+from .. import compositor
 from ..common import JsonObject
 from ..profile import runtime_status
 
@@ -18,10 +16,7 @@ async def handle_compositor_commands(
     manager: "SessionManager",
     command: str,
     request: JsonObject,
-    peer: PeerCredentials,
-    writer: asyncio.StreamWriter,
 ) -> JsonObject | None:
-    _ = peer, writer
     if command == "get_compositor":
         return await compositor.build_compositor_payload(manager)
 
@@ -87,11 +82,6 @@ async def handle_compositor_commands(
         }
 
     if command == "get_status":
-        unlock_status = await recording_unlock.resolve_unlock_status_async(manager, peer.uid)
-        macro_recording_status = await recording_unlock.resolve_macro_recording_status_async(
-            manager,
-            peer.uid,
-        )
         compositor_status = await compositor.build_compositor_payload(manager)
         compositor_details = cast(dict[str, object], compositor_status["details"])
         policy = manager.security_policy
@@ -112,17 +102,7 @@ async def handle_compositor_commands(
             "recording_slot": int(manager.recording_state.active_slot),
             "macro_exec_timeout_max_ms": int(policy.macro_exec_timeout_max_ms),
             "emergency_cancel_combo_enabled": bool(policy.emergency_cancel_combo_enabled),
-            **recording_unlock.serialize_recording_unlock_state(
-                manager,
-                unlock_status,
-                refresh_owner=recording_unlock.is_active_refresh_owner_request(
-                    manager,
-                    peer,
-                    writer,
-                    unlock_status,
-                ),
-            ),
-            **recording_unlock.serialize_macro_recording_state(macro_recording_status),
+            "macro_recording_allowed": bool(policy.macro_recording_allowed),
             "mpris": manager.mpris_controller.status_snapshot(),
             "active_profiles": profile_payload["active_profiles"],
             "devices": profile_payload["devices"],

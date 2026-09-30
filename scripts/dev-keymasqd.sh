@@ -17,9 +17,6 @@ if [[ "${KEYMASQ_DEV_SHELL_FOR:-}" != "${REPO_ROOT}" ]]; then
     nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
-source "${REPO_ROOT}/scripts/dev-shell-env.sh"
-normalize_dev_shell_for_pkexec
-
 host_command() {
   # Match optional NixOS sudo rules even when the worktree's Nix shell uses
   # another nixpkgs pin. Other hosts keep using their normal PATH commands.

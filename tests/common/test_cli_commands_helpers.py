@@ -493,9 +493,7 @@ def test_status_cli_prints_runtime_summary(
             "listener_active": True,
             "listener_name": "gnome",
             "recording_active": False,
-            "macro_recording_enabled": False,
-            "recording_unlock_required": True,
-            "recording_unlocked": False,
+            "macro_recording_allowed": False,
             "active_profiles": ["Base"],
             "devices": {
                 "1234:5678": {
@@ -514,8 +512,8 @@ def test_status_cli_prints_runtime_summary(
     assert "keymasqd: connected" in out
     assert "compositor: GNOME Shell (gnome)" in out
     assert "listener: active (gnome)" in out
-    assert "macro recording: disabled" in out
-    assert "capture unlock: locked" in out
+    assert "macro recording: disabled by policy" in out
+    assert "capture unlock" not in out
     assert "active profiles: Base" in out
     assert "Example Keyboard (1234:5678)" in out
     assert "window: firefox - Example" in out

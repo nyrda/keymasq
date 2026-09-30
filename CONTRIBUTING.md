@@ -44,7 +44,9 @@ is no plan to add them.
 - Keep changes local unless the task requires a broader refactor.
 - Preserve the split between `keymasqd`, `keymasq-session`, and the GTK UI.
 - Keep compositor-specific behavior modular.
-- Do not weaken recording or combo-capture security checks.
+- Do not widen Keymasq's security boundaries: between local users, between
+  sandboxed apps and the host, and around the privileged daemon and helper.
+  See `docs/security.md`.
 - Update the relevant `docs/*.md` file when user-visible behavior or security semantics change.
 - Add or update tests with behavior changes when practical.
 

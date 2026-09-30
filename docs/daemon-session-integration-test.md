@@ -51,6 +51,7 @@ that the core runtime classes still work together:
   and drag button ordering during rest and continuous movement
 - emergency reset
 - capture, combo capture, recording save, and playback
+- macro recording refused when `/etc/keymasq/security.toml` disables it
 - session restart, daemon restart, and secondary device hotplug/replug
 - empty effective, permitted, inheritable, bounding, and ambient capability sets
   before and after every scenario
@@ -123,6 +124,14 @@ To check the daemon's capability-free device and storage access:
 ```bash
 ./scripts/integration.sh daemon-session --scenario native-hidraw-access,source-hiding,macro-lifecycle,recording-and-capture,hotplug-replug
 ```
+
+The full suite ends with a policy phase. It replaces `/etc/keymasq/security.toml`
+with the VM policy plus `recording_guard.macro_recording_allowed = false`,
+restarts `keymasqd` and `keymasq-session`, and runs only the
+`macro-recording-disabled-by-policy` scenario. The main run skips that
+scenario, and `--scenario` refuses it because selected runs keep the default
+policy. Run `./scripts/integration.sh daemon-session` without `--scenario` to
+cover it.
 
 The FUSE check runs during VM setup. It creates an ordinary user mount with
 `nodev`, without `allow_other`, and verifies that root cannot stat the held file.

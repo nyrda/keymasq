@@ -1,5 +1,4 @@
 # ruff: noqa: E402, I001
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +11,6 @@ from keymasq.gui.window import (
     gnome_setup,
     macro_recording,
     profiles,
-    recording_unlock,
     tab_layout,
 )
 
@@ -189,57 +187,6 @@ class TestMainWindow:
         assert demo_tab is not None
         assert demo_tab.device.name == "Demo Mouse"
 
-    def test_main_window_add_device_action_does_not_require_unlock(
-        self, temp_config_dir, monkeypatch
-    ):
-        from keymasq.gui.window.core import MainWindow
-
-        window = MainWindow(demo_mode=True)
-        add_calls: list[bool] = []
-        unlock_calls: list[bool] = []
-        button = object()
-
-        window._recording_unlocked = False
-        monkeypatch.setattr(
-            device_tabs,
-            "_on_add_device",
-            lambda _window, _button: add_calls.append(True),
-        )
-        window.present_unlock_dialog = lambda on_success=None: unlock_calls.append(True)  # type: ignore[method-assign]
-
-        device_tabs._on_add_device_clicked(window, button)
-
-        assert add_calls == [True]
-        assert unlock_calls == []
-
-    def test_main_window_device_inspector_uses_unlock_flow(self, temp_config_dir, monkeypatch):
-        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
-        from keymasq.gui.window.core import MainWindow
-
-        window = MainWindow(demo_mode=True)
-        window.demo_mode = False
-        window._recording_unlock_required = True
-        window._recording_unlocked = False
-        window._recording_refresh_owner = False
-        unlock_callbacks = []
-        monkeypatch.setattr(
-            recording_unlock,
-            "present_unlock_dialog",
-            lambda _window, on_success=None: unlock_callbacks.append(on_success),
-        )
-        device = HardwareConfig(
-            vendor_id="1234",
-            product_id="5678",
-            name="Mouse",
-            evdev_devices=[],
-            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
-        )
-
-        window.open_device_inspector(device)
-
-        assert len(unlock_callbacks) == 1
-        assert window._device_inspector_windows == {}
-
     def test_main_window_device_inspector_reuses_open_window(
         self,
         temp_config_dir,
@@ -251,7 +198,6 @@ class TestMainWindow:
 
         window = MainWindow(demo_mode=True)
         window.demo_mode = False
-        window._recording_unlock_required = False
         present_calls = []
         close_callbacks = []
 
@@ -359,72 +305,6 @@ class TestMainWindow:
 
         assert set(window._appearance_buttons) == {"system", "light", "dark"}
         assert window._appearance_buttons["dark"].get_active() is True
-
-    def test_main_window_unlock_uses_runtime_polkit_without_prompt(
-        self, temp_config_dir, monkeypatch
-    ):
-        from keymasq.gui.window import _runtime as window_runtime
-        from keymasq.gui.session_client import GuiTaskResult
-        from keymasq.gui.window.core import MainWindow
-
-        window = MainWindow(demo_mode=True)
-        window.demo_mode = False
-        commands: list[list[str]] = []
-        alerts: list[object] = []
-        success_calls: list[bool] = []
-
-        monkeypatch.setattr(
-            window_runtime,
-            "resolve_keymasq_helper_path",
-            lambda: "/usr/bin/keymasq-helper",
-        )
-        monkeypatch.setattr(
-            window_runtime,
-            "run_gui_task",
-            lambda worker, callback: callback(GuiTaskResult(value=worker())),
-        )
-
-        def fake_run(cmd, capture_output, text):
-            commands.append(cmd)
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr(window_runtime.subprocess, "run", fake_run)
-        monkeypatch.setattr(
-            window_runtime,
-            "session_request",
-            lambda payload, timeout=3.0: {
-                "status": "ok",
-                "lease_id": "lease-1",
-                "recording_unlocked": True,
-                "recording_unlock_required": True,
-                "recording_unlock_source": "runtime",
-                "recording_unlock_expires_at": 123,
-                "recording_refresh_owner": True,
-            },
-        )
-        monkeypatch.setattr(
-            window_runtime.Adw.AlertDialog,
-            "present",
-            lambda self, root: alerts.append(self),
-        )
-
-        window.present_unlock_dialog(on_success=lambda: success_calls.append(True))
-
-        assert commands == [
-            [
-                "pkexec",
-                "/usr/bin/keymasq-helper",
-                "unlock-runtime",
-                "--uid",
-                str(window_runtime.os.getuid()),
-                "--ttl",
-                "60",
-            ]
-        ]
-        assert all("unlock-persistent" not in cmd for cmd in commands)
-        assert window._recording_refresh_lease_id == "lease-1"
-        assert success_calls == [True]
-        assert alerts == []
 
     def test_main_window_syncs_manual_profile_selection_across_tabs(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
@@ -1307,11 +1187,6 @@ class TestMainWindow:
         monkeypatch.setattr(window_runtime.GLib, "timeout_add", lambda interval, cb: 11)
         monkeypatch.setattr(
             window_runtime.GLib,
-            "timeout_add_seconds",
-            lambda interval, cb: 22,
-        )
-        monkeypatch.setattr(
-            window_runtime.GLib,
             "source_remove",
             lambda source_id: removed.append(source_id),
         )
@@ -1321,44 +1196,8 @@ class TestMainWindow:
 
         assert window._session_event_callback is not None
         assert registered == [("*", window._session_event_callback)]
-        assert removed == [11, 22]
+        assert removed == [11]
         assert unregistered == [("*", window._session_event_callback)]
-
-    def test_main_window_macro_recording_dialog_refreshes_session_status(
-        self,
-        temp_config_dir,
-        monkeypatch,
-    ):
-        from keymasq.gui.window import _runtime as window_runtime
-        from keymasq.gui.window.core import MainWindow
-
-        requests: list[tuple[dict[str, object], float]] = []
-
-        def fake_session_request_async(payload, callback, timeout=5.0):
-            requests.append((payload, timeout))
-            callback(
-                {
-                    "status": "ok",
-                    "macro_recording_enabled": True,
-                    "macro_recording_source": "persistent",
-                    "macro_recording_expires_at": 0,
-                }
-            )
-
-        monkeypatch.setattr(
-            window_runtime, "session_request_async", fake_session_request_async
-        )
-
-        window = MainWindow(demo_mode=True)
-        requests.clear()
-        window._macro_recording_enabled = False
-        called: list[bool] = []
-
-        window.present_macro_recording_enable_dialog(on_success=lambda: called.append(True))
-
-        assert requests == [({"command": "get_status"}, 1.0)]
-        assert window._macro_recording_enabled is True
-        assert called == [True]
 
     def test_main_window_status_error_keeps_last_runtime_profile_state(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
@@ -1426,10 +1265,6 @@ class TestMainWindow:
             {
                 "status": "ok",
                 "keymasqd_connected": True,
-                "recording_unlocked": False,
-                "recording_unlock_required": True,
-                "recording_unlock_source": "none",
-                "recording_unlock_expires_at": 0,
             },
             1,
         )
@@ -1537,20 +1372,73 @@ class TestMainWindow:
         assert saved_profile.config.enabled is False
         assert saved_profile.config.is_permanent is True
 
-    def test_main_window_recording_auth_event_opens_locked_recording_dialog(self, monkeypatch):
+    def test_main_window_tracks_macro_recording_policy(self):
         from keymasq.gui.window.core import MainWindow
 
         window = MainWindow(demo_mode=True)
-        captured: dict[str, object] = {}
-        monkeypatch.setattr(
-            macro_recording,
-            "present_recording_settings_dialog",
-            lambda _window, reason="settings": captured.setdefault("reason", reason),
+        assert window.macro_recording_allowed() is True
+
+        window._status_query_id = 1
+        window._status_query_inflight = True
+        connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": True, "macro_recording_allowed": False},
+            1,
         )
+        assert window.macro_recording_allowed() is False
 
-        connection._handle_session_event(window, {"event": "recording_auth_requested"})
+        window._status_query_id = 2
+        window._status_query_inflight = True
+        connection._on_status_response(
+            window,
+            {"status": "ok", "keymasqd_connected": True, "macro_recording_allowed": True},
+            2,
+        )
+        assert window.macro_recording_allowed() is True
 
-        assert captured["reason"] == "recording_locked"
+        connection._handle_session_event(window, {"event": "macro_recording_disabled"})
+
+        assert window.macro_recording_allowed() is False
+
+    def test_open_macro_manager_follows_window_recording_policy(self, monkeypatch):
+        from keymasq.common.recording_policy import MACRO_RECORDING_DISABLED_MESSAGE
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+        from keymasq.gui.window.core import MainWindow
+
+        monkeypatch.setattr(MacroManagerDialog, "_load_initial_state", lambda _self: False)
+
+        def respond(query_id: int, allowed: bool) -> None:
+            window._status_query_id = query_id
+            window._status_query_inflight = True
+            connection._on_status_response(
+                window,
+                {"status": "ok", "keymasqd_connected": True, "macro_recording_allowed": allowed},
+                query_id,
+            )
+
+        window = MainWindow(demo_mode=True)
+        respond(1, False)
+        dialog = MacroManagerDialog(window)
+        assert dialog._record_btn is not None
+
+        assert dialog._record_btn.get_sensitive() is False
+        assert dialog._record_btn.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE
+
+        respond(2, True)
+
+        assert dialog._record_btn.get_sensitive() is True
+        assert dialog._record_btn.get_tooltip_text() == "Record a new macro"
+
+        connection._handle_session_event(window, {"event": "macro_recording_disabled"})
+
+        assert dialog._record_btn.get_sensitive() is False
+        assert dialog._recording_state.next_request() is None
+
+        respond(3, True)
+        dialog.emit("closed")
+        respond(4, False)
+
+        assert dialog._record_btn.get_sensitive() is True
 
     def test_main_window_recording_started_closes_tracked_dialogs(self):
         from keymasq.gui.window.core import MainWindow
@@ -2004,7 +1892,7 @@ class TestMainWindow:
 
         window = MainWindow(demo_mode=True)
         issues: list[str | None] = []
-        unlock_updates: list[dict | None] = []
+        policy_updates: list[dict | None] = []
 
         monkeypatch.setattr(
             connection,
@@ -2012,9 +1900,9 @@ class TestMainWindow:
             lambda _window, issue: issues.append(issue),
         )
         monkeypatch.setattr(
-            recording_unlock,
-            "_update_unlock_state",
-            lambda _window, data: unlock_updates.append(data),
+            macro_recording,
+            "_update_recording_policy",
+            lambda _window, data: policy_updates.append(data),
         )
 
         window._status_query_id = 3
@@ -2024,7 +1912,7 @@ class TestMainWindow:
             is False
         )
         assert window._status_query_inflight is True
-        assert unlock_updates == []
+        assert policy_updates == []
         assert issues == []
 
         assert (
@@ -2033,7 +1921,7 @@ class TestMainWindow:
         )
         assert window.session_status.get_label() == "session: 🟢"
         assert window.keymasqd_status.get_label() == "keymasqd: 🟢"
-        assert unlock_updates[-1] == {"status": "ok", "keymasqd_connected": True}
+        assert policy_updates[-1] == {"status": "ok", "keymasqd_connected": True}
         assert issues[-1] is None
 
         window._status_query_inflight = True
@@ -2049,5 +1937,5 @@ class TestMainWindow:
         assert connection._on_status_response(window, None, 3) is False
         assert window.session_status.get_label() == "session: 🔴"
         assert window.keymasqd_status.get_label() == "keymasqd: ⚪"
-        assert unlock_updates[-1] is None
+        assert policy_updates[-1] is None
         assert issues[-1] == "session"

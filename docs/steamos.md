@@ -50,7 +50,7 @@ The installer writes to two system locations:
 - `/opt/keymasq` holds the application. That is the AppImage, the extracted
   runtime it runs from, and the commands under `/opt/keymasq/bin`.
 - `/etc` holds the system integration. That is the `keymasqd` service, udev
-  rules, macro-recording polkit rule, `/etc/keymasq/security.toml`,
+  rules, the hardware job unit and its polkit rule, `/etc/keymasq/security.toml`,
   `/etc/profile.d/keymasq.sh`, and the SteamOS keep-list.
 
 The installer also sets up the desktop entry, the `keymasq-session` user
@@ -78,17 +78,16 @@ file it put there in a keep-list at `/etc/atomic-update.conf.d/keymasq.conf`.
 
 ## Security defaults
 
-SteamOS/AppImage installs disable the recording unlock requirement in
-`/etc/keymasq/security.toml`:
+SteamOS/AppImage installs use the same `/etc/keymasq/security.toml` defaults
+as native packages. Macro recording is allowed and stops after 10 minutes:
 
 ```toml
 [recording_guard]
-unlock_required = false
+macro_recording_allowed = true
 macro_recording_time_limit = 10
 ```
 
-With this setting, you can record macros without unlocking recording in each
-session.
+See [Security model](security.md#policy-file) for the other settings.
 
 ## Remote configuration (waypipe)
 

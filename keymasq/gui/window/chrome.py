@@ -5,7 +5,7 @@ from __future__ import annotations
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.preferences import AppearanceMode, load_appearance_mode
 
-from . import _runtime, compositor, device_tabs, gnome_setup, recording_unlock, tab_layout
+from . import _runtime, compositor, device_tabs, gnome_setup, tab_layout
 
 
 def _icon_from_name(window, icon_name: str) -> _runtime.Gio.Icon:
@@ -160,24 +160,6 @@ def _setup_content(window) -> None:
 
     menu_box.append(_create_menu_separator(window))
 
-    menu_unlock_btn = _runtime.Gtk.Button(label="Unlock Capture")
-    _configure_menu_button(window, menu_unlock_btn)
-    menu_unlock_btn.set_tooltip_text(
-        "Authorize raw original-input capture for adding inputs, combo capture, "
-        "and live macro recording. Uses Polkit and stays tied to this GUI session."
-    )
-
-    def on_menu_unlock_clicked(button: _runtime.Gtk.Button) -> None:
-        _on_menu_unlock_clicked(window, button, menu_popover)
-
-    menu_unlock_btn.connect("clicked", on_menu_unlock_clicked)
-    menu_box.append(menu_unlock_btn)
-    window._menu_unlock_btn = menu_unlock_btn
-
-    menu_unlock_separator = _create_menu_separator(window)
-    menu_box.append(menu_unlock_separator)
-    window._menu_unlock_separator = menu_unlock_separator
-
     about_btn = _runtime.Gtk.Button(label="About")
     _configure_menu_button(window, about_btn)
     connect_menu_action(about_btn, "about")
@@ -273,24 +255,12 @@ def _setup_content(window) -> None:
     compositor._update_compositor_status(window)
     window.status_bar.append(window.compositor_status)
 
-    status_spacer = _runtime.Gtk.Box()
-    status_spacer.set_hexpand(True)
-    window.status_bar.append(status_spacer)
-
-    unlock_status_label = _runtime.Gtk.Label(label="")
-    unlock_status_label.add_css_class("caption")
-    unlock_status_label.set_halign(_runtime.Gtk.Align.END)
-    unlock_status_label.set_visible(False)
-    window.status_bar.append(unlock_status_label)
-    window._unlock_status_label = unlock_status_label
-
     toolbar.add_bottom_bar(window.status_bar)
 
     window.set_content(toolbar)
 
     _setup_placeholder(window)
     device_tabs._setup_combo_tab(window)
-    recording_unlock._update_unlock_state(window, None)
 
 
 def _create_menu_separator(window) -> _runtime.Gtk.Widget:
@@ -364,13 +334,6 @@ def _on_combos_menu_clicked(
 ) -> None:
     popover.popdown()
     device_tabs.show_combo_tab(window)
-
-
-def _on_menu_unlock_clicked(
-    window, _button: _runtime.Gtk.Button, popover: _runtime.Gtk.Popover
-) -> None:
-    popover.popdown()
-    recording_unlock.present_unlock_dialog(window)
 
 
 def _setup_placeholder(window) -> None:

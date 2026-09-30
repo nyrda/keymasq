@@ -143,10 +143,6 @@ let
             securityConfig = {
               daemon_allowed_uids = [ vmUid ];
               session_allowed_uids = [ vmUid ];
-              recording_guard = {
-                unlock_required = false;
-                macro_edit_requires_unlock = false;
-              };
             };
           };
 

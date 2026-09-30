@@ -93,7 +93,6 @@ def make_daemon_testbed(monkeypatch):
         begin=Mock(return_value={"token": "cap-token"}),
         read=Mock(return_value={"captured": None}),
         end=Mock(return_value={"ended": True}),
-        authorize_combo_capture=Mock(return_value=object()),
         begin_combo=Mock(return_value={"token": "combo-token", "warnings": []}),
         read_combo_nowait=Mock(return_value={"event": None}),
         register_combo_notifier=Mock(return_value=None),

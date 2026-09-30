@@ -58,7 +58,6 @@ from keymasq.gui.window import (
     compositor,
     connection,
     device_tabs,
-    macro_recording,
     profiles,
     tab_layout,
 )
@@ -802,7 +801,6 @@ class DocshotRunner:
         self._runtime_overrides_installed = False
         self._orig_apply_compositor_state = None
         self._orig_on_status_response = None
-        self._orig_update_macro_recording_state = None
         self._orig_apply_profile_runtime_state = None
         self._welcome_tabs_isolated = False
         self.runtime_profiles = ["Desktop"]
@@ -829,14 +827,6 @@ class DocshotRunner:
             "support_details": {"supported": True, "warning": ""},
             "supported": True,
             "capabilities": ["dispatch", "keyword"],
-        }
-
-    def _docshot_macro_recording_state(self) -> Json:
-        return {
-            "status": "ok",
-            "macro_recording_enabled": True,
-            "macro_recording_source": "docshot",
-            "macro_recording_expires_at": 4102444800,
         }
 
     def _docshot_profile_runtime_state(self) -> Json:
@@ -950,11 +940,9 @@ class DocshotRunner:
             return
         apply_compositor_state = compositor._apply_compositor_state
         on_status_response = connection._on_status_response
-        update_macro_recording_state = macro_recording._update_macro_recording_state
         apply_profile_runtime_state = profiles._apply_profile_runtime_state
         self._orig_apply_compositor_state = apply_compositor_state
         self._orig_on_status_response = on_status_response
-        self._orig_update_macro_recording_state = update_macro_recording_state
         self._orig_apply_profile_runtime_state = apply_profile_runtime_state
 
         def force_compositor_state(window: MainWindow, _state: Json) -> None:
@@ -972,15 +960,11 @@ class DocshotRunner:
                 }
             return on_status_response(window, data, query_id)
 
-        def force_macro_recording_state(window: MainWindow, _state: Json) -> None:
-            update_macro_recording_state(window, self._docshot_macro_recording_state())
-
         def force_profile_runtime_state(window: MainWindow, _state: Json) -> None:
             apply_profile_runtime_state(window, self._docshot_profile_runtime_state())
 
         compositor._apply_compositor_state = force_compositor_state
         connection._on_status_response = force_status_response
-        macro_recording._update_macro_recording_state = force_macro_recording_state
         profiles._apply_profile_runtime_state = force_profile_runtime_state
         self._runtime_overrides_installed = True
 
@@ -991,13 +975,10 @@ class DocshotRunner:
             compositor._apply_compositor_state = self._orig_apply_compositor_state
         if self._orig_on_status_response is not None:
             connection._on_status_response = self._orig_on_status_response
-        if self._orig_update_macro_recording_state is not None:
-            macro_recording._update_macro_recording_state = self._orig_update_macro_recording_state
         if self._orig_apply_profile_runtime_state is not None:
             profiles._apply_profile_runtime_state = self._orig_apply_profile_runtime_state
         self._orig_apply_compositor_state = None
         self._orig_on_status_response = None
-        self._orig_update_macro_recording_state = None
         self._orig_apply_profile_runtime_state = None
         self._runtime_overrides_installed = False
 
@@ -1008,9 +989,6 @@ class DocshotRunner:
     def _apply_runtime_state(self) -> None:
         assert self.window is not None
         compositor._apply_compositor_state(self.window, self._docshot_compositor_state())
-        macro_recording._update_macro_recording_state(
-            self.window, self._docshot_macro_recording_state()
-        )
         profiles._apply_profile_runtime_state(self.window, self._docshot_profile_runtime_state())
 
     def _settle_runtime_state(self) -> None:

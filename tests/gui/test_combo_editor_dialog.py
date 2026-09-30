@@ -19,8 +19,6 @@ class TestComboEditorDialog:
         closed: list[str] = []
         dialog.connect("closed", lambda *_args: closed.append("closed"))
 
-        assert "raw original-input capture" in (dialog.unlock_button.get_tooltip_text() or "")
-
         parent.present()
         dialog.present(parent)
         flush_gtk_events()
@@ -124,13 +122,10 @@ class TestComboEditorDialog:
 
         parent = Gtk.Box()
         dialog = ComboEditorDialog(parent, profile_name="Desktop")
-        dialog._recording_unlocked = True
-        dialog._update_capture_controls()
 
         dialog._on_add_step_clicked(None)
 
         assert calls == [
-            ({"command": "get_status"}, 1.0),
             ({"command": "capture_combo", "profile_name": "Desktop", "timeout_s": 15.0}, 20.0),
         ]
         assert dialog._capture_inflight is False

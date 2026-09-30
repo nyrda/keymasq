@@ -24,7 +24,7 @@ Depends:
  gir1.2-adw-1,
  gir1.2-gtk-4.0,
  libxkbcommon0,
- pkexec,
+ polkitd,
  python3-dbus-next,
  python3-evdev,
  python3-gi,

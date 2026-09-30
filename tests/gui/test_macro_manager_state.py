@@ -85,7 +85,7 @@ def test_row_state_formats_saved_and_temporary_metadata() -> None:
 
 
 def test_recording_state_keeps_active_slot_stable() -> None:
-    state = RecordingState(enabled=True, selected_slot=3)
+    state = RecordingState(selected_slot=3)
     request = state.next_request()
 
     assert request is not None

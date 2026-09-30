@@ -107,21 +107,6 @@ install_file() {
 	install -Dm "$mode" "$src" "$dst"
 }
 
-try_install_file() {
-	mode=$1
-	src=$2
-	dst=$3
-	if [ -L "$dst" ]; then
-		warn "refusing to install through symlinked destination: $dst"
-		return 1
-	fi
-	if install -Dm "$mode" "$src" "$dst"; then
-		return 0
-	fi
-	warn "could not install $dst"
-	return 1
-}
-
 write_file_atomic() {
 	mode=$1
 	dst=$2
@@ -544,7 +529,6 @@ install_atomic_keep_list() {
 	write_file_atomic 0644 "$dst" <<'EOF'
 /etc/atomic-update.conf.d/keymasq.conf
 /etc/keymasq/**
-/etc/polkit-1/rules.d/50-keymasq-helper.rules
 /etc/profile.d/keymasq.sh
 /etc/sysusers.d/keymasq.conf
 /etc/tmpfiles.d/keymasq.conf
@@ -850,24 +834,16 @@ print_generic_service_instructions() {
 }
 
 remove_legacy_helper_integration() {
-	# Releases before the keymasq-helper rename installed these. Remove them only
+	# Older releases installed these for the capture unlock. Remove them only
 	# once the new runtime is active, because a failed update keeps the old one.
 	remove_path "$(root_path "$INSTALL_DIR/bin/keymasq-record")"
 	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-record.rules)"
+	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-helper.rules)"
+	# Older native packages own the same action files.
 	if ! native_package_installed; then
 		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.record-macro.policy)"
+		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)"
 	fi
-}
-
-install_polkit_integration() {
-	assets=$1
-	install_file 0644 "$assets/50-keymasq-helper.rules" \
-		"$(root_path /etc/polkit-1/rules.d/50-keymasq-helper.rules)"
-	if steamos_detected; then
-		return 0
-	fi
-	try_install_file 0644 "$assets/com.keymasq.helper.policy" \
-		"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)" || true
 }
 
 refresh_common_integration() {
@@ -884,7 +860,6 @@ refresh_common_integration() {
 		"$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	install_file 0644 "$assets/99-keymasq-hide-grabbed.rules" \
 		"$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
-	install_polkit_integration "$assets"
 	install_file 0644 "$assets/appimage-update.gpg.asc" \
 		"$install_root/share/keymasq/appimage-update.gpg.asc"
 
@@ -1018,24 +993,18 @@ repair_hardware_integration() {
 	# v0.19 installs the incoming daemon unit but does not know these assets or
 	# the keymasq-helper wrapper.
 	# Its first restart reaches this through the new runtime's root pre-start.
-	# The macro recording action lets users run keymasq-helper through pkexec
-	# with their own password. That must not authorize integration changes.
-	[ -z "${PKEXEC_UID:-}" ] || die "recording authorization does not authorize integration repair"
+	# Polkit rules left by older releases let users run keymasq-helper through
+	# pkexec with their own password. That must not authorize integration changes.
+	[ -z "${PKEXEC_UID:-}" ] || die "pkexec authorization does not authorize integration repair"
 	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "hardware integration repair requires root"
 	assets=$(asset_dir)
 	for pair in 'keymasq-hardware@.service /etc/systemd/system/keymasq-hardware@.service' \
-		'49-keymasq-hardware.rules /etc/polkit-1/rules.d/49-keymasq-hardware.rules' \
-		'50-keymasq-helper.rules /etc/polkit-1/rules.d/50-keymasq-helper.rules'; do
+		'49-keymasq-hardware.rules /etc/polkit-1/rules.d/49-keymasq-hardware.rules'; do
 		set -- $pair
 		if ! cmp -s "$assets/$1" "$(root_path "$2")"; then
 			install_file 0644 "$assets/$1" "$(root_path "$2")"
 		fi
 	done
-	if ! steamos_detected && ! cmp -s "$assets/com.keymasq.helper.policy" \
-		"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)"; then
-		try_install_file 0644 "$assets/com.keymasq.helper.policy" \
-			"$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)" || true
-	fi
 	if [ ! -x "$(root_path "$INSTALL_DIR/bin/keymasq-helper")" ]; then
 		write_wrapper keymasq-helper "$(root_path "$INSTALL_DIR/bin/keymasq-helper")"
 	fi
@@ -1076,8 +1045,7 @@ refresh_installed_integration() {
 
 native_package_installed() {
 	# Distribution packages install the daemon unit under /usr/lib, or /lib
-	# without merged /usr. The AppImage's /etc units would override it, and both
-	# install the same polkit action file.
+	# without merged /usr. The AppImage's /etc units would override it.
 	for keymasq_native_unit in \
 		/usr/lib/systemd/system/keymasqd.service \
 		/lib/systemd/system/keymasqd.service; do
@@ -1161,8 +1129,8 @@ prepare_hardware_removal() {
 	# The running AppImage performs the check, so an older runtime cannot skip it.
 	systemd_available || return 0
 	# pkexec already authorized this uninstaller as an administrator and set
-	# PKEXEC_UID. keymasq-helper rejects that marker so the macro recording
-	# action cannot authorize hardware operations, so do not pass it on.
+	# PKEXEC_UID. keymasq-helper rejects that marker so stale polkit rules from
+	# older releases cannot authorize hardware operations, so do not pass it on.
 	if [ -n "${KEYMASQ_APPIMAGE_HELPER:-}" ]; then
 		(unset PKEXEC_UID; "$KEYMASQ_APPIMAGE_HELPER" prepare-removal) && return 0
 	else
@@ -1204,11 +1172,6 @@ uninstall_keymasq() {
 	remove_path "$(root_path /etc/udev/rules.d/91-keymasq-acl.rules)"
 	remove_path "$(root_path /etc/udev/rules.d/99-keymasq-hide-grabbed.rules)"
 	clear_keymasq_udev_state || die "failed to clear Keymasq state from existing input devices"
-	remove_path "$(root_path /etc/polkit-1/rules.d/50-keymasq-helper.rules)"
-	# A native package installed after the AppImage owns this shared action.
-	if ! native_package_installed; then
-		remove_path "$(root_path /usr/share/polkit-1/actions/com.keymasq.helper.policy)"
-	fi
 	remove_legacy_helper_integration
 	remove_path "$(root_path /etc/atomic-update.conf.d/keymasq.conf)"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"

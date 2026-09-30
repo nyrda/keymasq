@@ -1,7 +1,7 @@
 # Security Policy
 
-Keymasq includes a privileged daemon, session broker, and protected input
-recording paths. Security reports should be handled privately.
+Keymasq includes a privileged daemon, a per-user session broker, and a root
+helper for hardware jobs. Security reports should be handled privately.
 
 ## Reporting A Vulnerability
 
@@ -18,18 +18,23 @@ Include:
 - impacted component
 - reproduction steps
 - expected impact
-- whether the issue requires local access, device access, or an unlocked session
+- whether the issue requires local access, device access, or code running as
+  the desktop user
 
 ## Scope
 
+Keymasq trusts code running as the desktop user. It already controls that
+user's input and configuration, so issues that require it are out of scope
+unless they reach another user or gain privileges.
+
 Security-sensitive areas include:
 
-- daemon and session socket authorization
-- recording unlock and owner-binding
-- macro recording and playback boundaries
-- combo capture and original-input observation
-- polkit helper path pinning
-- service packaging, udev rules, and runtime permissions
+- commands or input crossing between local users, including daemon ownership
+  and socket authorization
+- sandboxed apps reaching the session or daemon sockets
+- privilege gained through `keymasqd`, `keymasq-helper`, hardware jobs, or the
+  HID-BPF handoff
+- service packaging, udev and polkit rules, and runtime permissions
 
 ## Hardening And Design Notes
 

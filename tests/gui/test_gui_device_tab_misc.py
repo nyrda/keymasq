@@ -12,11 +12,7 @@ def _make_learn_analog_flow(device, on_complete=None, parent=None):
     from keymasq.gui.widgets.device_tab.learn_analog_flow import LearnAnalogFlow
 
     if parent is None:
-        parent = SimpleNamespace(
-            _recording_unlock_required=False,
-            _recording_unlocked=False,
-            _recording_refresh_owner=False,
-        )
+        parent = SimpleNamespace()
     return LearnAnalogFlow(
         parent,
         lambda _payload, callback: callback({"status": "ok"}),
@@ -359,17 +355,6 @@ def test_device_tab_learn_analog_stick_guesses_hat_axis_roles(temp_config_dir):
     assert first_row._analog_role_dropdown.get_selected() == 1
     assert second_row._analog_evdev == "abs_hat0x"
     assert second_row._analog_role_dropdown.get_selected() == 0
-
-
-def test_resolve_keymasq_helper_path(tmp_path, monkeypatch):
-    from keymasq.common import paths
-
-    helper = tmp_path / "keymasq-helper"
-    helper.write_text("#!/bin/sh\n")
-    helper.chmod(0o755)
-    monkeypatch.setattr(paths, "KEYMASQ_HELPER_PATH", helper)
-
-    assert paths.resolve_keymasq_helper_path() == str(helper)
 
 
 def test_run_gui_task_calls_callback_and_on_done_when_worker_raises(monkeypatch):

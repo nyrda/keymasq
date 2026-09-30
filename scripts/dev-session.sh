@@ -17,9 +17,6 @@ if [[ "${KEYMASQ_DEV_SHELL_FOR:-}" != "${REPO_ROOT}" ]]; then
     nix develop "${REPO_ROOT}" -c "${SCRIPT_PATH}" "$@"
 fi
 
-source "${REPO_ROOT}/scripts/dev-shell-env.sh"
-normalize_dev_shell_for_pkexec
-
 stop_installed_session_service() {
   if ! command -v systemctl >/dev/null 2>&1; then
     return

@@ -14,10 +14,6 @@ __all__ = [
     "VIRTUAL_DEVICES_PATH",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
-    "RECORDING_UNLOCK_RUNTIME_DIR",
-    "RECORDING_UNLOCK_PERSISTENT_DIR",
-    "KEYMASQ_HELPER_PATH",
-    "resolve_keymasq_helper_path",
     "SLURP_PATH",
     "resolve_slurp_path",
 ]
@@ -39,8 +35,6 @@ SOCKET_PATH = RUN_DIR / "socket"
 HANDOFF_SOCKET_PATH = RUN_DIR / "handoff"
 STATE_DIR = Path("/var/lib/keymasq")
 SECURITY_POLICY_PATH = Path("/etc/keymasq/security.toml")
-RECORDING_UNLOCK_RUNTIME_DIR = RUN_DIR
-RECORDING_UNLOCK_PERSISTENT_DIR = Path("/etc/keymasq")
 
 XDG_RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
 SESSION_SOCKET_PATH = XDG_RUNTIME_DIR / "keymasq" / "session.sock"
@@ -56,22 +50,13 @@ ANALOG_CONTROLS_DIR = CONFIG_DIR / "analog_controls"
 MOTION_CONTROLS_DIR = CONFIG_DIR / "motion_controls"
 VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
 
-_build_helper_path = "/usr/bin/keymasq-helper"
-_build_helper_fallback_paths: tuple[str, ...] = ()
 _build_slurp_path = "/usr/bin/slurp"
 _build_libxkbcommon_path = ""
 with contextlib.suppress(ImportError, AttributeError):
     build_paths = importlib.import_module("keymasq.common.build_paths")
-    _build_helper_path = str(getattr(build_paths, "KEYMASQ_HELPER_PATH", _build_helper_path))
-    _build_helper_fallback_paths = tuple(getattr(build_paths, "KEYMASQ_HELPER_FALLBACK_PATHS", ()))
     _build_slurp_path = str(getattr(build_paths, "SLURP_PATH", _build_slurp_path))
     _build_libxkbcommon_path = str(getattr(build_paths, "LIBXKBCOMMON_PATH", ""))
 
-KEYMASQ_HELPER_PATH = Path(_build_helper_path)
-KEYMASQ_HELPER_FALLBACK_PATHS = (
-    *(Path(path) for path in _build_helper_fallback_paths),
-    Path("/run/current-system/sw/bin/keymasq-helper"),
-)
 SLURP_PATH = Path(_build_slurp_path)
 SLURP_FALLBACK_PATHS = (
     Path("/usr/bin/slurp"),
@@ -97,19 +82,6 @@ def ensure_session_socket_dir() -> None:
         session_dir.chmod(0o700)
     except OSError:
         log.warning("Failed to set session socket directory permissions to 0o700: %s", session_dir)
-
-
-def resolve_keymasq_helper_path() -> str | None:
-    candidates = [KEYMASQ_HELPER_PATH, *KEYMASQ_HELPER_FALLBACK_PATHS]
-    seen: set[str] = set()
-    for candidate in candidates:
-        candidate_str = str(candidate)
-        if candidate_str in seen:
-            continue
-        seen.add(candidate_str)
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate_str
-    return None
 
 
 def resolve_slurp_path() -> str | None:

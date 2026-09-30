@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import _runtime, device_tabs, recording_unlock
+from . import _runtime, device_tabs
 
 
 def open_device_inspector(window, device) -> None:
@@ -21,14 +21,6 @@ def open_device_inspector(window, device) -> None:
         device_tabs._show_demo_notification(
             window, "Device inspector is not available in demo mode"
         )
-        return
-
-    if not _device_inspector_unlock_ready(window):
-
-        def reopen_inspector() -> None:
-            open_device_inspector(window, device)
-
-        recording_unlock.present_unlock_dialog(window, on_success=reopen_inspector)
         return
 
     from keymasq.gui.widgets.device_inspector_window import DeviceInspectorWindow
@@ -80,9 +72,3 @@ def open_combo_inspector(window) -> None:
     inspector.connect("close-request", on_close_request)
     inspector.connect("destroy", on_destroy)
     inspector.present()
-
-
-def _device_inspector_unlock_ready(window) -> bool:
-    if not window._recording_unlock_required:
-        return True
-    return window._recording_unlocked and window._recording_refresh_owner

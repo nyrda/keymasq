@@ -425,7 +425,7 @@ class TestSocketServer:
         await writer1.wait_closed()
 
         await asyncio.wait_for(owner_disconnected.wait(), timeout=1.0)
-        assert server.owner_context is None
+        assert server._owner_context is None
 
         # After release, a new owner may connect.
         third_reader, third_writer = await asyncio.open_unix_connection(str(paths.SOCKET_PATH))
@@ -583,7 +583,7 @@ class TestSocketServer:
             assert writer.closed
             assert writer.wait_closed_calls == 1
             assert disconnect.disconnect_called
-            assert server.owner_context is None
+            assert server._owner_context is None
             assert not server.clients
             assert not server._buffer
             assert not server._client_context

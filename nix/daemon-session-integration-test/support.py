@@ -103,6 +103,7 @@ PROFILE_STABLE_S = _float_env("KEYMASQ_INTEGRATION_PROFILE_STABLE_S", 0.0)
 class ScenarioCase:
     name: str
     run: Callable[["ScenarioContext"], None]
+    explicit_only: bool = False
 
 
 class ScenarioContext:
@@ -829,19 +830,6 @@ type = "key"
         self.wait_for_keymasqd_connection()
         self.request({"command": "reevaluate_hardware"})
         self.reopen_outputs()
-
-    def enable_macro_recording_opt_in(self) -> None:
-        subprocess.run(
-            [
-                os.environ.get("KEYMASQ_INTEGRATION_SUDO", "sudo"),
-                os.environ.get("KEYMASQ_INTEGRATION_HELPER", "keymasq-helper"),
-                "enable-macro-recording-persistent",
-                "--uid",
-                str(os.getuid()),
-            ],
-            check=True,
-            timeout=10,
-        )
 
     def recreate_secondary_source(self) -> None:
         if self.source is None:

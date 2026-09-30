@@ -14,6 +14,11 @@ from keymasq.common.model.actions import (
     normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
 )
+from keymasq.common.recording_policy import (
+    MACRO_RECORDING_DISABLED_ERROR_CODE,
+    MACRO_RECORDING_DISABLED_MESSAGE,
+    is_macro_recording_disabled_error,
+)
 from keymasq.common.security import PeerCredentials
 
 from .common import (
@@ -32,11 +37,6 @@ if TYPE_CHECKING:
     from .core import SessionManager
 
 log = logging.getLogger("keymasq-session")
-MACRO_RECORDING_DISABLED_ERROR_CODE = "macro_recording_disabled"
-MACRO_RECORDING_DISABLED_MESSAGE = (
-    "Macro recording is disabled. Enable macro recording in Keymasq before using "
-    "recording triggers."
-)
 
 
 def _monotonic() -> float:
@@ -100,13 +100,6 @@ def has_pending_macro_save(
     return bool(state.pending_slots)
 
 
-def is_macro_recording_disabled_error(result: JsonObject) -> bool:
-    if result.get("error_code") == MACRO_RECORDING_DISABLED_ERROR_CODE:
-        return True
-    message = str(result.get("message", "") or "").lower()
-    return "macro_recording_disabled" in message or "macro recording opt-in" in message
-
-
 def notify_macro_recording_disabled(manager: "SessionManager") -> None:
     manager.send_notification(
         "Keymasq: Macro Recording Disabled",
@@ -125,19 +118,6 @@ def _set_active_recording_owner(
         state.active_owner_writer_id = id(writer)
         state.active_owner_pid = int(peer.pid)
         state.active_owner_uid = int(peer.uid)
-        return
-
-    owner = manager.unlock_state.refresh_owner
-    if owner is not None:
-        state.active_owner_writer_id = (
-            coerce_int(
-                owner.get("writer_id"),
-                0,
-            )
-            or None
-        )
-        state.active_owner_pid = coerce_int(owner.get("pid"), 0) or None
-        state.active_owner_uid = coerce_int(owner.get("uid"), 0) or None
         return
 
     state.active_owner_writer_id = None
@@ -723,8 +703,6 @@ async def start_recording(
 
     message = str(result.error or "Daemon unavailable")
     response: JsonObject = {"status": "error", "message": message}
-    if "recording_locked" in message.lower():
-        response["error_code"] = "recording_locked"
     if is_macro_recording_disabled_error(response):
         response["error_code"] = MACRO_RECORDING_DISABLED_ERROR_CODE
     return response

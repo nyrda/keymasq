@@ -6,20 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from keymasq.common.ipc import CommandType
 from keymasq.common.security import SecurityPolicy
 from keymasq.keymasqd import daemon as daemon_module
-
-
-@pytest.mark.asyncio
-async def test_refresh_and_lock_commands_require_client_context(daemon_testbed):
-    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
-
-    with pytest.raises(PermissionError, match="missing client context"):
-        await daemon._handle_command(CommandType.REFRESH_RECORDING_UNLOCK, {"uid": 10})
-
-    with pytest.raises(PermissionError, match="missing client context"):
-        await daemon._handle_command(CommandType.LOCK_RECORDING_UNLOCK, {"uid": 10})
 
 
 def test_signal_handler_only_sets_shutdown_event(daemon_testbed):
@@ -52,10 +40,7 @@ async def test_unknown_command_raises_value_error(daemon_testbed):
 )
 def test_validate_peer_behavior(daemon_testbed, expected_allowed: bool):
     daemon, *_rest = daemon_testbed
-    daemon.security_policy = SecurityPolicy(
-        daemon_allowed_uids=[1111],
-        recording_unlock_required=True,
-    )
+    daemon.security_policy = SecurityPolicy(daemon_allowed_uids=[1111])
 
     peer = SimpleNamespace(uid=1111 if expected_allowed else 2222, pid=1, gid=1)
     allowed, reason = daemon._validate_peer(peer)

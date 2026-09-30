@@ -192,10 +192,10 @@ async def test_privileged_job_preserves_the_blocking_application(tmp_path, monke
     assert not list(directory.iterdir())
 
 
-def test_recording_polkit_authorization_cannot_invoke_hardware_operations(monkeypatch):
+def test_pkexec_authorization_cannot_invoke_hardware_operations(monkeypatch):
     monkeypatch.setattr(operations.os, "geteuid", lambda: 0)
     monkeypatch.setenv("PKEXEC_UID", "1000")
-    with pytest.raises(PermissionError, match="Recording authorization"):
+    with pytest.raises(PermissionError, match="pkexec authorization"):
         operations.main("recover-hardware")
 
 

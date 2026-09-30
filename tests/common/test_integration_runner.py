@@ -96,6 +96,19 @@ def test_missing_rebuild_output_falls_back_to_a_fresh_quiet_build(tmp_path: Path
     assert all("--print-build-logs" not in call for call in calls)
 
 
+def test_policy_disabled_scenario_is_refused_before_building(tmp_path: Path) -> None:
+    result, calls = _run_script(
+        tmp_path,
+        "daemon-session",
+        "--scenario",
+        "hotplug-replug,macro_recording_disabled_by_policy",
+    )
+
+    assert result.returncode == 1
+    assert "./scripts/integration.sh daemon-session" in result.stderr
+    assert calls == []
+
+
 def test_daemon_scenario_registry_has_unique_selectable_keys_and_full_module_coverage() -> None:
     verification = r"""
 from pathlib import Path
@@ -114,6 +127,12 @@ assert _scenario_key('superkey overload multi-action press/release') == (
 assert [case.name for case in selected_scenarios(['simple-1-1-remap'])] == [
     'simple 1->1 remap'
 ]
+explicit_only = [scenario for scenario in SCENARIOS if scenario.explicit_only]
+assert [scenario.name for scenario in explicit_only] == ['macro recording disabled by policy']
+assert selected_scenarios([]) == [
+    scenario for scenario in SCENARIOS if not scenario.explicit_only
+]
+assert selected_scenarios(['macro-recording-disabled-by-policy']) == explicit_only
 
 registered_modules = {scenario.run.__module__.rsplit('.', 1)[-1] for scenario in SCENARIOS}
 scenario_modules = {

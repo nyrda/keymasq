@@ -326,8 +326,8 @@ claim/release lines with increasing `connection` numbers are the normal trace
 of restarts, not a conflict.
 
 A short passthrough window after an owner disconnect is expected. The daemon
-clears the runtime capture unlock, discards pending recordings, and releases
-all grabbed devices before the next owner can claim. Remapping resumes
+ends captures, discards pending recordings, and releases all grabbed devices
+before the next owner can claim. Remapping resumes
 when the session reconnects and reapplies profiles.
 
 ### Duplicate hardware cannot be identified reliably
@@ -429,26 +429,29 @@ systemctl --user daemon-reload
 systemctl --user restart keymasq-session
 ```
 
-### Polkit or capture unlock problems
+### Macro recording does not start
 
 Symptoms:
 
-- recording or capture actions fail
-- no polkit prompt appears when expected
-- logs mention authorization or helper failures
+- the record controls in Macro Manager are disabled
+- a recording trigger shows a "Macro recording disabled" notification
+- `keymasq status` prints `macro recording: disabled by policy`
 
 Checks:
 
 ```bash
-journalctl -u keymasqd -n 100
-journalctl --user -u keymasq-session -n 100
+keymasq status
+grep -A3 recording_guard /etc/keymasq/security.toml
 ```
 
 What to verify:
 
-- the polkit policy file is installed
-- the desktop session has a working authentication agent
-- the packaged or installed `keymasq-helper` is present and executable
+- `[recording_guard] macro_recording_allowed` is `true` or absent in
+  `/etc/keymasq/security.toml`
+- `keymasqd` and `keymasq-session` were restarted after the policy changed
+
+Warnings about ignored `unlock_required` or `macro_edit_requires_unlock` keys
+are harmless. Keymasq no longer uses them, and you can delete them.
 
 ### GNOME bridge problems
 

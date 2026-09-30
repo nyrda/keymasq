@@ -109,15 +109,9 @@ class CaptureSession:
     mode: str = "button"
 
 
-@dataclass(frozen=True)
-class _ComboCaptureAuthorization:
-    token: str
-
-
 class CaptureManager:
     def __init__(self) -> None:
         self._sessions: dict[str, CaptureSession] = {}
-        self._combo_capture_authorizations: set[str] = set()
 
     async def begin_native(
         self,
@@ -391,11 +385,7 @@ class CaptureManager:
         hardware_ids: set[str] | None = None,
         hardware_paths: Mapping[str, Sequence[str]] | None = None,
         hardware_interfaces: Mapping[str, Sequence[JsonObject]] | None = None,
-        authorization: _ComboCaptureAuthorization | None = None,
     ) -> JsonObject:
-        if not self._consume_combo_capture_authorization(authorization):
-            raise PermissionError("combo_capture_denied: missing authorization")
-
         path_sources: dict[str, str] = {}
         if hardware_interfaces:
             path_hardware_ids, path_sources = self._hardware_interface_lookup(hardware_interfaces)
@@ -500,25 +490,6 @@ class CaptureManager:
         if session.notify_loop is not None and session.notify_event is not None:
             session.notify_loop.call_soon_threadsafe(session.notify_event.set)
 
-    def authorize_combo_capture(self) -> _ComboCaptureAuthorization:
-        token = str(uuid.uuid4())
-        self._combo_capture_authorizations.add(token)
-        return _ComboCaptureAuthorization(token=token)
-
-    def _consume_combo_capture_authorization(
-        self,
-        authorization: _ComboCaptureAuthorization | None,
-    ) -> bool:
-        if authorization is None:
-            return False
-        token = str(authorization.token or "").strip()
-        if not token:
-            return False
-        if token not in self._combo_capture_authorizations:
-            return False
-        self._combo_capture_authorizations.remove(token)
-        return True
-
     def read_combo_nowait(self, token: str) -> JsonObject:
         session = self._sessions.get(token)
         if session is None:
@@ -586,12 +557,7 @@ class CaptureManager:
         return ended
 
     def close_all(self) -> int:
-        """Close all sessions and revoke every unused capture authorization."""
-
-        try:
-            return self.end_all()
-        finally:
-            self._combo_capture_authorizations.clear()
+        return self.end_all()
 
     def _start_combo_reader(self, session: CaptureSession) -> None:
         if session.stop_event is None or session.event_queue is None:

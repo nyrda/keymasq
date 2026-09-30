@@ -53,7 +53,7 @@ class MacroManagerDialog(
         super().__init__(title="Macros", content_width=560)
         self._parent = parent
         self._catalog = CatalogState()
-        self._recording_state = RecordingState()
+        self._recording_state = RecordingState(allowed=self._parent_macro_recording_allowed())
         self._record_btn: Gtk.Button | None = None
         self._slot_dropdown: Gtk.DropDown | None = None
         self._search_button: Gtk.Button | None = None
@@ -69,6 +69,14 @@ class MacroManagerDialog(
             parent.register_event_handler("macro_saved", self._on_macro_saved)
             parent.register_event_handler("recording_started", self._on_recording_started)
             parent.register_event_handler("recording_stopped", self._on_recording_stopped)
+            parent.register_event_handler(
+                "macro_recording_disabled",
+                self._on_macro_recording_disabled,
+            )
+            parent.register_event_handler(
+                "macro_recording_policy_changed",
+                self._on_macro_recording_policy_changed,
+            )
         self.connect("closed", self._on_dialog_closed)
 
     def _session_request(self, payload: JsonDict) -> JsonDict | None:
@@ -129,6 +137,14 @@ class MacroManagerDialog(
             self._parent.unregister_event_handler(
                 "recording_stopped",
                 self._on_recording_stopped,
+            )
+            self._parent.unregister_event_handler(
+                "macro_recording_disabled",
+                self._on_macro_recording_disabled,
+            )
+            self._parent.unregister_event_handler(
+                "macro_recording_policy_changed",
+                self._on_macro_recording_policy_changed,
             )
 
 

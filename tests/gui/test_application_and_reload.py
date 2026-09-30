@@ -18,13 +18,9 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
         def __init__(self) -> None:
             self.profile_manager = object()
             self.macro_dialogs: list[object | None] = []
-            self.recording_settings = 0
 
         def set_macro_manager_dialog(self, dialog) -> None:
             self.macro_dialogs.append(dialog)
-
-        def present_recording_settings_dialog(self) -> None:
-            self.recording_settings += 1
 
     class _Dialog:
         def __init__(self, *args) -> None:
@@ -66,13 +62,11 @@ def test_application_dialog_actions_route_to_window_helpers(monkeypatch) -> None
     app._open_superkey_dialog()
     app._on_superkey_changed(None, "Nav")
     app._on_macros(None, None)
-    app._on_record_macro(None, None)
     app._on_diagnostics(None, None)
     app._on_about(None, None)
     app._on_macro_manager_closed(None, window)
 
     assert reloads == [True]
-    assert window.recording_settings == 1
     assert isinstance(window.macro_dialogs[0], _Dialog)
     assert window.macro_dialogs[-1] is None
 

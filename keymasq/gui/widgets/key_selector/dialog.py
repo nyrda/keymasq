@@ -179,7 +179,6 @@ class KeySelectorDialog(
         self._type_controls_modified = False
         self._type_create_pending = False
         self._cancel_macro_playback_btn: Gtk.Button | None = None
-        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
         self._macro_slot_console: Gtk.Box | None = None
         self._superkey_list: list[SuperkeyConfig] = []
         self._superkey_names: list[str] = []

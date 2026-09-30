@@ -8,7 +8,7 @@ from keymasq.common.model.actions import (
 )
 from keymasq.common.security import PeerCredentials
 
-from .. import recording_device_selection, recording_lifecycle, recording_unlock
+from .. import recording_device_selection, recording_lifecycle
 from ..common import JsonObject
 
 if TYPE_CHECKING:
@@ -34,54 +34,24 @@ async def handle_recording_commands(
                 ),
             }
         recording_device_selection.update_recording_settings(manager, request)
-        start_result = await recording_lifecycle.start_recording(
+        return await recording_lifecycle.start_recording(
             manager,
             reset_if_active=False,
             recording_slot=recording_slot,
             owner_peer=peer,
             owner_writer=writer,
         )
-        recording_unlock.notify_recording_unlock_required(manager, start_result)
-        if recording_lifecycle.is_macro_recording_disabled_error(start_result):
-            recording_lifecycle.notify_macro_recording_disabled(manager)
-        return start_result
 
     if command == "set_recording_settings":
         recording_device_selection.update_recording_settings(manager, request)
         return {"status": "ok", **manager.recording_state.settings}
 
     if command == "get_recording_settings":
-        unlock_status = await recording_unlock.resolve_unlock_status_async(manager, peer.uid)
-        macro_recording_status = await recording_unlock.resolve_macro_recording_status_async(
-            manager,
-            peer.uid,
-        )
         return {
             "status": "ok",
-            **recording_unlock.serialize_recording_unlock_state(
-                manager,
-                unlock_status,
-                refresh_owner=recording_unlock.is_active_refresh_owner_request(
-                    manager,
-                    peer,
-                    writer,
-                    unlock_status,
-                ),
-            ),
-            **recording_unlock.serialize_macro_recording_state(macro_recording_status),
+            "macro_recording_allowed": bool(manager.security_policy.macro_recording_allowed),
             **manager.recording_state.settings,
         }
-
-    if command == "claim_recording_unlock_refresh":
-        return await recording_unlock.claim_recording_unlock_refresh(manager, peer, writer)
-
-    if command == "refresh_recording_unlock":
-        lease_id = coerce_str(request.get("lease_id"), "").strip()
-        return await recording_unlock.refresh_recording_unlock(manager, peer, writer, lease_id)
-
-    if command == "lock_recording_unlock":
-        lease_id = coerce_str(request.get("lease_id"), "").strip()
-        return await recording_unlock.lock_recording_unlock(manager, peer, writer, lease_id)
 
     if command == "stop_recording":
         return await recording_lifecycle.stop_recording(

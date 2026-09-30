@@ -50,7 +50,6 @@ from .state import (
     ExecRuntimeState,
     ProfileRuntimeState,
     RecordingRuntimeState,
-    UnlockRuntimeState,
 )
 
 log = logging.getLogger("keymasq-session")
@@ -133,7 +132,6 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self.event_state = EventRuntimeState()
         self.device_inspector_state = DeviceInspectorRuntimeState()
         self.recording_state = RecordingRuntimeState()
-        self.unlock_state = UnlockRuntimeState()
         recording_device_selection.load_recording_settings_from_disk(self)
         self.security_policy: SecurityPolicy = load_security_policy(SECURITY_POLICY_PATH)
         self.dbus = SessionDBus()

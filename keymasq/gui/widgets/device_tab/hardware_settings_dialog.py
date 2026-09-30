@@ -510,12 +510,7 @@ class HardwareSettingsDialog(Adw.Dialog):
         if self._motion_calibration_dialog is not None:
             self._motion_calibration_dialog.present(self._parent_window())
             return
-        dialog = MotionCalibrationDialog(
-            self._parent_window(),
-            self._hardware_config,
-            sensor,
-            self._hardware_manager,
-        )
+        dialog = MotionCalibrationDialog(self._hardware_config, sensor, self._hardware_manager)
         self._motion_calibration_dialog = dialog
         dialog.connect("closed", self._on_motion_calibration_closed, sensor)
         dialog.present(self._parent_window())

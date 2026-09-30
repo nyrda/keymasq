@@ -136,15 +136,6 @@ def undo():
     restored()
 
 
-def masks_while_locked():
-    with gui_client() as ctx:
-        status = ctx.request({"command": "get_status"})
-        assert status["recording_unlock_required"] and not status["recording_unlocked"], status
-        trial(ctx)
-        off(ctx)
-    restored()
-
-
 def snapshot(ctx):
     result = ctx.request({"command": "hardware_inventory"})
     return {
@@ -470,7 +461,6 @@ def saved_off():
 
 
 COMMANDS = {
-    "locked": masks_while_locked,
     "trial-expiry": trial_expiry,
     "trial-close": lambda: trial_expiry(disconnect=True),
     "undo": undo,

@@ -329,7 +329,7 @@ def main(operation: str, token: str = "") -> None:
     if os.geteuid() != 0:
         raise PermissionError("Hardware operations require root")
     if "PKEXEC_UID" in os.environ:
-        raise PermissionError("Recording authorization does not authorize hardware operations")
+        raise PermissionError("pkexec authorization does not authorize hardware operations")
     if operation == "hardware-operation":
         asyncio.run(run_request(token))
     elif operation == "prepare-removal":

@@ -80,10 +80,6 @@ class SocketServer:
         self._quiescing = False
         self._lifecycle_lock = asyncio.Lock()
 
-    @property
-    def owner_context(self) -> ClientContext | None:
-        return self._owner_context
-
     async def start(self) -> None:
         async with self._lifecycle_lock:
             await self._start_locked()

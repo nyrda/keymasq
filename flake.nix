@@ -118,7 +118,6 @@
 
           postPatch = ''
             cat > keymasq/common/build_paths.py <<EOF
-            KEYMASQ_HELPER_PATH = "${placeholder "out"}/bin/keymasq-helper"
             SLURP_PATH = "${pkgs.slurp}/bin/slurp"
             LIBXKBCOMMON_PATH = "${pkgs.libxkbcommon}/lib/libxkbcommon.so.0"
             MASKING_COMMAND_PATHS = {
@@ -129,9 +128,6 @@
                 "chmod": "${pkgs.coreutils}/bin/chmod",
             }
             EOF
-
-            substituteInPlace polkit/com.keymasq.helper.policy \
-              --replace-fail "/usr/bin/keymasq-helper" "${placeholder "out"}/bin/keymasq-helper"
           '';
 
           preFixup = ''
@@ -182,7 +178,6 @@
               size=''${size%.png}
               install -Dm644 "$icon" "$out/share/icons/hicolor/$size"x"$size"/apps/tools.keymasq.keymasq.png
             done
-            install -Dm644 $src/polkit/com.keymasq.helper.policy $out/share/polkit-1/actions/com.keymasq.helper.policy
           '';
 
           meta = {
@@ -410,8 +405,7 @@
                   emergency_cancel_combo_enabled = true;
                 };
                 recording_guard = {
-                  unlock_required = true;
-                  macro_edit_requires_unlock = false;
+                  macro_recording_allowed = true;
                 };
               };
               description = "Security policy configuration (rendered to /etc/keymasq/security.toml)";

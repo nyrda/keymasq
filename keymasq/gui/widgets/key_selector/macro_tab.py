@@ -21,6 +21,8 @@ from keymasq.gui.widgets.fuzzy_search import (
 )
 from keymasq.session.profile.manager import ProfileManager
 
+_MACRO_RECORDING_POLICY_EVENTS = ("macro_recording_disabled", "macro_recording_policy_changed")
+
 
 class MacroTabMixin:
     def _create_cancel_macro_playback_button(self) -> Gtk.Button:
@@ -181,8 +183,33 @@ class MacroTabMixin:
         console.set_margin_end(12)
         self._macro_slot_console = console
         self._refresh_macro_slot_console()
+        self._subscribe_macro_recording_policy()
 
         return console
+
+    def _subscribe_macro_recording_policy(self) -> None:
+        window = next(
+            (
+                candidate
+                for candidate in self._macro_parent_candidates()
+                if callable(getattr(candidate, "register_event_handler", None))
+                and callable(getattr(candidate, "unregister_event_handler", None))
+            ),
+            None,
+        )
+        if window is None:
+            return
+        for event_type in _MACRO_RECORDING_POLICY_EVENTS:
+            window.register_event_handler(event_type, self._on_macro_recording_policy_event)
+
+        def unsubscribe(*_args: object) -> None:
+            for event_type in _MACRO_RECORDING_POLICY_EVENTS:
+                window.unregister_event_handler(event_type, self._on_macro_recording_policy_event)
+
+        self.connect("closed", unsubscribe)
+
+    def _on_macro_recording_policy_event(self, _event: dict) -> None:
+        self._refresh_macro_slot_console()
 
     def _refresh_macro_slot_console(self) -> None:
         console = self._macro_slot_console

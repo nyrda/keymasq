@@ -491,30 +491,67 @@ def test_key_selector_macro_slots_disable_recording_when_not_allowed(monkeypatch
     )
 
     class Parent(Gtk.Window):
-        def macro_recording_allowed(self) -> bool:
-            return False
+        def __init__(self) -> None:
+            super().__init__()
+            self.allowed = False
+            self.handlers: dict[str, list] = {}
 
-    dialog = KeySelectorDialog(Parent(), "Back")
+        def macro_recording_allowed(self) -> bool:
+            return self.allowed
+
+        def register_event_handler(self, event_type: str, callback) -> None:
+            self.handlers.setdefault(event_type, []).append(callback)
+
+        def unregister_event_handler(self, event_type: str, callback) -> None:
+            self.handlers[event_type].remove(callback)
+
+        def notify(self, event_type: str) -> None:
+            for callback in list(self.handlers.get(event_type, [])):
+                callback({"event": event_type})
+
+    def slot_buttons(dialog: KeySelectorDialog) -> tuple[list, list]:
+        macro_tab = dialog.stack.get_child_by_name("macro")
+        assert macro_tab is not None
+        buttons = collect_widgets(macro_tab, Gtk.Button)
+        record_buttons = [
+            button
+            for button in buttons
+            if (button.get_tooltip_text() or "").startswith("Toggle macro recording")
+            or button.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE
+        ]
+        play_buttons = [
+            button
+            for button in buttons
+            if (button.get_tooltip_text() or "").startswith("Play the macro recorded in slot")
+        ]
+        return record_buttons, play_buttons
+
+    parent = Parent()
+    dialog = KeySelectorDialog(parent, "Back")
     dialog.stack.set_visible_child_name("macro")
 
-    macro_tab = dialog.stack.get_child_by_name("macro")
-    assert macro_tab is not None
-    buttons = collect_widgets(macro_tab, Gtk.Button)
-    record_buttons = [
-        button
-        for button in buttons
-        if button.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE
-    ]
-    play_buttons = [
-        button
-        for button in buttons
-        if (button.get_tooltip_text() or "").startswith("Play the macro recorded in slot")
-    ]
-
+    record_buttons, play_buttons = slot_buttons(dialog)
     assert len(record_buttons) == 4
     assert all(button.get_sensitive() is False for button in record_buttons)
+    assert all(
+        button.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE for button in record_buttons
+    )
     assert len(play_buttons) == 4
     assert all(button.get_sensitive() is True for button in play_buttons)
+
+    parent.allowed = True
+    parent.notify("macro_recording_policy_changed")
+    record_buttons, _play_buttons = slot_buttons(dialog)
+    assert len(record_buttons) == 4
+    assert all(button.get_sensitive() is True for button in record_buttons)
+
+    parent.allowed = False
+    parent.notify("macro_recording_disabled")
+    record_buttons, _play_buttons = slot_buttons(dialog)
+    assert all(button.get_sensitive() is False for button in record_buttons)
+
+    dialog.emit("closed")
+    assert all(not callbacks for callbacks in parent.handlers.values())
 
 
 def test_hardware_setup_search_and_raw_toggle_controls(monkeypatch) -> None:

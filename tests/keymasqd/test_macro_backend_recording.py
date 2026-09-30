@@ -149,55 +149,6 @@ async def test_recording_slot_survives_recording_manager_restart(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_retained_slot_belongs_to_the_daemon_owner_uid(tmp_path: Path) -> None:
-    recorder = RecordingManager(spool_dir=tmp_path)
-    await recorder.bind_owner(1000)
-    await recorder.start([], recording_slot=1)
-    recorder.record_event(
-        "keyboard",
-        evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
-    )
-    result = await recorder.stop()
-    recording_id = str(result["pending_recording_id"])
-
-    await recorder.bind_owner(1000)
-    assert [meta["pending_recording_id"] for meta in await recorder.list_pending_recordings()] == [
-        recording_id
-    ]
-
-    restored = RecordingManager(spool_dir=tmp_path)
-    await restored.load_persisted_slot_recordings()
-    await restored.bind_owner(1000)
-    assert [meta["pending_recording_id"] for meta in await restored.list_pending_recordings()] == [
-        recording_id
-    ]
-
-    await restored.bind_owner(1001)
-    assert await restored.list_pending_recordings() == []
-    with pytest.raises(FileNotFoundError):
-        await restored.claim_pending_recording(recording_id)
-    assert list(tmp_path.glob("slot-*")) == []
-
-
-@pytest.mark.asyncio
-async def test_retained_slot_without_owner_is_discarded_when_an_owner_binds(
-    tmp_path: Path,
-) -> None:
-    recorder = RecordingManager(spool_dir=tmp_path)
-    await recorder.start([], recording_slot=3)
-    await recorder.stop()
-
-    restored = RecordingManager(spool_dir=tmp_path)
-    await restored.load_persisted_slot_recordings()
-    assert len(await restored.list_pending_recordings()) == 1
-
-    await restored.bind_owner(1000)
-
-    assert await restored.list_pending_recordings() == []
-    assert list(tmp_path.glob("slot-*")) == []
-
-
-@pytest.mark.asyncio
 async def test_starting_new_recording_preserves_implicit_slot_stop(
     tmp_path: Path,
 ) -> None:

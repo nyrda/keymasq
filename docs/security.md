@@ -83,9 +83,7 @@ Keymasq defends these boundaries:
   `XDG_RUNTIME_DIR`, so other users cannot reach it. The daemon has a single
   owner and rejects every other connection while that owner is connected, so
   no other user can issue commands or observe input through it during a
-  session. Retained recording slots belong to the UID that owned the daemon
-  when they were recorded, and a different owner cannot list, replay, or save
-  them. See [Stored recordings and macros](#stored-recordings-and-macros).
+  session.
 - **Between sandboxed apps and the host.** The session socket lives in
   `XDG_RUNTIME_DIR` and the daemon socket in `/run/keymasq`. Sandboxes such as
   Flatpak do not expose these paths by default. An app granted access to them,
@@ -104,8 +102,8 @@ session's reconnect backoff, and after logout. The owner can grab devices and
 observe input on them. On machines shared with other local users, set
 `daemon_allowed_uids` to the desktop users who should own the daemon.
 
-The saved macro library is shared by every UID that can own the daemon. See
-[Stored recordings and macros](#stored-recordings-and-macros).
+Recording slots and saved macros are shared by every UID that can own the
+daemon. See [Stored recordings and macros](#stored-recordings-and-macros).
 
 ## Architecture
 
@@ -338,21 +336,13 @@ user. Clients read and change them only through the session broker and daemon.
 
 ### Stored recordings and macros
 
-Single-owner admission keeps other users out while an owner is connected. It
-does not separate data between successive owners, so stored data needs its own
-rules:
-
-- **Retained recording slots** belong to the UID of the daemon owner that
-  recorded them. The slot metadata stores that UID, so the binding survives
-  daemon restarts. When a different UID claims the daemon, the daemon discards
-  every slot recorded under another UID before it handles the new owner's
-  first command. Slots from older releases carry no owner and are discarded the
-  same way. The same user reconnecting keeps their slots.
-- **Saved macros** in `/var/lib/keymasq/macros/` are one library shared by
-  every UID that can own the daemon. Any admitted owner can list, read, play,
-  and change them, including macros saved from another user's recordings. On
-  machines with more than one desktop user, set `daemon_allowed_uids` to the
-  users who may share this library.
+Keymasq targets single-user desktops and keeps one set of recording slots and
+one macro library in the daemon. Single-owner admission keeps other users out
+while an owner is connected, but it does not separate stored data between
+successive owners. Any UID that can own the daemon can list, replay, and save
+retained slots and read and change saved macros, including those recorded by
+another user. On machines with more than one desktop user, set
+`daemon_allowed_uids` to the users who may share them.
 
 ## Input capture and inspection
 
@@ -610,7 +600,6 @@ The effective security model is:
 - a capability-free daemon and bounded root hardware jobs
 - a daemon-enforced time limit on macro recordings, and an administrator
   switch for the built-in recorder
-- retained recording slots bound to the daemon owner's UID
 - listener-scoped compositor dispatch instead of shell execution
 
 ## Build attestations

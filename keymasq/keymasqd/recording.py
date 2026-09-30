@@ -99,7 +99,6 @@ class RecordingManager:
         self._include_mouse_clicks = False
         self._record_grabbed_source_keys: set[str] = set()
         self._recording_slot = 0
-        self._owner_uid: int | None = None
         self.macro_recording_time_limit = max(0, int(macro_recording_time_limit))
         self._recording_started_at: float | None = None
 
@@ -318,7 +317,7 @@ class RecordingManager:
             return {"status": "ok"}
 
         try:
-            snapshot = replace(await spool.finish(), owner_uid=self._owner_uid)
+            snapshot = await spool.finish()
             if recording_slot:
                 snapshot = await asyncio.to_thread(
                     self._persist_slot_snapshot,
@@ -444,8 +443,6 @@ class RecordingManager:
                 "event_file": event_path.name,
                 "created_at": int(time.time()),
             }
-            if snapshot.owner_uid is not None:
-                meta["owner_uid"] = int(snapshot.owner_uid)
             with meta_tmp.open("w", encoding="utf-8") as handle:
                 json.dump(meta, handle, separators=(",", ":"))
                 handle.write("\n")
@@ -471,7 +468,6 @@ class RecordingManager:
             memory_events=(),
             recording_slot=int(slot),
             cleanup_paths=(meta_path,),
-            owner_uid=snapshot.owner_uid,
         )
 
     async def load_persisted_slot_recordings(self) -> None:
@@ -518,7 +514,6 @@ class RecordingManager:
                     if isinstance(raw_device_types, list)
                     else []
                 )
-                raw_owner_uid = meta.get("owner_uid")
                 snapshot = RecordingSnapshot(
                     recording_id=recording_id,
                     duration_ms=coerce_int(meta.get("duration_ms", 0)),
@@ -528,11 +523,6 @@ class RecordingManager:
                     memory_events=(),
                     recording_slot=int(slot),
                     cleanup_paths=(meta_path,),
-                    owner_uid=(
-                        raw_owner_uid
-                        if isinstance(raw_owner_uid, int) and not isinstance(raw_owner_uid, bool)
-                        else None
-                    ),
                 )
                 self._pending_recordings[recording_id] = snapshot
                 self._pending_recording_created_at[recording_id] = time.monotonic()
@@ -700,36 +690,6 @@ class RecordingManager:
 
         if cleanup_snapshot is not None:
             cleanup_snapshot.cleanup()
-
-    async def bind_owner(self, uid: int) -> None:
-        """Make ``uid`` the owner of retained slots, discarding other owners' slots."""
-        if uid == self._owner_uid:
-            return
-        cleanup_snapshots: list[RecordingSnapshot] = []
-        async with self._pending_recording_lock:
-            if uid == self._owner_uid:
-                return
-            self._owner_uid = uid
-            for recording_id, snapshot in list(self._pending_recordings.items()):
-                if snapshot.owner_uid == uid:
-                    continue
-                cleanup_snapshots.append(snapshot)
-                self._pending_recordings.pop(recording_id, None)
-                self._pending_recording_created_at.pop(recording_id, None)
-            self._claimed_recording_discard_requested.update(
-                recording_id
-                for recording_id, snapshot in self._claimed_recordings.items()
-                if snapshot.owner_uid != uid
-            )
-
-        for snapshot in cleanup_snapshots:
-            snapshot.cleanup()
-        if cleanup_snapshots:
-            log.info(
-                "Discarded %d retained recording(s) that do not belong to uid %s",
-                len(cleanup_snapshots),
-                uid,
-            )
 
     async def discard_all_pending_recordings(self) -> None:
         snapshots = await self._pop_all_pending_recordings()

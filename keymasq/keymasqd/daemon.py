@@ -275,8 +275,6 @@ class Daemon:
         data: JsonObject,
         client: ClientContext | None = None,
     ) -> JsonObject:
-        if client is not None:
-            await self.recording_manager.bind_owner(int(client.uid))
         if command_type == CommandType.START_RECORDING:
             self._ensure_macro_recording_allowed()
 

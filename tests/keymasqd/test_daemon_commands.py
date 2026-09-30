@@ -102,32 +102,6 @@ async def test_start_recording_is_refused_when_policy_disallows_recording(daemon
 
 
 @pytest.mark.asyncio
-async def test_commands_bind_retained_recordings_to_the_client_uid(daemon_testbed):
-    daemon, _device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy()
-    calls: list[tuple[object, ...]] = []
-
-    def bind_owner(uid: int) -> None:
-        calls.append(("bind_owner", uid))
-
-    def list_pending_recordings() -> list[object]:
-        calls.append(("list_pending_recordings",))
-        return []
-
-    recording_manager.bind_owner.side_effect = bind_owner
-    recording_manager.list_pending_recordings.side_effect = list_pending_recordings
-
-    result = await daemon._handle_command(
-        CommandType.MACRO_LIST_RECORDINGS,
-        {},
-        client=client_context(uid=1234),
-    )
-
-    assert result == {"recordings": []}
-    assert calls == [("bind_owner", 1234), ("list_pending_recordings",)]
-
-
-@pytest.mark.asyncio
 async def test_pending_recording_still_plays_when_policy_disallows_recording(daemon_testbed):
     daemon, device_manager, recording_manager, _macro_store, _capture_manager = daemon_testbed
     daemon.security_policy = SecurityPolicy(macro_recording_allowed=False)

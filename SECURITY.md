@@ -30,8 +30,8 @@ privileges.
 
 Security-sensitive areas include:
 
-- commands, input, or stored recordings crossing between local users,
-  including daemon ownership and socket authorization
+- commands or input crossing between local users, including daemon ownership
+  and socket authorization
 - sandboxed apps reaching the session or daemon sockets
 - privilege gained through `keymasqd`, `keymasq-helper`, hardware jobs, or the
   HID-BPF handoff

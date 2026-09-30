@@ -633,9 +633,9 @@ Recording captures raw input, so the normal workflow keeps it explicit.
   [Security model](security.md#threat-model) for why Keymasq does not add an
   authentication prompt in front of it.
 
-- **Slots belong to your user.** If another local user becomes the daemon
-  owner, your retained slots are discarded before they can use them. Saved
-  macros are shared by every user who can own the daemon.
+- **Slots and saved macros are shared.** Keymasq keeps one set of slots and one
+  macro library for every user who can own the daemon. See
+  [Stored recordings and macros](security.md#stored-recordings-and-macros).
 
 - **Temporary slots are not macro bodies.** Recording creates an opaque
   pending slot. It can be replayed only through an explicit **Play Slot**

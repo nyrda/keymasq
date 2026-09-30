@@ -38,10 +38,6 @@ two long-running processes, a GUI/CLI, and a short-lived root helper:
   Axes can have multiple analog controls assigned.
 - Combo: a chord or sequence trigger across one or more grabbed input devices.
   Prefix-shadowing between combos is valid runtime behavior.
-- Security model: code running as the desktop user is trusted. Boundaries are
-  between UIDs, between sandboxed apps and the host, and around the privileged
-  daemon and helper. New features must not widen them, e.g. never accept
-  commands or expose input across UIDs. See `docs/security.md`.
 - Hardware masking: blocks other applications from opening a physical device while Keymasq keeps access.
 - `keymasq/masking/` is shared masking code used by the daemon and the helper.
   The daemon side is `keymasq/keymasqd/hardware_masking.py`.

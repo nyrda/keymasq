@@ -32,33 +32,46 @@ The rest of this document covers the security model in detail.
 
 ### Trusted: code running as the desktop user
 
-Keymasq treats any code running as the logged-in desktop user as trusted, like
-every other Linux desktop tool does. Such code already controls the user's
-input without asking Keymasq:
+Keymasq does not try to protect the desktop user's input from arbitrary,
+unconfined code running with that user's authority. Such code controls the
+user's Keymasq configuration, and that is enough to observe input:
 
 - It can write profile or superkey configs whose shell command actions run on
   every press and release, for example an overload superkey that keeps each
-  key's normal output and logs it. The user loses no functionality and sees
-  nothing.
-- It can stop the user's `keymasq-session` and connect its own client to the
-  daemon, or replace the session binary or its user unit.
-- It can bypass Keymasq entirely: preload a library into the compositor through
-  `~/.config/environment.d`, install a GNOME Shell extension, load a Hyprland
-  plugin with `hyprctl plugin load`, add a KWin plugin through
-  `QT_PLUGIN_PATH`, wrap `sudo` in a shell rc file, or register a malicious
-  input method.
+  key's normal output and runs a command for it. The user loses no
+  functionality and sees nothing. No capture or recording API is involved.
 
-An authentication prompt in front of Keymasq's capture features would
-therefore not stop same-user code. It would only suggest a protection that does
-not exist. Keymasq does not add one. Features that observe input are
-deliberate, visible actions instead:
+An authentication prompt in front of Keymasq's capture and recording APIs
+therefore does not establish a reliable boundary against that code, and
+Keymasq does not add one.
+
+Two further points show how little such a prompt would add, though neither is
+the main argument:
+
+- A replacement for `keymasq-session` is an ordinary daemon client. It does
+  not gain any authorization the daemon enforces itself, but it can use the
+  same remapping features as the configuration route above.
+- Outside Keymasq, same-user code can often observe input through the desktop
+  itself, depending on the environment. Examples are a GNOME Shell extension
+  or a KWin plugin loaded at the next login, `LD_PRELOAD` in
+  `~/.config/environment.d` for services started after the change, a Hyprland
+  plugin when Hyprland's plugin permissions are not enforced, a wrapped `sudo`
+  in a shell rc file, or a malicious input method.
+
+The normal GUI and session workflow keeps input observation explicit. These
+are usability safeguards, not guarantees against hostile code running as the
+desktop user, because a client that talks to the daemon directly does not have
+to show anything:
 
 - Macro recording is started from a **Toggle Recording** mapping or the
-  **Record** button, sends a desktop notification when it starts and stops, is
-  bounded by `macro_recording_time_limit`, and writes into an explicitly chosen
-  slot.
-- Live capture, combo capture, and the Device Inspector run only while the GUI
-  shows them, and the daemon ends them when the session disconnects.
+  **Record** button. The session sends a desktop notification when it starts
+  and stops. Every recording writes into an explicitly chosen slot.
+- Live capture, combo capture, and the Device Inspector run while the GUI
+  shows them.
+
+The daemon enforces the parts that do not depend on the client:
+`macro_recording_time_limit` stops long recordings, combo capture is limited to
+15 seconds, and owner disconnect ends every recording and capture.
 
 ### What Keymasq defends
 
@@ -70,7 +83,9 @@ Keymasq defends these boundaries:
   `XDG_RUNTIME_DIR`, so other users cannot reach it. The daemon has a single
   owner and rejects every other connection while that owner is connected, so
   no other user can issue commands or observe input through it during a
-  session.
+  session. Retained recording slots belong to the UID that owned the daemon
+  when they were recorded, and a different owner cannot list, replay, or save
+  them. See [Stored recordings and macros](#stored-recordings-and-macros).
 - **Between sandboxed apps and the host.** The session socket lives in
   `XDG_RUNTIME_DIR` and the daemon socket in `/run/keymasq`. Sandboxes such as
   Flatpak do not expose these paths by default. An app granted access to them,
@@ -88,6 +103,9 @@ while no session owns it. That happens before anyone logs in, during the
 session's reconnect backoff, and after logout. The owner can grab devices and
 observe input on them. On machines shared with other local users, set
 `daemon_allowed_uids` to the desktop users who should own the daemon.
+
+The saved macro library is shared by every UID that can own the daemon. See
+[Stored recordings and macros](#stored-recordings-and-macros).
 
 ## Architecture
 
@@ -285,22 +303,28 @@ logged distinctly while remapping keeps working.
 
 ## Macro recording
 
-Macro recording observes original input, so it is always a deliberate action:
+Macro recording observes original input. In the normal workflow it is explicit:
 
 - It is started from a **Toggle Recording** mapping or the **Record** button in
   Macro Manager.
 - The session sends a desktop notification whenever the daemon reports that a
   recording started or stopped, whatever triggered it.
-- `macro_recording_time_limit` stops a recording that runs too long.
 - Every recording writes into one of four explicitly chosen temporary slots.
   Keymasq never infers a slot.
+
+The daemon itself enforces `macro_recording_time_limit`, which stops a
+recording that runs too long, and ends every recording when its owner
+disconnects. The notifications come from the session and are not a guarantee
+against a client that talks to the daemon directly.
 
 Administrators can turn recording off with
 `[recording_guard] macro_recording_allowed = false`. The daemon then refuses to
 start recordings with `macro_recording_disabled`, the session shows a
 "Macro recording disabled" notification when a recording trigger fires, and the
 GUI disables its record controls. Existing slots and saved macros can still be
-played.
+played. This switch turns off the built-in macro recorder only. It is not an
+anti-keylogging policy: live capture, combo capture, the Device Inspector, and
+command actions in mappings keep working.
 
 Temporary macro slots are pending recording handles, not inspectable macro
 bodies. They can be replayed only through an explicit slot playback action and
@@ -311,6 +335,24 @@ overwriting a slot removes the pending recording.
 
 Saved macros live in `/var/lib/keymasq/macros/`, owned by the `keymasq` system
 user. Clients read and change them only through the session broker and daemon.
+
+### Stored recordings and macros
+
+Single-owner admission keeps other users out while an owner is connected. It
+does not separate data between successive owners, so stored data needs its own
+rules:
+
+- **Retained recording slots** belong to the UID of the daemon owner that
+  recorded them. The slot metadata stores that UID, so the binding survives
+  daemon restarts. When a different UID claims the daemon, the daemon discards
+  every slot recorded under another UID before it handles the new owner's
+  first command. Slots from older releases carry no owner and are discarded the
+  same way. The same user reconnecting keeps their slots.
+- **Saved macros** in `/var/lib/keymasq/macros/` are one library shared by
+  every UID that can own the daemon. Any admitted owner can list, read, play,
+  and change them, including macros saved from another user's recordings. On
+  machines with more than one desktop user, set `daemon_allowed_uids` to the
+  users who may share this library.
 
 ## Input capture and inspection
 
@@ -365,8 +407,9 @@ Relevant controls:
 - `[gui]`
   - `emergency_cancel_combo_enabled`
 - `[recording_guard]`
-  - `macro_recording_allowed`: whether macro recording may start. It defaults
-    to `true`
+  - `macro_recording_allowed`: whether the built-in macro recorder may start.
+    It defaults to `true`. It does not restrict live capture, combo capture,
+    the Device Inspector, or command actions
   - `macro_recording_time_limit`: maximum macro recording duration in whole
     minutes. It defaults to `10`, and `0` disables the time limit
 
@@ -394,7 +437,8 @@ appropriate for single-user desktops. On multi-user systems, populate
 users.
 
 `[recording_guard].macro_recording_allowed = false` blocks new macro recordings
-for every user. See [Macro recording](#macro-recording).
+for every user. It does not block other input observation. See
+[Macro recording](#macro-recording).
 
 `[recording_guard].macro_recording_time_limit` limits how long one macro recording
 may remain active. Reaching the limit stops the recording normally, keeps the
@@ -564,7 +608,9 @@ The effective security model is:
 - a single daemon owner with cleanup on disconnect
 - a private per-user session socket
 - a capability-free daemon and bounded root hardware jobs
-- deliberate, announced, and time-limited macro recording
+- a daemon-enforced time limit on macro recordings, and an administrator
+  switch for the built-in recorder
+- retained recording slots bound to the daemon owner's UID
 - listener-scoped compositor dispatch instead of shell execution
 
 ## Build attestations

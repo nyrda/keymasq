@@ -23,14 +23,15 @@ Include:
 
 ## Scope
 
-Keymasq trusts code running as the desktop user. It already controls that
-user's input and configuration, so issues that require it are out of scope
-unless they reach another user or gain privileges.
+Keymasq does not protect the desktop user's input from unconfined code running
+as that user, which already controls the user's Keymasq configuration. Issues
+that require such code are out of scope unless they reach another user or gain
+privileges.
 
 Security-sensitive areas include:
 
-- commands or input crossing between local users, including daemon ownership
-  and socket authorization
+- commands, input, or stored recordings crossing between local users,
+  including daemon ownership and socket authorization
 - sandboxed apps reaching the session or daemon sockets
 - privilege gained through `keymasqd`, `keymasq-helper`, hardware jobs, or the
   HID-BPF handoff

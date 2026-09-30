@@ -27,6 +27,7 @@ class RecordingSnapshot:
     memory_events: tuple[RecordingEvent, ...]
     recording_slot: int = 0
     cleanup_paths: tuple[Path, ...] = ()
+    owner_uid: int | None = None
 
     def iter_events(self) -> Iterator[RecordingEvent]:
         if self.spool_path is not None:

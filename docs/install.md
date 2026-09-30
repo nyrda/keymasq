@@ -312,8 +312,9 @@ a warning when this happens so the missing optimization is visible.
 ### Macro recording policy
 
 Macro recording, button/key capture, combo capture, and the Device Inspector
-work without extra setup. Administrators can turn off macro recording or change
-its time limit in `/etc/keymasq/security.toml`:
+work without extra setup. Administrators can turn off the built-in macro
+recorder or change its time limit in `/etc/keymasq/security.toml`. Turning it
+off does not restrict capture, the Device Inspector, or command actions:
 
 ```toml
 [recording_guard]

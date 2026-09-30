@@ -624,14 +624,18 @@ Pressing the trigger does nothing because the macro no longer exists.
 
 ## Security notes
 
-Recording captures raw input, so Keymasq keeps it deliberate and visible.
+Recording captures raw input, so the normal workflow keeps it explicit.
 
-- **Recording is always a deliberate action.** It is started from a
-  **Toggle Recording** mapping or the **Record** button, sends a desktop
-  notification when it starts and stops, stops at the configured time limit,
-  and writes into the slot you chose. See the
+- **Recording is started explicitly.** It is started from a
+  **Toggle Recording** mapping or the **Record** button, the session sends a
+  desktop notification when it starts and stops, the daemon stops it at the
+  configured time limit, and it writes into the slot you chose. See the
   [Security model](security.md#threat-model) for why Keymasq does not add an
   authentication prompt in front of it.
+
+- **Slots belong to your user.** If another local user becomes the daemon
+  owner, your retained slots are discarded before they can use them. Saved
+  macros are shared by every user who can own the daemon.
 
 - **Temporary slots are not macro bodies.** Recording creates an opaque
   pending slot. It can be replayed only through an explicit **Play Slot**
@@ -655,7 +659,8 @@ intended for system administrators, and most users do not need to change them:
 - **Disable macro recording.** Keymasq then refuses to start recordings,
   shows a "Macro recording disabled" notification when a recording trigger
   fires, and disables the record controls in the GUI. Existing slots and saved
-  macros can still be played:
+  macros can still be played. This only turns off the built-in recorder; live
+  capture, the Device Inspector, and command actions keep working:
 
   ```toml
   [recording_guard]

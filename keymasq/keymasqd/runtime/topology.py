@@ -47,6 +47,7 @@ class TopologyRuntimeState:
     live_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
     reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
     wake_reconcile_pending: bool = False
+    scanned_fingerprint: object = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class TopologyRuntimeDeps:
     resolve_stable_path_fn: ResolveStablePathFn
     get_interface_id_fn: GetInterfaceIdFn
     release_interface_fn: ReleaseInterfaceFn
+    fingerprint_fn: Callable[[], object] | None = None
 
 
 async def _scan_live_interfaces(
@@ -135,15 +137,38 @@ async def topology_watch_loop(
     deps: TopologyRuntimeDeps,
 ) -> None:
     asyncio_mod = deps.asyncio_mod
+    state = manager.topology_state
+    fingerprint_fn = deps.fingerprint_fn
     try:
         while True:
-            await asyncio_mod.sleep(manager.topology_state.poll_s)
+            await asyncio_mod.sleep(state.poll_s)
             try:
-                snapshot = await _scan_live_interfaces(
-                    log=log,
-                    deps=deps,
-                    previous=manager.topology_state.live_snapshot,
+                fingerprint = (
+                    await asyncio_mod.to_thread(fingerprint_fn)
+                    if fingerprint_fn is not None
+                    else None
                 )
+                if (
+                    fingerprint is not None
+                    and fingerprint == state.scanned_fingerprint
+                    and not state.wake_reconcile_pending
+                    and device_path_resolver.cached_devices_complete()
+                ):
+                    snapshot = state.live_snapshot
+                else:
+                    state.scanned_fingerprint = None
+                    snapshot = await _scan_live_interfaces(
+                        log=log,
+                        deps=deps,
+                        previous=state.live_snapshot,
+                    )
+                    # A change during the scan or a failed probe needs another scan.
+                    if (
+                        fingerprint_fn is not None
+                        and device_path_resolver.cached_devices_complete()
+                        and await asyncio_mod.to_thread(fingerprint_fn) == fingerprint
+                    ):
+                        state.scanned_fingerprint = fingerprint
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -651,6 +676,40 @@ def scan_live_interfaces_sync(
             snapshot[stable_path] = info
 
     return snapshot
+
+
+def input_topology_fingerprint(dev_root: str = "/dev", sys_root: str = "/sys") -> object:
+    """Changes whenever a live interface scan could see different devices or access."""
+    entries: list[tuple[object, ...]] = []
+    for directory, names in (
+        (f"{dev_root}/input", None),
+        (f"{dev_root}/input/by-id", None),
+        (f"{dev_root}/input/by-path", None),
+        (dev_root, "hidraw"),
+        (f"{sys_root}/class/hidraw", None),
+        (f"{sys_root}/bus/hid/devices", None),
+    ):
+        try:
+            with os.scandir(directory) as scan:
+                for entry in scan:
+                    if names is not None and not entry.name.startswith(names):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    entries.append(
+                        (
+                            entry.path,
+                            info.st_ino,
+                            info.st_mode,
+                            info.st_rdev,
+                            info.st_uid,
+                            info.st_gid,
+                            info.st_ctime_ns,
+                            os.readlink(entry.path) if entry.is_symlink() else "",
+                        )
+                    )
+        except OSError as exc:
+            entries.append((directory, exc.errno))
+    return tuple(sorted(entries, key=lambda entry: str(entry[0])))
 
 
 def input_node_exists(path: str) -> bool:

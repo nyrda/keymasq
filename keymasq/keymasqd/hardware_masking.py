@@ -39,7 +39,7 @@ HEALTHY_RETRY_RESET_S = 30.0
 HEARTBEAT_S = 1.0
 # Deadlines still tick every second; sysfs is rescanned this often when the
 # kernel reports hotplug events, and every heartbeat when it cannot.
-HOTPLUG_SCAN_INTERVAL_S = 5.0
+HOTPLUG_SCAN_INTERVAL_S = 60.0
 AUTOMATIC_RECOVERY_REASONS = {
     "replacement_unavailable",
     "activation_failed",
@@ -516,9 +516,12 @@ class HardwareMasking:
             )
 
     async def monitor(self) -> None:
-        self.coordinator.scan_interval = HOTPLUG_SCAN_INTERVAL_S if self.hotplug.start() else 0.0
+        self.hotplug.start()
         try:
             while not self.monitor_stop.is_set():
+                self.coordinator.scan_interval = (
+                    HOTPLUG_SCAN_INTERVAL_S if self.hotplug.available else 0.0
+                )
                 try:
                     await self.monitor_once()
                 except asyncio.CancelledError:

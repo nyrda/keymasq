@@ -98,10 +98,18 @@ class HardwareInventory:
 
     def _scan(self, *, require_endpoints: bool) -> list[Attachment]:
         devices: list[Attachment] = []
-        hid_paths = list((self.sys_root / "bus/hid/devices").glob("*"))
-        input_parents = [
-            (path / "device").resolve() for path in (self.sys_root / "class/input").glob("event*")
-        ]
+        hid_paths = {path: path.resolve() for path in (self.sys_root / "bus/hid/devices").glob("*")}
+        hid_by_interface: dict[Path, list[Path]] = {}
+        for item, real_path in hid_paths.items():
+            hid_by_interface.setdefault(real_path.parent, []).append(item)
+        hid_usb_devices = {interface.parent for interface in hid_by_interface}
+        input_usb_devices = {
+            next((parent for parent in device.parents if USB_NAME.fullmatch(parent.name)), None)
+            for device in (
+                (path / "device").resolve()
+                for path in (self.sys_root / "class/input").glob("event*")
+            )
+        }
         for path in sorted((self.sys_root / "bus/usb/devices").glob("*")):
             if not USB_NAME.fullmatch(path.name):
                 continue
@@ -113,22 +121,15 @@ class HardwareInventory:
                 continue
             if (
                 not any(read_attribute(item / "bInterfaceClass") == "03" for item in interfaces)
-                and not any(item.resolve().parent.parent == real_path for item in hid_paths)
-                and not any(
-                    next(
-                        (parent for parent in item.parents if USB_NAME.fullmatch(parent.name)), None
-                    )
-                    == real_path
-                    for item in input_parents
-                )
+                and real_path not in hid_usb_devices
+                and real_path not in input_usb_devices
             ):
                 continue
             main_hid = next(
                 (
                     item.name
-                    for item in hid_paths
-                    if item.resolve().parent == real_path / f"{path.name}:1.2"
-                    and HID_NAME.fullmatch(item.name)
+                    for item in hid_by_interface.get(real_path / f"{path.name}:1.2", [])
+                    if HID_NAME.fullmatch(item.name)
                     # The raw proxy is a sibling with HID_GROUP_STEAM.
                     and not re.match(
                         r"hid:b[0-9a-f]{4}g0103", read_attribute(item / "modalias").lower()
@@ -163,11 +164,11 @@ class HardwareInventory:
                     and bool(self.other_steam_controllers(main_hid, attachment_path=real_path)),
                 )
             )
-        for path in hid_paths:
+        usb_syspaths = {device.syspath for device in devices}
+        for path, real_path in hid_paths.items():
             if not HID_NAME.fullmatch(path.name):
                 continue
-            real_path = path.resolve()
-            if any(real_path.is_relative_to(device.syspath) for device in devices):
+            if usb_syspaths.intersection(real_path.parents):
                 continue
             bluetooth = path.name.startswith("0005:")
             if not bluetooth and (self.sys_root / "devices/virtual") in real_path.parents:

@@ -159,6 +159,7 @@ def _topology_runtime_deps() -> topology.TopologyRuntimeDeps:
         resolve_stable_path_fn=resolve_stable_path,
         get_interface_id_fn=get_interface_id,
         release_interface_fn=release_interface_unlocked,
+        fingerprint_fn=topology.input_topology_fingerprint,
     )
 
 

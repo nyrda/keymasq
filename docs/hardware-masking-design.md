@@ -170,9 +170,11 @@ never starts privileged work.
 
 The daemon subscribes to kernel uevents over an unprivileged netlink socket and
 rescans immediately when USB, HID, input, hidraw, or Bluetooth devices change.
-With that subscription the periodic rescan runs every five seconds. Without it
-the daemon rescans every heartbeat. Deadlines still tick every second. Policy
-files record when the device was last seen.
+The same events decide when an active mask rechecks that its attachment,
+generation, and interfaces are unchanged. With that subscription the periodic
+rescan and recheck run once a minute as a safety net. Without it, or after the
+socket fails or overflows, the daemon rescans every heartbeat. Deadlines still
+tick every second. Policy files record when the device was last seen.
 
 ## Runtime readiness
 

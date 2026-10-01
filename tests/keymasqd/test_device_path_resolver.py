@@ -214,6 +214,40 @@ def test_keymasq_path_closes_devices_after_scan_errors() -> None:
     }
 
 
+def test_cache_is_complete_only_while_every_device_probe_succeeded() -> None:
+    failing = [True]
+
+    class _FlakyDevice(_FakeDevice):
+        def capabilities(self):
+            if failing[0]:
+                raise OSError("capability read failed")
+            return super().capabilities()
+
+    devices = {
+        "/dev/input/event1": _FakeDevice("/dev/input/event1"),
+        "/dev/input/event2": _FlakyDevice("/dev/input/event2"),
+    }
+    cache = DeviceCache()
+
+    def refresh() -> None:
+        cache.refresh_sync(
+            device_paths_fn=lambda: list(devices),
+            device_input_fn=lambda path: devices[path],
+            detect_input_classes_fn=detect_input_classes,
+            primary_input_class_fn=primary_input_class,
+        )
+
+    assert not cache.is_complete()
+    refresh()
+    assert list(cache.snapshot()) == ["/dev/input/event1"]
+    assert not cache.is_complete()
+    failing[0] = False
+    refresh()
+    assert cache.is_complete()
+    cache.clear()
+    assert not cache.is_complete()
+
+
 def test_keymasq_path_skips_virtual_devices() -> None:
     devices = {
         "/dev/input/event1": _FakeDevice("/dev/input/event1", phys="py-evdev-uinput"),

@@ -223,6 +223,70 @@ async def test_one_scan_serves_every_reservation_and_hotplug_gates_rescans(clock
 
 
 @pytest.mark.asyncio
+async def test_active_masks_reverify_hardware_only_after_hotplug_or_the_scan_interval(
+    clocked, monkeypatch
+):
+    supervisor, clock = clocked
+    inventory = supervisor.backend.inventory
+    first, second = inventory.attachments[:2]
+    for attachment in (first, second):
+        await start(supervisor, attachment)
+    supervisor.scan_interval = 5.0
+    await supervisor.monitor_once()
+    scans = []
+    original = inventory.scan
+    monkeypatch.setattr(inventory, "scan", lambda: scans.append(clock[0]) or original())
+
+    clock[0] += 1
+    await supervisor.monitor_once()
+    assert scans == []
+
+    inventory.attachments.remove(first)
+    supervisor.mark_hardware_changed()
+    await supervisor.monitor_once()
+    assert selected(await supervisor.status(), first.identity)["reason"] == "hardware_disconnected"
+    assert selected(await supervisor.status(), second.identity)["state"] == "masked"
+
+    scans.clear()
+    inventory.attachments.remove(second)
+    clock[0] += 4
+    await supervisor.monitor_once()
+    assert scans == []
+    clock[0] += 1
+    await supervisor.monitor_once()
+    assert selected(await supervisor.status(), second.identity)["reason"] == "hardware_disconnected"
+
+
+@pytest.mark.asyncio
+async def test_resumed_mask_reports_its_absent_device_without_another_hotplug_event(clocked):
+    from dataclasses import replace
+
+    supervisor, _clock = clocked
+    inventory = supervisor.backend.inventory
+    device = replace(
+        inventory.attachments[0],
+        transport="bluetooth",
+        syspath=inventory.sys_root / "devices/virtual/misc/uhid/0005:ABCD:9876.0020",
+        kernel_name="0005:ABCD:9876.0020",
+    )
+    inventory.attachments[0] = device
+    await start(supervisor, device)
+    supervisor.scan_interval = 60.0
+    await supervisor.request({"command": "poll"})
+
+    inventory.attachments.remove(device)
+    supervisor.mark_hardware_changed()
+    await supervisor.monitor_once()
+    await supervisor.request({"command": "poll"})
+    assert selected(await supervisor.status(), device.identity)["remapping_suspended"]
+
+    await supervisor.request({"command": "resume", "id": device.identity})
+    await supervisor.request({"command": "poll"})
+    mask = selected(await supervisor.status(), device.identity)
+    assert mask["lifecycle"] == "waiting_for_device"
+
+
+@pytest.mark.asyncio
 async def test_presence_is_remembered_in_the_saved_policy(clocked):
     supervisor, _clock = clocked
     first, *_ = supervisor.backend.inventory.scan()

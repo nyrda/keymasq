@@ -71,6 +71,12 @@ class MaskReservation:
         self.next_attempt = 0.0
         self.retry_delay = INITIAL_RETRY_DELAY_S
         self.attention: JsonObject = {}
+        # The attachment last confirmed in sysfs, and when. Hotplug marks it stale.
+        self.hardware_changed = True
+        self.verified: tuple[object, object, object] | None = None
+        self.verified_at = 0.0
+        # Restore and resume change whether autostart may act, so rescan presence.
+        self.reconcile_requested = False
 
     async def load_policy(self) -> None:
         policy = await load_saved_object(self.backend.state_dir / "policy.json")
@@ -175,6 +181,7 @@ class MaskReservation:
 
     async def autostart(self, attachments: list[Attachment] | None = None) -> None:
         """Converge a saved mask toward its policy given the current hardware."""
+        self.reconcile_requested = False
         if (
             self.active
             or self.recovery_lock.locked()
@@ -521,6 +528,7 @@ class MaskReservation:
         ):
             raise ValueError("Restore the current mask before resuming remapping")
         await asyncio.to_thread((self.backend.state_dir / "suspended").unlink, missing_ok=True)
+        self.reconcile_requested = True
         return await self.status()
 
     async def restore(self, reason: str) -> None:
@@ -540,73 +548,76 @@ class MaskReservation:
 
     async def _restore(self, reason: str) -> None:
         async with self.recovery_lock:
-            if (
-                reason in {"lifecycle_stop", "service_stopped"}
-                and self.state.get("state") == MaskPhase.RECOVERY_FAILED
-            ):
-                # Shutdown must not replace the reason for unfinished recovery,
-                # especially an explicit user stop.
-                reason = str(self.state.get("reason", reason))
-            had_mask = (
-                self.active
-                or await asyncio.to_thread(self.backend.journal.exists)
-                or await asyncio.to_thread(getattr, self.backend, "armed")
-                or is_recovering(self.state.get("state"))
-            )
-            clean = reason in {"lifecycle_stop", "service_stopped"}
-            keep_rules = (
-                reason in {"hardware_disconnected", "hardware_interfaces_changed"}
-                and self.state.get("transport") == "usb"
-                and bool(self.policy.get("persist"))
-                and self.policy.get("owner_uid") == self.session_uid
-                and bool(self.policy.get("usb_selector"))
-            )
-            interrupted_trial = (
-                had_mask
-                and self.state.get("state") != MaskPhase.MASKED
-                and not self.state.get("automatic")
-            )
-            if not keep_rules and (not clean or interrupted_trial):
-                await asyncio.to_thread(
-                    (self.backend.state_dir / "suspended").write_text, reason + "\n"
-                )
-            if not had_mask:
-                if not clean:
-                    self.state.update({"state": MaskPhase.RESTORED, "reason": reason})
-                    await asyncio.to_thread(
-                        save_json, self.backend.state_dir / "selection.json", self.state
-                    )
-                return
-            self.state.update({"state": MaskPhase.RESTORING, "reason": reason})
-            task = self.apply_task
-            if task is not None and not task.done():
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
             try:
-                if keep_rules:
-                    await self.backend.recover(keep_rules=True)
-                else:
-                    await self.backend.recover()
-            except Exception as exc:
-                self.state.update({"state": MaskPhase.RECOVERY_FAILED, "error": str(exc)})
-                log.exception("Hardware restoration failed; recovery will retry")
-                raise
-            suspended = self.backend.state_dir / "suspended"
-            if (
-                await asyncio.to_thread(suspended.exists)
-                and (await asyncio.to_thread(suspended.read_text)).strip()
-                == MaskPhase.RECOVERY_FAILED
-            ):
-                await asyncio.to_thread(suspended.write_text, reason + "\n")
-            self.state.update({"state": MaskPhase.RESTORED, "event_nodes": []})
-            await asyncio.to_thread(
-                save_json, self.backend.state_dir / "selection.json", self.state
-            )
+                await self._restore_locked(reason)
+            finally:
+                self.reconcile_requested = True
 
-    async def monitor_once(self) -> None:
+    async def _restore_locked(self, reason: str) -> None:
+        if (
+            reason in {"lifecycle_stop", "service_stopped"}
+            and self.state.get("state") == MaskPhase.RECOVERY_FAILED
+        ):
+            # Shutdown must not replace the reason for unfinished recovery,
+            # especially an explicit user stop.
+            reason = str(self.state.get("reason", reason))
+        had_mask = (
+            self.active
+            or await asyncio.to_thread(self.backend.journal.exists)
+            or await asyncio.to_thread(getattr, self.backend, "armed")
+            or is_recovering(self.state.get("state"))
+        )
+        clean = reason in {"lifecycle_stop", "service_stopped"}
+        keep_rules = (
+            reason in {"hardware_disconnected", "hardware_interfaces_changed"}
+            and self.state.get("transport") == "usb"
+            and bool(self.policy.get("persist"))
+            and self.policy.get("owner_uid") == self.session_uid
+            and bool(self.policy.get("usb_selector"))
+        )
+        interrupted_trial = (
+            had_mask
+            and self.state.get("state") != MaskPhase.MASKED
+            and not self.state.get("automatic")
+        )
+        if not keep_rules and (not clean or interrupted_trial):
+            await asyncio.to_thread(
+                (self.backend.state_dir / "suspended").write_text, reason + "\n"
+            )
+        if not had_mask:
+            if not clean:
+                self.state.update({"state": MaskPhase.RESTORED, "reason": reason})
+                await asyncio.to_thread(
+                    save_json, self.backend.state_dir / "selection.json", self.state
+                )
+            return
+        self.state.update({"state": MaskPhase.RESTORING, "reason": reason})
+        task = self.apply_task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        try:
+            if keep_rules:
+                await self.backend.recover(keep_rules=True)
+            else:
+                await self.backend.recover()
+        except Exception as exc:
+            self.state.update({"state": MaskPhase.RECOVERY_FAILED, "error": str(exc)})
+            log.exception("Hardware restoration failed; recovery will retry")
+            raise
+        suspended = self.backend.state_dir / "suspended"
+        if (
+            await asyncio.to_thread(suspended.exists)
+            and (await asyncio.to_thread(suspended.read_text)).strip() == MaskPhase.RECOVERY_FAILED
+        ):
+            await asyncio.to_thread(suspended.write_text, reason + "\n")
+        self.state.update({"state": MaskPhase.RESTORED, "event_nodes": []})
+        await asyncio.to_thread(save_json, self.backend.state_dir / "selection.json", self.state)
+
+    async def monitor_once(self, verify_interval: float = 0.0) -> None:
         async with self.operation_lock:
-            await self._monitor_once()
+            await self._monitor_once(verify_interval)
 
     def refresh_interfaces(self, attachment: Attachment) -> None:
         """Quiesce and reacquire a receiver's readers while retaining its kernel drivers."""
@@ -643,7 +654,21 @@ class MaskReservation:
             role for role in previous if role == "usb" or role.endswith(":hidraw")
         } == {role for role in roles if role == "usb" or role.endswith(":hidraw")}
 
-    async def _monitor_once(self) -> None:
+    def verification_due(self, interval: float) -> bool:
+        if self.hardware_changed or self.verified != self.verified_state:
+            return True
+        elapsed = self.clock() - self.verified_at
+        return elapsed < 0 or elapsed >= interval
+
+    @property
+    def verified_state(self) -> tuple[object, object, object]:
+        return (
+            self.state.get("id"),
+            self.state.get("generation"),
+            self.state.get("endpoint_roles"),
+        )
+
+    async def _monitor_once(self, verify_interval: float) -> None:
         if self.state.get("state") == MaskPhase.RECOVERY_FAILED:
             # Preserve why recovery began so the daemon can resume after a
             # transient repair failure. A retry must not kill a healthy owner.
@@ -656,6 +681,11 @@ class MaskReservation:
                 return
             if self.state.get("state") == MaskPhase.APPLYING:
                 return  # USB re-enumeration intentionally removes this generation.
+            if not self.verification_due(verify_interval):
+                await self.restore_if_expired()
+                return
+            self.hardware_changed = False
+            self.verified = None
             try:
                 attachment = await asyncio.to_thread(
                     self.backend.inventory.resolve,
@@ -673,6 +703,8 @@ class MaskReservation:
                     else:
                         await self._restore("hardware_interfaces_changed")
                     return
+            self.verified = self.verified_state
+            self.verified_at = self.clock()
             await self.restore_if_expired()
 
 
@@ -693,6 +725,8 @@ class MaskCoordinator:
 
     def mark_hardware_changed(self) -> None:
         self.hardware_changed = True
+        for item in self.reservations.values():
+            item.hardware_changed = True
 
     async def reservation(self, identity: str) -> MaskReservation:
         if identity not in self.reservations:
@@ -797,7 +831,11 @@ class MaskCoordinator:
         }
 
     def scan_due(self) -> bool:
-        if self.hardware_changed or self.last_scan is None:
+        if (
+            self.hardware_changed
+            or self.last_scan is None
+            or any(item.reconcile_requested for item in self.reservations.values())
+        ):
             return True
         now = self.clock()
         elapsed = now - self.last_scan
@@ -1018,7 +1056,7 @@ class MaskCoordinator:
     async def monitor_once(self) -> None:
         results = await asyncio.gather(
             *(
-                item.monitor_once()
+                item.monitor_once(self.scan_interval)
                 for item in list(self.reservations.values())
                 if not item.operation_lock.locked()
             ),

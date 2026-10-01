@@ -88,6 +88,7 @@ class CachedDeviceInfo:
 class DeviceCache:
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _devices: dict[str, CachedDeviceInfo] = field(default_factory=dict)
+    _complete: bool = False
 
     def refresh_sync(
         self,
@@ -98,6 +99,7 @@ class DeviceCache:
         primary_input_class_fn: Callable[[Iterable[str | DeviceType] | None], DeviceType],
     ) -> dict[str, CachedDeviceInfo]:
         devices: dict[str, CachedDeviceInfo] = {}
+        complete = True
         for path in sorted(device_paths_fn()):
             cached = _probe_cached_device_info(
                 path,
@@ -107,12 +109,15 @@ class DeviceCache:
                 skip_log_message="Skipping device path resolver cache entry %s: %s",
                 unexpected_log_message=("Unexpected failure caching device path resolver entry %s"),
             )
-            if cached is not None:
+            if cached is None:
+                complete = False
+            else:
                 devices[path] = cached
 
         with self._lock:
             self._devices.clear()
             self._devices.update(devices)
+            self._complete = complete
         return devices
 
     def snapshot(self) -> dict[str, CachedDeviceInfo]:
@@ -122,6 +127,11 @@ class DeviceCache:
     def clear(self) -> None:
         with self._lock:
             self._devices.clear()
+            self._complete = False
+
+    def is_complete(self) -> bool:
+        with self._lock:
+            return self._complete
 
 
 @dataclass(frozen=True)
@@ -218,6 +228,10 @@ def refresh_cached_devices_sync(
 
 def clear_cached_devices() -> None:
     _DEFAULT_CACHE.clear()
+
+
+def cached_devices_complete() -> bool:
+    return _DEFAULT_CACHE.is_complete()
 
 
 def interface_descriptors_from_paths(paths: list[str]) -> list[JsonObject]:

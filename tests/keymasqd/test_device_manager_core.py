@@ -5,6 +5,7 @@ import os
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -2812,6 +2813,78 @@ class TestListDevices:
             log=device_manager.log,
             deps=deps,
         )
+
+    @pytest.mark.asyncio
+    async def test_topology_watch_loop_probes_devices_only_after_input_changes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        manager = DeviceManager(topology_poll_s=0.01)
+        fingerprint = ["initial"]
+        complete = [True]
+        ticks = [0]
+        scans: list[int] = []
+        before_tick = {
+            3: lambda: fingerprint.__setitem__(0, "device added"),
+            5: lambda: complete.__setitem__(0, False),
+            6: lambda: complete.__setitem__(0, True),
+            7: lambda: fingerprint.__setitem__(0, "device added"),
+        }
+        during_scan = {6: lambda: fingerprint.__setitem__(0, "transient device")}
+
+        async def fake_sleep(_delay: float) -> None:
+            ticks[0] += 1
+            if ticks[0] == 9:
+                raise asyncio.CancelledError()
+            before_tick.get(ticks[0], lambda: None)()
+
+        async def scan(**_kwargs):
+            scans.append(ticks[0])
+            during_scan.get(ticks[0], lambda: None)()
+            return {}
+
+        deps = replace(
+            device_manager._topology_runtime_deps(), fingerprint_fn=lambda: fingerprint[0]
+        )
+        monkeypatch.setattr(device_manager.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(topology, "_scan_live_interfaces", scan)
+        monkeypatch.setattr(
+            topology.device_path_resolver, "cached_devices_complete", lambda: complete[0]
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await topology.topology_watch_loop(manager, log=device_manager.log, deps=deps)
+
+        assert scans == [1, 3, 5, 6, 7]
+
+    def test_input_topology_fingerprint_tracks_nodes_links_and_access(
+        self, tmp_path: Path
+    ) -> None:
+        dev = tmp_path / "dev"
+        (dev / "input/by-id").mkdir(parents=True)
+        (dev / "input/event3").write_text("")
+        (dev / "input/by-id/usb-pad-event-joystick").symlink_to("../event3")
+        (dev / "hidraw2").write_text("")
+        (dev / "null").write_text("")
+        sys_root = tmp_path / "sys"
+
+        def fingerprint() -> object:
+            return topology.input_topology_fingerprint(str(dev), str(sys_root))
+
+        initial = fingerprint()
+        (dev / "null").write_text("unrelated")
+        assert fingerprint() == initial
+        changes = [
+            lambda: (dev / "input/event3").chmod(0o600),
+            lambda: (dev / "input/event4").write_text(""),
+            lambda: (dev / "input/by-id/usb-pad-event-joystick").unlink(),
+            lambda: (dev / "hidraw2").unlink(),
+            lambda: (sys_root / "bus/hid/devices").mkdir(parents=True),
+        ]
+        for change in changes:
+            before = fingerprint()
+            change()
+            assert fingerprint() != before
 
     @pytest.mark.asyncio
     async def test_topology_watch_loop_logs_scan_failures_and_keeps_running(

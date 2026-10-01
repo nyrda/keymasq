@@ -1,6 +1,7 @@
 """Kernel hotplug notifications wake the masking monitor; parsing is strict."""
 
 import asyncio
+import errno
 import socket
 
 import pytest
@@ -59,6 +60,32 @@ async def test_watcher_wakes_only_for_relevant_datagrams(monkeypatch):
         watcher.stop()
         left.close()
     assert not watcher.available
+
+
+@pytest.mark.asyncio
+async def test_watcher_reports_a_change_when_notifications_fail(monkeypatch):
+    left, right = socket.socketpair(type=socket.SOCK_DGRAM)
+    right.setblocking(False)
+
+    class OverflowedSocket:
+        fileno = right.fileno
+        close = right.close
+
+        def recv(self, _size):
+            raise OSError(errno.ENOBUFS, "uevent buffer overflow")
+
+    wakes = []
+    watcher = hotplug.HotplugWatcher(lambda: wakes.append(True))
+    monkeypatch.setattr(watcher, "open_socket", OverflowedSocket)
+    try:
+        assert watcher.start() is True
+        left.send(b"add@/devices/pci0000:00/usb1/1-3\0ACTION=add\0SUBSYSTEM=usb\0")
+        await asyncio.sleep(0.05)
+        assert wakes == [True]
+        assert not watcher.available
+    finally:
+        watcher.stop()
+        left.close()
 
 
 @pytest.mark.asyncio

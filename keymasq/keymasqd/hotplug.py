@@ -81,6 +81,7 @@ class HotplugWatcher:
             except OSError as exc:
                 log.warning("Hotplug notifications stopped; polling instead: %s", exc)
                 self.stop()
+                self.changed()
                 return
             if not datagram:
                 break

@@ -227,10 +227,9 @@ settings below:
               };
 
               recording_guard = {
-                unlock_required = true;
+                macro_recording_allowed = true;
                 # Stop recordings after this many minutes; set 0 to disable.
                 macro_recording_time_limit = 10;
-                macro_edit_requires_unlock = false;
               };
             };
           };
@@ -310,26 +309,22 @@ If `uvloop` is missing or fails to import, `keymasqd` and `keymasq-session`
 still start and fall back to the default `asyncio` event loop policy. They log
 a warning when this happens so the missing optimization is visible.
 
-### Macro recording opt-in and capture unlock
+### Macro recording policy
 
-Packaged installs handle this automatically. Macro recording is enabled by a
-Polkit-backed `keymasq-helper` opt-in from the GUI. Capture flows such as
-button/key capture, combo capture, and Device Inspector suppression use the
-separate capture unlock lease.
-
-For manual installs, if capture unlock requests do not appear or fail, you can
-disable the capture unlock requirement in `/etc/keymasq/security.toml`:
+Macro recording, button/key capture, combo capture, and the Device Inspector
+work without extra setup. Administrators can turn off the built-in macro
+recorder or change its time limit in `/etc/keymasq/security.toml`. Turning it
+off does not restrict capture, the Device Inspector, or command actions:
 
 ```toml
 [recording_guard]
-unlock_required = false
+macro_recording_allowed = true
 # Stop recordings after this many minutes; set 0 to disable.
 macro_recording_time_limit = 10
 ```
 
-This does not enable macro recording. Macro recording still requires the
-`keymasq-helper` opt-in, exposed in the GUI under
-**Settings > Macro recording**.
+Older `unlock_required` and `macro_edit_requires_unlock` keys are ignored with a
+warning in the logs. See [Security model](security.md#policy-file).
 
 Keymasq reserves `Ctrl+Alt+Esc` by default as an emergency combo while it has a
 keyboard grabbed. One tap cancels macro playback and releases tracked held
@@ -471,9 +466,8 @@ package manager first, then run `--install` from the AppImage.
 
 If both are already installed, uninstall the AppImage, then enable and start
 the native services using the commands above. AppImage uninstall disables the
-shared service names. Version 0.20.0 and later preserves the native package's
-Polkit action during uninstall. Reinstall the native package if an older
-AppImage removed the action or if its files were overwritten during the overlap.
+shared service names. Reinstall the native package if its files were
+overwritten during the overlap.
 
 ### Manual-install cleanup
 

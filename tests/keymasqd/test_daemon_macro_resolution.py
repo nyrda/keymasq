@@ -1,13 +1,10 @@
-import threading
 from typing import cast
 
 import pytest
 
 from keymasq.common.ipc import CommandType
-from keymasq.common.security import SecurityPolicy
-from keymasq.keymasqd import daemon as daemon_module
 from keymasq.keymasqd import daemon_macro_commands
-from tests.keymasqd.daemon_support import client_context, macro_meta
+from tests.keymasqd.daemon_support import macro_meta
 
 
 async def _resolve_macro_actions(macro_store, resolver_kind, actions):
@@ -277,7 +274,6 @@ async def test_resolve_macros_ignores_malformed_stored_macro_values(
 @pytest.mark.asyncio
 async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
     macro_store.get_meta.return_value = macro_meta(
         loop_count=2,
         block_mouse_movement=False,
@@ -304,7 +300,6 @@ async def test_handle_command_set_mapping_resolves_macro_values(daemon_testbed):
 @pytest.mark.asyncio
 async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
     macro_store.get_meta.return_value = macro_meta(
         loop_count=4,
     )
@@ -343,7 +338,6 @@ async def test_handle_command_set_combos_resolves_macro_values(daemon_testbed):
 @pytest.mark.asyncio
 async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(daemon_testbed):
     daemon, device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy(recording_unlock_required=False)
     macro_store.get_meta.return_value = macro_meta(
         loop_mode="hold",
         loop_count=5,
@@ -389,88 +383,3 @@ async def test_handle_command_set_combos_resolves_macro_values_inside_superkey(d
     assert hold_action["macro_loop_count"] == 5
     assert hold_action["macro_loop_stop_behavior"] == "cancel_run"
     assert hold_action["macro_block_mouse_movement"] is True
-
-
-@pytest.mark.asyncio
-async def test_handle_command_start_recording_requires_macro_recording_opt_in(
-    daemon_testbed,
-    monkeypatch,
-):
-    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
-    daemon.security_policy = SecurityPolicy(recording_unlock_required=True)
-    event_loop_thread = threading.get_ident()
-    resolver_threads: list[int] = []
-
-    def resolve_status(_uid: int) -> dict[str, object]:
-        resolver_threads.append(threading.get_ident())
-        return {"unlocked": False, "source": "none", "expires_at": 0}
-
-    monkeypatch.setattr(
-        daemon_module,
-        "resolve_macro_recording_status",
-        resolve_status,
-    )
-
-    with pytest.raises(PermissionError, match="macro_recording_disabled"):
-        await daemon._handle_command(
-            CommandType.START_RECORDING,
-            {},
-            client=client_context(uid=1000, pid=111, connection_id=7),
-        )
-
-    assert len(resolver_threads) == 1
-    assert resolver_threads[0] != event_loop_thread
-
-
-def test_macro_recording_enabled_cache_rechecks_persistent_opt_in(
-    daemon_testbed,
-    monkeypatch,
-):
-    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
-    now_mono = 100.0
-    statuses = [
-        {"unlocked": True, "source": "persistent", "expires_at": 0},
-        {"unlocked": False, "source": "none", "expires_at": 0},
-    ]
-    calls: list[int] = []
-
-    def resolve_status(_uid: int) -> dict[str, bool | int | str]:
-        calls.append(_uid)
-        return statuses[min(len(calls) - 1, len(statuses) - 1)]
-
-    monkeypatch.setattr(daemon_module, "resolve_macro_recording_status", resolve_status)
-    monkeypatch.setattr(daemon_module.time, "time", lambda: 1000)
-    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: now_mono)
-
-    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
-
-    now_mono = 100.5
-    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
-
-    now_mono = 102.0
-    assert daemon._macro_recording_enabled_for_uid(1000) == (False, 0, "none")
-    assert calls == [1000, 1000]
-
-
-def test_macro_recording_enabled_cache_rechecks_disabled_opt_in(
-    daemon_testbed,
-    monkeypatch,
-):
-    daemon, _device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
-    statuses = [
-        {"unlocked": False, "source": "none", "expires_at": 0},
-        {"unlocked": True, "source": "persistent", "expires_at": 0},
-    ]
-    calls: list[int] = []
-
-    def resolve_status(uid: int) -> dict[str, bool | int | str]:
-        calls.append(uid)
-        return statuses[min(len(calls) - 1, len(statuses) - 1)]
-
-    monkeypatch.setattr(daemon_module, "resolve_macro_recording_status", resolve_status)
-    monkeypatch.setattr(daemon_module.time, "time", lambda: 1000)
-    monkeypatch.setattr(daemon_module.time, "monotonic", lambda: 100.0)
-
-    assert daemon._macro_recording_enabled_for_uid(1000) == (False, 0, "none")
-    assert daemon._macro_recording_enabled_for_uid(1000) == (True, 0, "persistent")
-    assert calls == [1000, 1000]

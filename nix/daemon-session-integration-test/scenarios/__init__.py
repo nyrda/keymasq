@@ -124,7 +124,8 @@ SCENARIOS = [
     ScenarioCase("source hiding", source_hiding.run),
     ScenarioCase("native hidraw access", native_hidraw.run),
     ScenarioCase(
-        "mapped macro slot playback without capture unlock",
-        recording_capture.run_mapped_slot_playback_without_unlock,
+        "macro recording disabled by policy",
+        recording_capture.run_disabled_by_policy,
+        explicit_only=True,
     ),
 ]

@@ -7,27 +7,21 @@ import signal
 import socket
 import stat
 import sys
-import time
 from collections.abc import Awaitable, Callable
 from typing import cast
 
 from keymasq.common.asyncio_runtime import ensure_uvloop
-from keymasq.common.coercion import coerce_int
 from keymasq.common.ipc import CommandType
 from keymasq.common.paths import (
     HANDOFF_SOCKET_PATH,
-    RECORDING_UNLOCK_RUNTIME_DIR,
     RUN_DIR,
     SECURITY_POLICY_PATH,
     SOCKET_PATH,
     STATE_DIR,
 )
-from keymasq.common.recording_guard import (
-    UnlockStatus,
-    resolve_macro_recording_status,
-    resolve_unlock_status,
-    runtime_unlock_path,
-    write_unlock_expires_at,
+from keymasq.common.recording_policy import (
+    MACRO_RECORDING_DISABLED_ERROR_CODE,
+    MACRO_RECORDING_DISABLED_MESSAGE,
 )
 from keymasq.common.security import (
     PeerCredentials,
@@ -54,10 +48,6 @@ from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
 
 log = logging.getLogger("keymasqd")
-
-type _GuardStatusCache = dict[int, tuple[float, bool, int, str]]
-type _GuardStatusResolver = Callable[[int], UnlockStatus]
-type _GuardStateLogger = Callable[[int, bool, str, int, str], None]
 
 
 def sd_notify(state: str) -> None:
@@ -97,12 +87,6 @@ class Daemon:
         self._watchdog_task: asyncio.Task[None] | None = None
         self.verbosity = verbosity
         self.security_policy: SecurityPolicy | None = None
-        self._unlock_cache: _GuardStatusCache = {}
-        self._macro_recording_cache: _GuardStatusCache = {}
-        self._unlock_cache_interval_s = 1.0
-        self._unlock_state_last_logged: dict[int, tuple[bool, str]] = {}
-        self._macro_recording_state_last_logged: dict[int, tuple[bool, str]] = {}
-        self._recording_refresh_owners: dict[int, tuple[int, int]] = {}
 
     async def start(self) -> None:
         RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -212,10 +196,6 @@ class Daemon:
         )
         if self.fd_handoff is not None:
             await self._run_async_cleanup("stop privileged handoffs", self.fd_handoff.stop)
-        await self._run_async_cleanup(
-            "clear runtime unlocks",
-            lambda: self._clear_all_runtime_unlocks_async(reason="daemon_stop"),
-        )
         self._run_sync_cleanup(
             "shut down output devices",
             self.device_manager.shutdown_output_devices,
@@ -295,8 +275,8 @@ class Daemon:
         data: JsonObject,
         client: ClientContext | None = None,
     ) -> JsonObject:
-        if client and self.security_policy:
-            await self._ensure_sensitive_command_allowed(command_type, client)
+        if command_type == CommandType.START_RECORDING:
+            self._ensure_macro_recording_allowed()
 
         if self.verbosity >= 1:
             log.debug(f"Command: {command_type.value} -> {self._log_view(data)}")
@@ -317,16 +297,6 @@ class Daemon:
         if command_type == CommandType.PING:
             return {"pong": True}
 
-        if command_type == CommandType.MACRO_RECORDING_STATUS:
-            fallback_uid = int(client.uid) if client is not None else os.getuid()
-            uid = coerce_int(data.get("uid"), fallback_uid)
-            return cast(JsonObject, await asyncio.to_thread(resolve_macro_recording_status, uid))
-
-        if command_type == CommandType.RECORDING_UNLOCK_STATUS:
-            fallback_uid = int(client.uid) if client is not None else os.getuid()
-            uid = coerce_int(data.get("uid"), fallback_uid)
-            return cast(JsonObject, await asyncio.to_thread(resolve_unlock_status, uid))
-
         macro_result = await daemon_macro_commands.handle_macro_command(
             cast(daemon_macro_commands.MacroCommandDaemon, self),
             command_type,
@@ -343,388 +313,13 @@ class Daemon:
         if capture_result is not None:
             return capture_result
 
-        if command_type == CommandType.REFRESH_RECORDING_UNLOCK:
-            if client is None:
-                raise PermissionError("recording_refresh_denied: missing client context")
-            uid = int(client.uid)
-            ttl = coerce_int(data.get("ttl", 60), 60)
-            return self._refresh_runtime_unlock(uid, ttl, client)
-
-        if command_type == CommandType.LOCK_RECORDING_UNLOCK:
-            if client is None:
-                raise PermissionError("recording_lock_denied: missing client context")
-            uid = int(client.uid)
-            cleanup = bool(data.get("cleanup", False))
-            return self._lock_runtime_unlock(uid, client, cleanup=cleanup)
-
         raise ValueError(f"Unknown command: {command_type}")
 
-    async def _ensure_sensitive_command_allowed(
-        self,
-        command_type: CommandType,
-        client: ClientContext,
-    ) -> None:
-        if command_type == CommandType.START_RECORDING:
-            await asyncio.to_thread(self._ensure_macro_recording_enabled, client.uid)
-            return
-
-        policy = self.security_policy
-        tier1_commands = {
-            CommandType.CAPTURE_BEGIN,
-            CommandType.CAPTURE_READ,
-            CommandType.CAPTURE_END,
-            CommandType.CAPTURE_COMBO,
-            CommandType.MACRO_SAVE_RECORDING,
-            CommandType.DEVICE_INSPECTOR_START,
-            CommandType.DEVICE_INSPECTOR_ENABLE_SUPPRESSION,
-        }
-
-        tier2_commands = {
-            CommandType.MACRO_GET,
-            CommandType.MACRO_CREATE,
-            CommandType.MACRO_UPDATE,
-            CommandType.MACRO_RENAME,
-            CommandType.MACRO_DELETE,
-        }
-
-        is_tier1_command = command_type in tier1_commands
-        if is_tier1_command:
-            self._ensure_sensitive_owner(
-                command_type,
-                client,
-                claim_if_missing=command_type != CommandType.CAPTURE_END,
-            )
-
-        if policy is None:
-            return
-
-        requires_unlock = is_tier1_command and policy.recording_unlock_required
-        if command_type in tier2_commands and policy.macro_edit_requires_unlock:
-            requires_unlock = True
-
-        if not requires_unlock:
-            return
-
-        if not is_tier1_command:
-            self._ensure_sensitive_owner(command_type, client)
-
-        if command_type == CommandType.CAPTURE_END:
-            return
-
-        unlocked, expires_at, source = await asyncio.to_thread(
-            self._recording_unlocked_for_uid,
-            client.uid,
-        )
-        if unlocked:
-            return
-
-        if source == "none":
+    def _ensure_macro_recording_allowed(self) -> None:
+        if self.security_policy is not None and not self.security_policy.macro_recording_allowed:
             raise PermissionError(
-                "recording_locked: capture unlock required for input capture features"
+                f"{MACRO_RECORDING_DISABLED_ERROR_CODE}: {MACRO_RECORDING_DISABLED_MESSAGE}"
             )
-        raise PermissionError(f"recording_locked: unlock lease expired at {expires_at}")
-
-    def _ensure_macro_recording_enabled(self, uid: int) -> None:
-        enabled, expires_at, source = self._macro_recording_enabled_for_uid(uid)
-        if enabled:
-            return
-        if source == "none":
-            raise PermissionError("macro_recording_disabled: macro recording opt-in required")
-        raise PermissionError(f"macro_recording_disabled: opt-in expired at {expires_at}")
-
-    def _macro_recording_enabled_for_uid(self, uid: int) -> tuple[bool, int, str]:
-        return self._guard_status_for_uid(
-            uid,
-            self._macro_recording_cache,
-            resolve_macro_recording_status,
-            self._log_macro_recording_state_change,
-        )
-
-    def _guard_status_for_uid(
-        self,
-        uid: int,
-        cache: _GuardStatusCache,
-        resolver: _GuardStatusResolver,
-        log_state_change: _GuardStateLogger,
-    ) -> tuple[bool, int, str]:
-        now_mono = time.monotonic()
-        now_wall = int(time.time())
-        cached = cache.get(uid)
-
-        if cached is not None:
-            checked_mono, unlocked, expires_at, source = cached
-            cache_fresh = (now_mono - checked_mono) < self._unlock_cache_interval_s
-            if unlocked and cache_fresh and (expires_at == 0 or expires_at >= now_wall):
-                return unlocked, expires_at, source
-
-        status = resolver(uid)
-        unlocked = bool(status.get("unlocked", False))
-        expires_at = int(status.get("expires_at", 0) or 0)
-        source = str(status.get("source", "none") or "none")
-        cache[uid] = (now_mono, unlocked, expires_at, source)
-        log_state_change(uid, unlocked, source, expires_at, "status_probe")
-        return unlocked, expires_at, source
-
-    def _log_macro_recording_state_change(
-        self,
-        uid: int,
-        enabled: bool,
-        source: str,
-        expires_at: int,
-        reason: str,
-    ) -> None:
-        current = (bool(enabled), str(source))
-        previous = self._macro_recording_state_last_logged.get(int(uid))
-        if previous == current:
-            return
-
-        self._macro_recording_state_last_logged[int(uid)] = current
-        state = "ENABLED" if enabled else "DISABLED"
-        log.info(
-            (
-                "Macro recording opt-in state changed uid=%s state=%s "
-                "source=%s expires_at=%s reason=%s"
-            ),
-            int(uid),
-            state,
-            str(source),
-            int(expires_at),
-            str(reason),
-        )
-
-    def _recording_unlocked_for_uid(self, uid: int) -> tuple[bool, int, str]:
-        return self._guard_status_for_uid(
-            uid,
-            self._unlock_cache,
-            resolve_unlock_status,
-            self._log_unlock_state_change,
-        )
-
-    def _log_unlock_state_change(
-        self,
-        uid: int,
-        unlocked: bool,
-        source: str,
-        expires_at: int,
-        reason: str,
-    ) -> None:
-        current = (bool(unlocked), str(source))
-        previous = self._unlock_state_last_logged.get(int(uid))
-        if previous == current:
-            return
-
-        self._unlock_state_last_logged[int(uid)] = current
-        state = "UNLOCKED" if unlocked else "LOCKED"
-        log.info(
-            "Recording guard state changed uid=%s state=%s source=%s expires_at=%s reason=%s",
-            int(uid),
-            state,
-            str(source),
-            int(expires_at),
-            str(reason),
-        )
-
-    def _ensure_sensitive_owner(
-        self,
-        command_type: CommandType,
-        client: ClientContext,
-        *,
-        claim_if_missing: bool = True,
-    ) -> None:
-        self._ensure_recording_unlock_owner(
-            int(client.uid),
-            client,
-            claim_if_missing=claim_if_missing,
-            denial_message="sensitive_command_denied: caller is not active session owner",
-            log_label="Sensitive command",
-            command_type=command_type,
-        )
-
-    def _ensure_recording_unlock_owner(
-        self,
-        uid: int,
-        client: ClientContext,
-        *,
-        claim_if_missing: bool,
-        denial_message: str,
-        log_label: str,
-        missing_owner_message: str | None = None,
-        command_type: CommandType | None = None,
-    ) -> None:
-        uid = int(uid)
-        owner = self._recording_refresh_owners.get(uid)
-        if owner is None:
-            if not claim_if_missing:
-                raise PermissionError(missing_owner_message or denial_message)
-            self._recording_refresh_owners[uid] = (
-                int(client.pid),
-                int(client.connection_id),
-            )
-            return
-
-        owner_pid, owner_connection_id = owner
-        if owner_pid == int(client.pid) and owner_connection_id == int(client.connection_id):
-            return
-
-        message = (
-            f"{log_label} owner mismatch uid=%s pid=%s connection=%s "
-            "owner_pid=%s owner_connection=%s"
-        )
-        args: tuple[object, ...] = (
-            client.uid,
-            client.pid,
-            client.connection_id,
-            owner_pid,
-            owner_connection_id,
-        )
-        if command_type is not None:
-            message = f"{message} command=%s"
-            args = (*args, command_type.value)
-
-        log.warning(message, *args)
-        raise PermissionError(denial_message)
-
-    def _refresh_runtime_unlock(self, uid: int, ttl: int, client: ClientContext) -> JsonObject:
-        self._ensure_recording_unlock_owner(
-            uid,
-            client,
-            claim_if_missing=True,
-            denial_message="recording_refresh_denied: caller is not active session owner",
-            log_label="Recording refresh",
-        )
-
-        status = resolve_unlock_status(uid)
-        unlocked = bool(status.get("unlocked", False))
-        source = str(status.get("source", "none") or "none")
-        if not unlocked or source != "runtime":
-            raise PermissionError("recording_refresh_denied: runtime unlock lease is not active")
-
-        ttl_value = max(1, int(ttl))
-        expires_at = int(time.time()) + ttl_value
-        write_unlock_expires_at(
-            runtime_unlock_path(uid),
-            expires_at,
-            owner_uid=os.geteuid(),
-            owner_gid=os.getegid(),
-            mode=0o600,
-        )
-        self._unlock_cache[uid] = (time.monotonic(), True, expires_at, "runtime")
-        self._log_unlock_state_change(uid, True, "runtime", expires_at, reason="refresh")
-        return {
-            "status": "ok",
-            "uid": int(uid),
-            "source": "runtime",
-            "expires_at": int(expires_at),
-            "owner_pid": int(client.pid),
-        }
-
-    def _clear_runtime_unlock(self, uid: int, *, reason: str) -> None:
-        path = runtime_unlock_path(uid)
-        try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
-
-        self._record_runtime_unlock_cleared(uid, reason=reason)
-
-    async def _clear_runtime_unlock_async(self, uid: int, *, reason: str) -> None:
-        path = runtime_unlock_path(uid)
-        try:
-            await asyncio.get_running_loop().run_in_executor(None, path.unlink)
-        except FileNotFoundError:
-            pass
-
-        self._record_runtime_unlock_cleared(uid, reason=reason)
-
-    def _record_runtime_unlock_cleared(self, uid: int, *, reason: str) -> None:
-        self._unlock_cache[uid] = (time.monotonic(), False, 0, "none")
-        self._recording_refresh_owners.pop(uid, None)
-        self._log_unlock_state_change(uid, False, "none", 0, reason=reason)
-
-    def _runtime_unlock_file_uids(self) -> set[int]:
-        runtime_uids: set[int] = set()
-        try:
-            for path in RECORDING_UNLOCK_RUNTIME_DIR.glob("recording-unlock-*"):
-                suffix = path.name.removeprefix("recording-unlock-")
-                try:
-                    runtime_uids.add(int(suffix))
-                except ValueError:
-                    continue
-        except FileNotFoundError:
-            pass
-        return runtime_uids
-
-    async def _runtime_unlock_file_uids_async(self) -> set[int]:
-        return await asyncio.get_running_loop().run_in_executor(
-            None,
-            self._runtime_unlock_file_uids,
-        )
-
-    async def _clear_all_runtime_unlocks_async(self, *, reason: str) -> None:
-        runtime_uids = {int(uid) for uid in self._recording_refresh_owners}
-        runtime_uids.update(await self._runtime_unlock_file_uids_async())
-
-        for uid in sorted(runtime_uids):
-            try:
-                await self._clear_runtime_unlock_async(uid, reason=reason)
-            except OSError as exc:
-                log.warning(
-                    "Failed to clear runtime unlock uid=%s during %s: %s",
-                    uid,
-                    reason,
-                    exc,
-                )
-
-        self._recording_refresh_owners.clear()
-
-    async def _clear_runtime_unlock_for_client_async(
-        self,
-        client: ClientContext,
-        *,
-        reason: str,
-    ) -> None:
-        uid = int(client.uid)
-        owner = self._recording_refresh_owners.get(uid)
-        if owner != (int(client.pid), int(client.connection_id)):
-            return
-
-        try:
-            await self._clear_runtime_unlock_async(uid, reason=reason)
-        except OSError as exc:
-            log.warning(
-                "Failed to clear runtime unlock uid=%s during %s: %s",
-                uid,
-                reason,
-                exc,
-            )
-
-    def _lock_runtime_unlock(
-        self,
-        uid: int,
-        client: ClientContext,
-        *,
-        cleanup: bool = False,
-    ) -> JsonObject:
-        if not cleanup:
-            self._ensure_recording_unlock_owner(
-                uid,
-                client,
-                claim_if_missing=False,
-                denial_message="recording_lock_denied: caller is not active session owner",
-                missing_owner_message="recording_lock_denied: no active session owner",
-                log_label="Recording lock",
-            )
-
-        self._clear_runtime_unlock(
-            uid,
-            reason="disconnect_cleanup" if cleanup else "explicit_lock",
-        )
-        return {
-            "status": "ok",
-            "uid": int(uid),
-            "source": "runtime",
-            "locked": True,
-        }
 
     def _log_view(self, data: JsonObject) -> JsonObject:
         def sanitize(value: object) -> object:
@@ -749,23 +344,12 @@ class Daemon:
             view[key] = sanitize(value)
         return view
 
-    async def _on_client_disconnect(self, client: ClientContext | None = None) -> None:
+    async def _on_client_disconnect(self) -> None:
         await self._run_async_cleanup(
             "restore hardware after owner loss",
             lambda: self.hardware_masking.close(restore_hardware=self.running),
         )
-        if client is None and self.socket_server is not None:
-            client = self.socket_server.owner_context
-
         log.info("Client disconnected, releasing all devices")
-        if client is not None:
-            await self._run_async_cleanup(
-                "clear runtime unlock for client",
-                lambda: self._clear_runtime_unlock_for_client_async(
-                    client,
-                    reason="session_disconnect",
-                ),
-            )
         await self._run_async_cleanup(
             "abort active recording",
             self.recording_manager.abort,

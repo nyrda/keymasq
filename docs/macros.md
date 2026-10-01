@@ -18,8 +18,7 @@ cursor movement, mixed keyboard and mouse input, or toggle/count playback.
 ## Quick start: your first macro
 
 The fastest way to get started is to create an empty macro, add a few events
-by hand, and assign it to a key. This doesn't require any special permissions
-or unlock steps.
+by hand, and assign it to a key. This doesn't require recording anything.
 
 1. Open the Keymasq GUI and go to **Macro Manager**.
 2. Click **Empty** and give it a name.
@@ -62,14 +61,13 @@ you perform them. This is the most accurate option. Use it when:
 - You use a keyboard layout that XKB does not describe.
 - The target application is sensitive to input speed.
 
-**Before you start:** opt in to macro recording from the Macro Manager or
-**Settings > Macro recording**, then bind **Toggle Recording** to a specific
-temporary slot (1-4) on your device.
+**Before you start:** bind **Toggle Recording** to a specific temporary slot
+(1-4) on your device.
 Toggle Recording starts and stops that slot from whatever window you're in, so
 you can record in the target application without switching back to the GUI.
 Bind **Play Slot** for the same slot if you want to replay the temporary
 recording before saving it.
-The GUI does not need to stay open after recording is enabled. You should also
+The GUI does not need to stay open while you record. You should also
 bind **Cancel Macro Playback**, which stops every running macro immediately.
 
 When Keymasq has grabbed a keyboard, `Ctrl+Alt+Esc` is also reserved as an
@@ -81,14 +79,13 @@ your profiles.
 
 **How to record:**
 
-1. Enable macro recording once from the Macro Manager or **Settings > Macro recording**.
-2. Switch to the application you want to record in.
-3. Press your **Toggle Recording** key for the chosen slot to start capturing.
-4. Perform the inputs you want to capture.
-5. Press the same **Toggle Recording** key again to stop.
-6. Save the temporary slot from the save dialog, or click **Later** and save it
+1. Switch to the application you want to record in.
+2. Press your **Toggle Recording** key for the chosen slot to start capturing.
+3. Perform the inputs you want to capture.
+4. Press the same **Toggle Recording** key again to stop.
+5. Save the temporary slot from the save dialog, or click **Later** and save it
    from Macro Manager.
-7. Open the saved macro to [edit its timeline](macro-editor.md).
+6. Open the saved macro to [edit its timeline](macro-editor.md).
 
 The session sends desktop notifications when a recording starts and when it
 stops, including the temporary slot number.
@@ -165,7 +162,7 @@ current session and Keymasq warns that they may revert after a restart.
 ### Empty macro
 
 An empty macro gives you a blank timeline that you build up manually in the
-editor. It needs no recording and no unlock step. Open the editor and add the
+editor. It needs no recording. Open the editor and add the
 events you need.
 
 **How to create one:**
@@ -627,25 +624,24 @@ Pressing the trigger does nothing because the macro no longer exists.
 
 ## Security notes
 
-Keymasq treats macros with care because recording captures raw input, which
-could be misused as a keylogger.
+Recording captures raw input, so the normal workflow keeps it explicit.
 
-- **Recording is opt-in.** A default install will not start macro recording
-  until you enable it through the Polkit-backed `keymasq-helper`.
-  You can disable the opt-in again from **Settings > Macro recording**.
-  Playback and normal macro management remain available. This makes macro
-  recording a deliberate user choice instead of a background capture
-  feature that is always available.
+- **Recording is started explicitly.** It is started from a
+  **Toggle Recording** mapping or the **Record** button, the session sends a
+  desktop notification when it starts and stops, the daemon stops it at the
+  configured time limit, and it writes into the slot you chose. See the
+  [Security model](security.md#threat-model) for why Keymasq does not add an
+  authentication prompt in front of it.
+
+- **Slots and saved macros are shared.** Keymasq keeps one set of slots and one
+  macro library for every user who can own the daemon. See
+  [Stored recordings and macros](security.md#stored-recordings-and-macros).
 
 - **Temporary slots are not macro bodies.** Recording creates an opaque
   pending slot. It can be replayed only through an explicit **Play Slot**
   action for that slot. It cannot be fetched, inspected, or edited as a macro
   until it is saved into normal macro storage. Slot storage is daemon-private
   and exists so slots survive daemon restarts, not as a macro library API.
-
-- **Saving a slot requires unlock.** Persisting a temporary recording into the
-  macro library goes through the capture unlock flow even after macro
-  recording has been enabled.
 
 - **Macros are stored in `/var/lib/keymasq/macros/`**, owned by the `keymasq`
   system user, not mixed into your profile files. They are compressed on disk.
@@ -660,12 +656,15 @@ could be misused as a keylogger.
 **Optional security settings** (in `/etc/keymasq/security.toml`). These are
 intended for system administrators, and most users do not need to change them:
 
-- **Disable the capture unlock requirement** (not recommended). Macro recording
-  still requires its separate opt-in:
+- **Disable macro recording.** Keymasq then refuses to start recordings,
+  shows a "Macro recording disabled" notification when a recording trigger
+  fires, and disables the record controls in the GUI. Existing slots and saved
+  macros can still be played. This only turns off the built-in recorder; live
+  capture, the Device Inspector, and command actions keep working:
 
   ```toml
   [recording_guard]
-  unlock_required = false
+  macro_recording_allowed = false
   ```
 
 - **Change the maximum recording duration.** The default is 10 minutes, and `0`
@@ -676,19 +675,14 @@ intended for system administrators, and most users do not need to change them:
   macro_recording_time_limit = 10
   ```
 
-- **Require unlock for editing too** (stricter):
-
-  ```toml
-  [recording_guard]
-  macro_edit_requires_unlock = true
-  ```
-
 - **Disable the emergency combo** (not recommended):
 
   ```toml
   [gui]
   emergency_cancel_combo_enabled = false
   ```
+
+Restart `keymasqd` and `keymasq-session` after changing these settings.
 
 ## Best practices
 

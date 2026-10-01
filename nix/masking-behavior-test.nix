@@ -57,8 +57,6 @@ pkgs.testers.runNixOSTest {
         ready()
         control("baseline")
         run_usb_tests()
-        with subtest("masking works while capture is locked"):
-            check("locked")
         with subtest("unconfirmed trial expires and stays off after restart"):
             check("trial-expiry")
             restart_and_check_off()

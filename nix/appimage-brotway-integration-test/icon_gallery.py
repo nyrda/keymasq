@@ -37,8 +37,6 @@ ICON_NAMES = (
     "audio-volume-high-symbolic",
     "audio-volume-low-symbolic",
     "audio-volume-muted-symbolic",
-    "channel-insecure-symbolic",
-    "channel-secure-symbolic",
     "dialog-information-symbolic",
     "dialog-warning-symbolic",
     "display-brightness-symbolic",

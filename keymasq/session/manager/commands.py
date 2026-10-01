@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from keymasq.common.coercion import coerce_str
 from keymasq.common.security import PeerCredentials
 
-from . import recording_unlock
 from .command.capture import handle_capture_commands
 from .command.compositor import handle_compositor_commands
 from .command.diagnostics import handle_set_diagnostics
@@ -27,21 +26,6 @@ async def handle_session_request(
     writer: asyncio.StreamWriter,
 ) -> JsonObject:
     command = coerce_str(request.get("command"), "")
-    policy = manager.security_policy
-
-    if recording_unlock.is_sensitive_session_command(
-        manager, command, policy
-    ) and not await recording_unlock.authorize_sensitive_session_command(
-        manager,
-        command,
-        peer,
-        writer,
-    ):
-        return {
-            "status": "error",
-            "error_code": "sensitive_command_denied",
-            "message": "Sensitive command denied: caller is not active GUI owner",
-        }
 
     result = await handle_profile_commands(manager, command, request)
     if result is not None:
@@ -51,13 +35,7 @@ async def handle_session_request(
     if result is not None:
         return result
 
-    result = await handle_compositor_commands(
-        manager,
-        command,
-        request,
-        peer,
-        writer,
-    )
+    result = await handle_compositor_commands(manager, command, request)
     if result is not None:
         return result
 

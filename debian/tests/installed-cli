@@ -19,6 +19,5 @@ PYTHONPATH= python3 -m pytest -q \
     tests/keymasqd/test_output_helpers.py \
     tests/common/test_paths.py \
     tests/keymasqd/test_helper_cli.py \
-    tests/common/test_recording_guard.py \
     tests/common/test_security.py \
     tests/session/test_toml.py

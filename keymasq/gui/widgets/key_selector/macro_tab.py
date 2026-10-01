@@ -12,6 +12,7 @@ from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAcces
 
 from keymasq.common.model.actions import MAX_MACRO_RECORDING_SLOTS, MappingAction
 from keymasq.common.model.core import ActionType
+from keymasq.common.recording_policy import MACRO_RECORDING_DISABLED_MESSAGE
 from keymasq.gui.session_client import session_request_async
 from keymasq.gui.widgets.fuzzy_search import (
     fuzzy_query_matches,
@@ -19,6 +20,8 @@ from keymasq.gui.widgets.fuzzy_search import (
     macro_search_text,
 )
 from keymasq.session.profile.manager import ProfileManager
+
+_MACRO_RECORDING_POLICY_EVENTS = ("macro_recording_disabled", "macro_recording_policy_changed")
 
 
 class MacroTabMixin:
@@ -72,23 +75,12 @@ class MacroTabMixin:
                 return cast(ProfileManager, profile_manager)
         return None
 
-    def _resolve_macro_recording_enabled(self, *, default: bool) -> bool:
+    def _resolve_macro_recording_allowed(self) -> bool:
         for candidate in self._macro_parent_candidates():
-            enabled = getattr(candidate, "macro_recording_enabled", None)
-            if callable(enabled):
-                return bool(enabled())
-            raw_enabled = getattr(candidate, "_macro_recording_enabled", None)
-            if isinstance(raw_enabled, bool):
-                return raw_enabled
-        return default
-
-    def _present_macro_recording_settings(self, _button: Gtk.Button) -> None:
-        for candidate in self._macro_parent_candidates():
-            present_settings = getattr(candidate, "present_recording_settings_dialog", None)
-            if callable(present_settings):
-                present_settings(reason="settings")
-                self.close()
-                return
+            allowed = getattr(candidate, "macro_recording_allowed", None)
+            if callable(allowed):
+                return bool(allowed())
+        return True
 
     def _build_macro_tab(self) -> Gtk.Widget:
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -191,8 +183,33 @@ class MacroTabMixin:
         console.set_margin_end(12)
         self._macro_slot_console = console
         self._refresh_macro_slot_console()
+        self._subscribe_macro_recording_policy()
 
         return console
+
+    def _subscribe_macro_recording_policy(self) -> None:
+        window = next(
+            (
+                candidate
+                for candidate in self._macro_parent_candidates()
+                if callable(getattr(candidate, "register_event_handler", None))
+                and callable(getattr(candidate, "unregister_event_handler", None))
+            ),
+            None,
+        )
+        if window is None:
+            return
+        for event_type in _MACRO_RECORDING_POLICY_EVENTS:
+            window.register_event_handler(event_type, self._on_macro_recording_policy_event)
+
+        def unsubscribe(*_args: object) -> None:
+            for event_type in _MACRO_RECORDING_POLICY_EVENTS:
+                window.unregister_event_handler(event_type, self._on_macro_recording_policy_event)
+
+        self.connect("closed", unsubscribe)
+
+    def _on_macro_recording_policy_event(self, _event: dict) -> None:
+        self._refresh_macro_slot_console()
 
     def _refresh_macro_slot_console(self) -> None:
         console = self._macro_slot_console
@@ -202,54 +219,8 @@ class MacroTabMixin:
         while child is not None:
             console.remove(child)
             child = console.get_first_child()
-        self._macro_recording_enabled = self._resolve_macro_recording_enabled(default=False)
-        if self._macro_recording_enabled:
-            console.append(self._build_macro_slot_cards())
-        else:
-            console.append(self._build_macro_recording_disabled_placeholder())
-
-    def _build_macro_recording_disabled_placeholder(self) -> Gtk.Widget:
-        placeholder = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        placeholder.add_css_class("card")
-        placeholder.add_css_class("macro-recording-disabled-placeholder")
-        placeholder.set_valign(Gtk.Align.CENTER)
-        placeholder.set_halign(Gtk.Align.FILL)
-
-        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
-        icon.set_valign(Gtk.Align.START)
-        placeholder.append(icon)
-
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text_box.set_hexpand(True)
-        title = Gtk.Label(label="Macro recording is disabled")
-        title.add_css_class("caption-heading")
-        title.set_halign(Gtk.Align.START)
-        text_box.append(title)
-
-        body = Gtk.Label(label="Enable it in Settings > Macro recording to bind slot actions.")
-        body.add_css_class("dim-label")
-        body.set_wrap(True)
-        body.set_halign(Gtk.Align.START)
-        text_box.append(body)
-        placeholder.append(text_box)
-
-        settings_content = Adw.ButtonContent(
-            icon_name="emblem-system-symbolic",
-            label="Open Settings",
-        )
-        settings_btn = Gtk.Button()
-        settings_btn.set_child(settings_content)
-        settings_btn.set_valign(Gtk.Align.CENTER)
-        settings_btn.set_tooltip_text("Open macro recording settings")
-        settings_btn.connect("clicked", self._present_macro_recording_settings)
-        settings_btn.set_sensitive(
-            any(
-                callable(getattr(candidate, "present_recording_settings_dialog", None))
-                for candidate in self._macro_parent_candidates()
-            )
-        )
-        placeholder.append(settings_btn)
-        return placeholder
+        self._macro_recording_allowed = self._resolve_macro_recording_allowed()
+        console.append(self._build_macro_slot_cards())
 
     def _build_macro_slot_card(self, slot: int) -> Gtk.Widget:
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -296,6 +267,9 @@ class MacroTabMixin:
         button.set_size_request(42, 34)
         button.set_tooltip_text(f"Toggle macro recording into slot {slot}")
         button.connect("clicked", self._on_macro_recording_slot_clicked, slot)
+        if not self._macro_recording_allowed:
+            button.set_sensitive(False)
+            button.set_tooltip_text(MACRO_RECORDING_DISABLED_MESSAGE)
         if (
             self._current_action
             and self._current_action.action_type

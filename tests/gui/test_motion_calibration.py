@@ -45,7 +45,6 @@ class _TestHardwareManager:
 
 
 def _guided_dialog(
-    gtk: Any,
     dialog_module: Any,
 ) -> tuple[
     list[MotionAxisDefinition],
@@ -57,9 +56,7 @@ def _guided_dialog(
     sensor = MotionSensorDefinition("imu", "Motion Sensor", source="imu", gyro_axes=axes)
     hardware = HardwareConfig("057e", "2009", "Controller", [], [], motion_sensors=[sensor])
     manager = _TestHardwareManager()
-    dialog = dialog_module.MotionCalibrationDialog(
-        gtk.Window(), hardware, sensor, cast(Any, manager)
-    )
+    dialog = dialog_module.MotionCalibrationDialog(hardware, sensor, cast(Any, manager))
     return axes, hardware, manager, dialog
 
 
@@ -128,7 +125,6 @@ def test_stationary_gyro_calibration_requires_measurement_duration() -> None:
 def test_guided_dialog_applies_only_matching_gyro_samples() -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab.motion_calibration_dialog import MotionCalibrationDialog
 
@@ -148,12 +144,7 @@ def test_guided_dialog_applies_only_matching_gyro_samples() -> None:
     )
     hardware = HardwareConfig("057e", "2009", "Pro Controller", [], [], motion_sensors=[sensor])
     manager = _HardwareManager()
-    dialog = MotionCalibrationDialog(
-        Gtk.Window(),
-        hardware,
-        sensor,
-        cast(Any, manager),
-    )
+    dialog = MotionCalibrationDialog(hardware, sensor, cast(Any, manager))
     for index in range(40):
         dialog._record_frame(
             {
@@ -190,7 +181,6 @@ def test_guided_dialog_does_not_apply_until_capture_cleanup_succeeds(
 ) -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab import motion_calibration_dialog as dialog_module
 
@@ -211,9 +201,7 @@ def test_guided_dialog_does_not_apply_until_capture_cleanup_succeeds(
     sensor = MotionSensorDefinition("imu", "Motion Sensor", source="imu", gyro_axes=axes)
     hardware = HardwareConfig("057e", "2009", "Controller", [], [], motion_sensors=[sensor])
     manager = _HardwareManager()
-    dialog = dialog_module.MotionCalibrationDialog(
-        Gtk.Window(), hardware, sensor, cast(Any, manager)
-    )
+    dialog = dialog_module.MotionCalibrationDialog(hardware, sensor, cast(Any, manager))
     dialog._frames = _frames([(120.0, -35.0, 8.0)] * 40)
     dialog._capture_generation = 1
     dialog._capture_state = dialog_module._CaptureState.ENDING
@@ -245,11 +233,10 @@ def test_guided_dialog_does_not_apply_until_capture_cleanup_succeeds(
 def test_guided_dialog_applies_finished_sample_after_it_closes() -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab import motion_calibration_dialog as dialog_module
 
-    axes, hardware, manager, dialog = _guided_dialog(Gtk, dialog_module)
+    axes, hardware, manager, dialog = _guided_dialog(dialog_module)
     dialog._frames = _frames([(120.0, -35.0, 8.0)] * 40)
     dialog._capture_generation = 1
     dialog._capture_state = dialog_module._CaptureState.ENDING
@@ -268,7 +255,6 @@ def test_guided_dialog_blocks_close_while_capture_is_ending(
 ) -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab import motion_calibration_dialog as dialog_module
 
@@ -278,7 +264,7 @@ def test_guided_dialog_blocks_close_while_capture_is_ending(
         callbacks.append(callback)
 
     monkeypatch.setattr(dialog_module, "session_request_async", request_async)
-    _axes, hardware, manager, dialog = _guided_dialog(Gtk, dialog_module)
+    _axes, hardware, manager, dialog = _guided_dialog(dialog_module)
     dialog._frames = _frames([(120.0, -35.0, 8.0)] * 40)
     dialog._capture_generation = 1
     dialog._capture_state = dialog_module._CaptureState.SAMPLING
@@ -303,7 +289,6 @@ def test_guided_dialog_keeps_retrying_cleanup_after_it_closes(
 ) -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab import motion_calibration_dialog as dialog_module
 
@@ -330,7 +315,7 @@ def test_guided_dialog_keeps_retrying_cleanup_after_it_closes(
     monkeypatch.setattr(dialog_module, "session_request_async", request_async)
     monkeypatch.setattr(dialog_module.GLib, "timeout_add", timeout_add)
     monkeypatch.setattr(dialog_module.GLib, "source_remove", source_remove)
-    _axes, hardware, manager, dialog = _guided_dialog(Gtk, dialog_module)
+    _axes, hardware, manager, dialog = _guided_dialog(dialog_module)
     dialog._frames = _frames([(120.0, -35.0, 8.0)] * 40)
     dialog._capture_generation = 1
     dialog._set_capture_state(dialog_module._CaptureState.ENDING)
@@ -378,7 +363,6 @@ def test_guided_dialog_does_not_apply_interrupted_sample_after_it_closes(
 ) -> None:
     gi = pytest.importorskip("gi")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Gtk
 
     from keymasq.gui.widgets.device_tab import motion_calibration_dialog as dialog_module
 
@@ -388,7 +372,7 @@ def test_guided_dialog_does_not_apply_interrupted_sample_after_it_closes(
         callbacks.append(callback)
 
     monkeypatch.setattr(dialog_module, "session_request_async", request_async)
-    axes, _hardware, manager, dialog = _guided_dialog(Gtk, dialog_module)
+    axes, _hardware, manager, dialog = _guided_dialog(dialog_module)
     dialog._frames = _frames([(120.0, -35.0, 8.0)] * 40)
     dialog._capture_generation = 1
     dialog._capture_state = dialog_module._CaptureState.SAMPLING

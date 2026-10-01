@@ -118,17 +118,24 @@ Keyboard layouts for type macros:
 - XKB data (`xkeyboard-config`), which libxkbcommon reads from its include
   paths or `XKB_CONFIG_ROOT`
 
-Privileged capture unlock and macro recording opt-in flow:
+Privileged hardware jobs:
 
-- `polkit`
-- `pkexec`
+- `polkit`, which lets the `keymasq` service user start
+  `keymasq-hardware@.service` through `49-keymasq-hardware.rules`
+
+AppImage install, uninstall, and self-update:
+
+- `pkexec`, which the AppImage uses to rerun itself as root when `--install`,
+  `--uninstall`, or `--self-update` is started as a normal user
 
 Notes:
 
 - `PyGObject` is a Python dependency, but it still requires the underlying GTK
   and introspection libraries from the operating system.
 - `keymasq-helper` is not a third-party dependency. It is a Keymasq-provided
-  helper script installed as part of the package.
+  helper script installed as part of the package. It runs as root only from
+  `keymasq-hardware@.service` jobs, `keymasqd.service` recovery hooks, and
+  package removal scripts.
 - The `keymasqd` daemon relies on system integration from the package or local
   setup: service units, a `keymasq` system user, tmpfiles, and udev ACL rules.
 - Type macros compile text into key presses for the configured keyboard layout
@@ -206,12 +213,12 @@ under the masking coordinator, which restores and reacquires its readers.
   GTK remains the default elsewhere.
 - Native packages do not depend on or install gtk-brotway.
 
-### Capture unlock helper
+### Hardware job helper
 
 - `keymasq-helper` must be installed alongside the rest of Keymasq
-- the matching Polkit policy must be installed
-- the helper path and Polkit policy must agree on the same absolute executable
-  path
+- `keymasq-hardware@.service` must start that helper
+- `49-keymasq-hardware.rules` must be installed so the `keymasq` user can start
+  the job template
 
 See `docs/security.md` and `docs/packaging.md` for details.
 
@@ -252,7 +259,7 @@ their full dependency lists. Check them directly:
 
 Every family covers the same required core: the base Python dependencies
 above, GTK4 and libadwaita with their introspection data, `libxkbcommon` for
-keyboard layouts, polkit/pkexec, systemd and udev integration, and `acl` for
+keyboard layouts, polkit, systemd and udev integration, and `acl` for
 the `setfacl`-based device access rules. The families differ only in how they classify the optional pieces:
 
 | Package family | `uvloop` | `slurp` |

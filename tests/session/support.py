@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from dbus_next.constants import MessageType
 from dbus_next.message import Message
-
-import keymasq.session.manager.recording_unlock as recording_unlock_module
-from keymasq.common.security import PeerCredentials
-from keymasq.session.manager.core import SessionManager
 
 
 def dbus_reply(body: list[object] | None = None, *, signature: str = "") -> Message:
@@ -144,29 +139,3 @@ def patch_session_message_bus(
             return buses.pop(0)
 
     monkeypatch.setattr(dbus_module, "MessageBus", _MessageBusFactory)
-
-
-def grant_recording_refresh_owner(
-    manager: SessionManager,
-    peer: PeerCredentials,
-    writer: object,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    lease_id: str = "lease-test",
-) -> AsyncMock:
-    manager.unlock_state.refresh_owner = {
-        "uid": peer.uid,
-        "pid": peer.pid,
-        "writer_id": id(writer),
-        "lease_id": lease_id,
-        "source": "runtime",
-    }
-    resolve_unlock_status_async = AsyncMock(
-        return_value={"unlocked": True, "source": "runtime", "expires_at": 9999999999}
-    )
-    monkeypatch.setattr(
-        recording_unlock_module,
-        "resolve_unlock_status_async",
-        resolve_unlock_status_async,
-    )
-    return resolve_unlock_status_async

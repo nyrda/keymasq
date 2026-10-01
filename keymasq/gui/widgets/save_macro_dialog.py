@@ -26,7 +26,6 @@ class SaveMacroDialog(Adw.Dialog):
         self._closing_after_resolution = False
         self._request_inflight = False
         self._request_error_message: str | None = None
-        self._unlock_denied_for_save = False
         self._pending_save_token = str(recording_data.get("pending_save_token", "") or "")
         self._recording_slot = int(recording_data.get("recording_slot", 0) or 0)
         self._start_position_recorded = bool(recording_data.get("start_position_recorded", False))
@@ -66,11 +65,7 @@ class SaveMacroDialog(Adw.Dialog):
         content.set_margin_bottom(12)
         content.set_margin_start(16)
         content.set_margin_end(16)
-        # When unlock hides the warning, keep the footer anchored in the
-        # already-allocated taller dialog instead of letting the frame collapse.
         content.set_vexpand(True)
-        self._content_box = content
-        self._layout_frame = frame
 
         name_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         name_row.set_valign(Gtk.Align.CENTER)
@@ -94,9 +89,6 @@ class SaveMacroDialog(Adw.Dialog):
         self._error_label.set_halign(Gtk.Align.START)
         self._error_label.set_visible(False)
         content.append(self._error_label)
-
-        self._locked_notice = self._build_locked_notice()
-        content.append(self._locked_notice)
 
         content.append(Gtk.Separator())
 
@@ -154,11 +146,6 @@ class SaveMacroDialog(Adw.Dialog):
             self._later_btn = later_btn
             footer.append(later_btn)
 
-        self._unlock_btn = Gtk.Button()
-        self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
-        self._unlock_btn.connect("clicked", self._on_unlock_clicked)
-        footer.append(self._unlock_btn)
-
         self._save_btn = Gtk.Button(label="Save")
         self._save_btn.add_css_class("suggested-action")
         self._save_btn.set_sensitive(False)
@@ -175,37 +162,6 @@ class SaveMacroDialog(Adw.Dialog):
         frame.set_child(inner)
         main_box.append(frame)
         self.set_child(main_box)
-        self._update_unlock_ui()
-
-    def _build_locked_notice(self) -> Gtk.Box:
-        notice = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        notice.add_css_class("recording-locked-notice")
-        notice.set_visible(False)
-
-        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
-        icon.set_valign(Gtk.Align.START)
-        notice.append(icon)
-
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        text_box.set_hexpand(True)
-
-        title = Gtk.Label(label="Saving needs unlock")
-        title.add_css_class("heading")
-        title.set_halign(Gtk.Align.START)
-        text_box.append(title)
-
-        body = Gtk.Label(
-            label=(
-                "Unlock before saving this temporary slot as a regular macro. "
-                "This may show a system authorization prompt."
-            )
-        )
-        body.set_wrap(True)
-        body.set_halign(Gtk.Align.START)
-        text_box.append(body)
-
-        notice.append(text_box)
-        return notice
 
     def do_close_attempt(self) -> None:
         if self._saved or self._closing_after_resolution:
@@ -264,9 +220,7 @@ class SaveMacroDialog(Adw.Dialog):
             return
 
         self._hide_error()
-        self._set_submit_buttons_sensitive(
-            not self._request_inflight and self._persist_unlock_ready()
-        )
+        self._set_submit_buttons_sensitive(not self._request_inflight)
 
     def _refresh_submit_state(self) -> None:
         self._validate_name(self._name_entry.get_text())
@@ -288,7 +242,7 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _save_current_name(self) -> None:
         name = _normalized_macro_name(self._name_entry.get_text())
-        if not name or not self._persist_unlock_ready():
+        if not name:
             return
 
         payload = self._save_payload(name)
@@ -307,75 +261,6 @@ class SaveMacroDialog(Adw.Dialog):
             payload["recording_slot"] = self._recording_slot
         return payload
 
-    def _persist_unlock_ready(self) -> bool:
-        unlock_required = self._persist_unlock_required()
-        if not unlock_required:
-            return True
-        if self._unlock_denied_for_save:
-            return False
-        return bool(getattr(self._parent, "_recording_unlocked", False)) and bool(
-            getattr(self._parent, "_recording_refresh_owner", False)
-        )
-
-    def _persist_unlock_required(self) -> bool:
-        if self._unlock_denied_for_save:
-            return True
-        if not hasattr(self._parent, "_recording_unlock_required"):
-            return False
-        return bool(getattr(self._parent, "_recording_unlock_required", True))
-
-    def _recording_unlocked_elsewhere(self) -> bool:
-        if not self._persist_unlock_required():
-            return False
-        return bool(getattr(self._parent, "_recording_unlocked", False)) and not bool(
-            getattr(self._parent, "_recording_refresh_owner", False)
-        )
-
-    def _on_unlock_clicked(self, _btn: Gtk.Button) -> None:
-        present_unlock = getattr(self._parent, "present_unlock_dialog", None)
-        if callable(present_unlock):
-            present_unlock(on_success=self._on_unlock_success)
-            return
-        self._show_error("Unlock is only available from the main window")
-
-    def _on_unlock_success(self) -> None:
-        self._unlock_denied_for_save = False
-        self._update_unlock_ui()
-        self._refresh_submit_state()
-
-    def _make_unlock_button_content(self, label: str) -> Gtk.Box:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
-        box.append(icon)
-        lbl = Gtk.Label(label=label)
-        box.append(lbl)
-        return box
-
-    def _update_unlock_ui(self) -> None:
-        unlock_required = self._persist_unlock_required()
-        unlock_ready = self._persist_unlock_ready()
-        needs_unlock = unlock_required and not unlock_ready
-        self._locked_notice.set_visible(needs_unlock)
-        self._unlock_btn.set_visible(needs_unlock)
-        if needs_unlock:
-            if self._recording_unlocked_elsewhere():
-                self._unlock_btn.set_child(self._make_unlock_button_content("Claim"))
-                self._unlock_btn.set_tooltip_text(
-                    "Claim this GUI as the active owner before saving the slot."
-                )
-            else:
-                self._unlock_btn.set_child(self._make_unlock_button_content("Unlock"))
-                self._unlock_btn.set_tooltip_text(
-                    "Authorize saving this temporary slot as a regular macro."
-                )
-            self._unlock_btn.add_css_class("suggested-action")
-            self._save_btn.remove_css_class("suggested-action")
-            self._save_btn.set_tooltip_text("Unlock before saving this slot")
-        else:
-            self._unlock_btn.remove_css_class("suggested-action")
-            self._save_btn.add_css_class("suggested-action")
-            self._save_btn.set_tooltip_text(None)
-
     def _submit_save(self, payload: dict) -> None:
         if self._request_inflight:
             return
@@ -388,7 +273,6 @@ class SaveMacroDialog(Adw.Dialog):
 
     def _on_save_request_start(self) -> None:
         self._request_error_message = None
-        self._unlock_denied_for_save = False
         self._set_request_inflight(True)
 
     def _on_save_request_done(self) -> None:
@@ -408,14 +292,7 @@ class SaveMacroDialog(Adw.Dialog):
             if edit_after_save:
                 GLib.idle_add(self._present_saved_macro_editor, saved_name)
         else:
-            result = result or {}
-            error_code = str(result.get("error_code", "") or "").strip()
-            if error_code in {"recording_locked", "sensitive_command_denied"}:
-                self._unlock_denied_for_save = True
-                self._request_error_message = "Unlock before saving this slot."
-                self._update_unlock_ui()
-                return False
-            self._request_error_message = result.get("message", "Failed to save macro")
+            self._request_error_message = (result or {}).get("message", "Failed to save macro")
         return False
 
     def _present_saved_macro_editor(self, name: str) -> bool:
@@ -440,13 +317,8 @@ class SaveMacroDialog(Adw.Dialog):
             self._later_btn.set_sensitive(not inflight)
         self._name_entry.set_sensitive(not inflight)
         self._block_mouse_check.set_sensitive(not inflight)
-        if inflight:
-            self._unlock_btn.set_sensitive(False)
-            return
-
-        self._unlock_btn.set_sensitive(True)
-        self._update_unlock_ui()
-        self._refresh_submit_state()
+        if not inflight:
+            self._refresh_submit_state()
 
     def _set_submit_buttons_sensitive(self, sensitive: bool) -> None:
         self._save_btn.set_sensitive(sensitive)

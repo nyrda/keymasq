@@ -32,7 +32,9 @@ source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 install_package() {
     case "$format" in
-        debian) DEBIAN_FRONTEND=noninteractive apt-get install -y "$1" ;;
+        # The test rewrites the security.toml conffile; keep it without a prompt.
+        debian) DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$1" ;;
         fedora) dnf install -y --nogpgcheck "$1" ;;
         opensuse) zypper --non-interactive --no-gpg-checks install --allow-unsigned-rpm "$1" ;;
         pacman) pacman -U --noconfirm "$1" ;;
@@ -65,12 +67,15 @@ baseline_version=$(version)
 setup prepare
 check ready
 check baseline
-# Baselines from before the rename ship only keymasq-record.
-baseline_helper=/usr/bin/keymasq-helper
-if [[ ! -x "$baseline_helper" ]]; then
-    baseline_helper=/usr/bin/keymasq-record
-fi
-"$baseline_helper" unlock-runtime --uid 1999 --ttl 120
+# Baselines from before the capture unlock removal gate masking behind it. Older
+# ones ship keymasq-record, later nightlies keymasq-helper.
+for baseline_helper in /usr/bin/keymasq-helper /usr/bin/keymasq-record; do
+    [[ -x $baseline_helper ]] || continue
+    if [[ $("$baseline_helper" --help 2>&1 || true) == *unlock-runtime* ]]; then
+        "$baseline_helper" unlock-runtime --uid 1999 --ttl 120
+        break
+    fi
+done
 check mask
 old_pid=$(systemctl show keymasqd.service -p MainPID --value)
 

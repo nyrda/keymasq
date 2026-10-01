@@ -16,7 +16,7 @@ on every supported distribution:
 - `keymasq-session`: the per-user session service that tracks desktop/session
   state and talks to the daemon
 - `keymasq`: the main CLI and GTK application
-- `keymasq-helper`: the root helper for capture unlock, the macro-recording opt-in, and hardware masking operations
+- `keymasq-helper`: the short-lived root helper for hardware jobs (masking, source hiding, HID-BPF attachment) and hardware recovery
 
 The repository currently maintains these package outputs:
 
@@ -192,7 +192,7 @@ These directories provide the shared package contents:
 - `udev/`: device access rules
 - `sysusers.d/`: creation of the `keymasq` system user/group
 - `tmpfiles.d/`: runtime and state directory creation
-- `polkit/`: privileged recording policy
+- `polkit/`: rule that lets the `keymasq` user start hardware jobs
 - `assets/`: desktop file, AppStream metainfo, and SVG/PNG application icons
 - `examples/`: sample configuration files
 - `gnome-extension/`: optional GNOME bridge extension
@@ -225,7 +225,7 @@ Packaging never restarts the GUI.
 The Nix outputs split that payload slightly differently:
 
 - the plain Nix package installs the application commands, desktop assets,
-  source-hiding udev rule files, and polkit policy into the Nix store
+  and source-hiding udev rule files into the Nix store
 - the NixOS module wires up the system daemon, user session service, udev ACLs
   and source-hiding rules, tmpfiles, the `keymasq` system user/group, and
   `/etc/keymasq/security.toml`
@@ -239,12 +239,13 @@ The main filesystem layout is:
 /usr/bin/keymasq-session
 /usr/bin/keymasq-helper
 /usr/lib/systemd/system/keymasqd.service
+/usr/lib/systemd/system/keymasq-hardware@.service
 /usr/lib/systemd/user/keymasq-session.service
 /usr/lib/sysusers.d/keymasq.conf
 /usr/lib/tmpfiles.d/keymasq.conf
 /usr/lib/udev/rules.d/91-keymasq-acl.rules
 /usr/lib/udev/rules.d/99-keymasq-hide-grabbed.rules
-/usr/share/polkit-1/actions/com.keymasq.helper.policy
+/usr/share/polkit-1/rules.d/49-keymasq-hardware.rules
 /usr/share/applications/tools.keymasq.keymasq.desktop
 /usr/share/metainfo/tools.keymasq.keymasq.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg
@@ -321,9 +322,7 @@ extracts it once into `/opt/keymasq/runtime/<sha256>`, points
 wrappers in `/opt/keymasq/bin` and the target user's `~/.local/bin`, writes
 system integration under `/etc`, and creates
 `/etc/atomic-update.conf.d/keymasq.conf` so SteamOS keeps the `/etc`
-integration files across atomic OS updates. On mutable non-SteamOS hosts, it
-also installs the `/opt/keymasq/bin/keymasq-helper` polkit action under
-`/usr/share/polkit-1/actions` when that directory is writable. `/opt/keymasq`
+integration files across atomic OS updates. `/opt/keymasq`
 lives under SteamOS' persistent `/opt` offload mount, and the atomic update
 keep-list does not manage it. The installer runs `systemd-sysusers` and
 `systemd-tmpfiles --create` once during install. After SteamOS updates, the
@@ -649,12 +648,6 @@ That shell covers source checks and the local current-worktree
 `scripts/build-packages.sh` RPM flow. Native distro packaging still requires
 access to the target distro's metadata when dependency names or Python paths
 must be resolved against Fedora or openSUSE.
-
-The GUI development launcher normalizes `SHELL` to an entry in `/etc/shells`
-for polkit authentication. On NixOS, it also puts `/run/wrappers/bin` first in
-`PATH` so GUI unlock uses the installed setuid `pkexec` wrapper. The executable
-in the Nix store cannot elevate privileges itself. Restart the GUI after
-changing the launcher environment.
 
 For Debian package work on Debian or Ubuntu, install:
 

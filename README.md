@@ -174,8 +174,13 @@ profile format and merge rules.
 Only `keymasq-session` talks to the privileged daemon. The GUI and CLI talk to
 that session broker and never open kernel input devices themselves.
 
-Macro recording requires explicit opt-in. Capture features require a temporary,
-process-bound unlock by default.
+Keymasq does not try to protect your input from unconfined code running as
+your desktop user; such code can already change your Keymasq configuration. It
+defends the boundaries between local users, between sandboxed apps and the
+host, and around its privileged daemon and root helper. In the normal
+workflow, macro recording is started explicitly and announced with a desktop
+notification, and the daemon enforces a time limit. Administrators can turn
+off the built-in recorder in `/etc/keymasq/security.toml`.
 
 See [docs/security.md](docs/security.md) for details.
 

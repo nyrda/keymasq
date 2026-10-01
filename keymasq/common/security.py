@@ -8,6 +8,7 @@ from typing import Any, cast
 
 log = logging.getLogger(__name__)
 DEFAULT_MACRO_RECORDING_TIME_LIMIT = 10
+_REMOVED_RECORDING_GUARD_KEYS = ("unlock_required", "macro_edit_requires_unlock")
 
 
 @dataclass
@@ -22,9 +23,8 @@ class SecurityPolicy:
     daemon_allowed_uids: list[int] = field(default_factory=list)
     session_allowed_uids: list[int] = field(default_factory=list)
     macro_exec_timeout_max_ms: int = 30000
-    recording_unlock_required: bool = True
+    macro_recording_allowed: bool = True
     macro_recording_time_limit: int = DEFAULT_MACRO_RECORDING_TIME_LIMIT
-    macro_edit_requires_unlock: bool = False
     emergency_cancel_combo_enabled: bool = True
 
 
@@ -94,15 +94,17 @@ def load_security_policy(config_path: Path) -> SecurityPolicy:
     recording_guard_cfg = raw.get("recording_guard")
     if isinstance(recording_guard_cfg, dict):
         recording_guard = cast(dict[str, Any], recording_guard_cfg)
-        policy.recording_unlock_required = _to_bool(
-            recording_guard.get("unlock_required"),
-            "recording_guard.unlock_required",
-            policy.recording_unlock_required,
-        )
-        policy.macro_edit_requires_unlock = _to_bool(
-            recording_guard.get("macro_edit_requires_unlock"),
-            "recording_guard.macro_edit_requires_unlock",
-            policy.macro_edit_requires_unlock,
+        for removed_key in _REMOVED_RECORDING_GUARD_KEYS:
+            if removed_key in recording_guard:
+                log.warning(
+                    "Ignoring recording_guard.%s in %s: the capture unlock was removed",
+                    removed_key,
+                    config_path,
+                )
+        policy.macro_recording_allowed = _to_bool(
+            recording_guard.get("macro_recording_allowed"),
+            "recording_guard.macro_recording_allowed",
+            policy.macro_recording_allowed,
         )
         time_limit = recording_guard.get(
             "macro_recording_time_limit",

@@ -142,8 +142,8 @@ output. This means:
   or a mouse interface. Omitting it makes the combo match the evdev code on any
   grabbed interface in scope.
 
-Capture uses the same security model as macro recording. It observes original
-input and requires the capture unlock flow.
+Capture runs in `keymasqd` and observes original input from the devices in the
+profile. See [Input capture and inspection](security.md#input-capture-and-inspection).
 
 ## Trigger scope
 
@@ -347,8 +347,8 @@ and `source` values but ignores them at runtime.
 - **Compositor dispatcher actions** can send commands to your compositor
   (e.g. Hyprland). These interact with your desktop environment directly, so
   review what they do before assigning them to a combo.
-- **Combo capture** uses the same security model as macro recording. It
-  observes original input and requires the capture unlock flow.
+- **Combo capture** observes original input only while Keymasq is in capture
+  mode, and each capture is limited to 15 seconds.
 
 ## Troubleshooting
 

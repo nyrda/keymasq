@@ -131,7 +131,6 @@ class ComboEditorDialog(Adw.Dialog):
         self._profile_name = profile_name
         self._sibling_combos = deepcopy(sibling_combos or [])
         self._emergency_cancel_combo_enabled = bool(emergency_cancel_combo_enabled)
-        self._recording_unlocked = False
         self._capture_inflight = False
         self._validation_message = ""
         self._restore_trigger_key_rows: list[Gtk.ListBoxRow] = []
@@ -144,7 +143,6 @@ class ComboEditorDialog(Adw.Dialog):
         self._refresh_trigger_display()
         self._update_action_summary()
         self._update_save_button()
-        self._refresh_authorization_state_async()
         self.connect("closed", self._on_closed)
 
     def _setup_ui(self) -> None:
@@ -196,16 +194,6 @@ class ComboEditorDialog(Adw.Dialog):
         self.add_step_button.connect("clicked", self._on_add_step_clicked)
         top_row.append(self.add_step_button)
 
-        self.unlock_button = Gtk.Button()
-        self.unlock_button.set_child(self._make_unlock_button_content())
-        self.unlock_button.set_tooltip_text(
-            "Authorize raw original-input capture so combo capture can read the actual "
-            "keys and buttons before remapping."
-        )
-        self.unlock_button.add_css_class("flat")
-        self.unlock_button.connect("clicked", self._on_unlock_clicked)
-        top_row.append(self.unlock_button)
-
         clear_button = Gtk.Button(label="Clear")
         clear_button.add_css_class("flat")
         clear_button.connect("clicked", self._on_clear_clicked)
@@ -231,14 +219,12 @@ class ComboEditorDialog(Adw.Dialog):
         self.capture_status.set_wrap(True)
         trigger_inner.append(self.capture_status)
 
-        self.capture_privilege_status = Gtk.Label(
-            label="Capture reads original key events before remapping."
-        )
-        self.capture_privilege_status.add_css_class("dim-label")
-        self.capture_privilege_status.add_css_class("caption")
-        self.capture_privilege_status.set_halign(Gtk.Align.START)
-        self.capture_privilege_status.set_wrap(True)
-        trigger_inner.append(self.capture_privilege_status)
+        capture_hint = Gtk.Label(label="Capture reads original key events before remapping.")
+        capture_hint.add_css_class("dim-label")
+        capture_hint.add_css_class("caption")
+        capture_hint.set_halign(Gtk.Align.START)
+        capture_hint.set_wrap(True)
+        trigger_inner.append(capture_hint)
 
         trigger_group.add(trigger_inner)
         content.append(trigger_group)
@@ -332,10 +318,6 @@ class ComboEditorDialog(Adw.Dialog):
 
     def _on_add_step_clicked(self, _button: Gtk.Button) -> None:
         if self._capture_inflight:
-            return
-        if not self._recording_unlocked:
-            self.capture_status.set_text("Unlock required before capturing original input.")
-            self._update_capture_controls()
             return
         if not self._profile_name:
             self.capture_status.set_text("Select a profile before capturing a combo.")
@@ -642,59 +624,13 @@ class ComboEditorDialog(Adw.Dialog):
                 return True
         return False
 
-    def _refresh_authorization_state_async(self, *_args) -> None:
-        session_request_async({"command": "get_status"}, self._on_status_response, timeout=1.0)
-
-    def _on_status_response(self, result: dict | None) -> bool:
-        result = result or {}
-        unlock_required = bool(result.get("recording_unlock_required", True))
-        self._recording_unlocked = (
-            bool(result.get("recording_unlocked", False)) or not unlock_required
-        )
-        self._update_capture_controls()
-        return False
-
     def _update_capture_controls(self) -> None:
-        needs_unlock = not self._recording_unlocked and not self._capture_inflight
         if self._capture_inflight:
             self.add_step_button.set_label("Capturing...")
             self.add_step_button.set_sensitive(False)
-            self.add_step_button.set_visible(True)
         else:
             self.add_step_button.set_label("Capture Step")
             self.add_step_button.set_sensitive(True)
-            self.add_step_button.set_visible(not needs_unlock)
-
-        self.unlock_button.set_visible(needs_unlock)
-        self.unlock_button.set_tooltip_text(
-            "Authorize raw original-input capture so combo capture can read the actual "
-            "keys and buttons before remapping."
-        )
-        if self._recording_unlocked:
-            self.capture_privilege_status.set_text(
-                "Original-input capture is unlocked. Capture reads raw key events before remapping."
-            )
-        else:
-            self.capture_privilege_status.set_text(
-                "Original-input capture uses privileged raw events. "
-                "Unlock to capture original keys."
-            )
-
-    def _make_unlock_button_content(self) -> Gtk.Box:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
-        box.append(icon)
-        lbl = Gtk.Label(label="Unlock Capture")
-        box.append(lbl)
-        return box
-
-    def _on_unlock_clicked(self, _button: Gtk.Button) -> None:
-        root = self.get_root()
-        present_unlock = getattr(root, "present_unlock_dialog", None)
-        if callable(present_unlock):
-            present_unlock(on_success=self._refresh_authorization_state_async)
-            return
-        self.capture_status.set_text("Unlock is only available from the main window.")
 
     def _on_capture_combo_response(self, result: dict | None) -> bool:
         self._capture_inflight = False
@@ -702,8 +638,6 @@ class ComboEditorDialog(Adw.Dialog):
             self.capture_status.set_text(
                 (result or {}).get("message", "Combo capture failed: session unavailable")
             )
-            if result and self._is_recording_locked(result):
-                self._recording_unlocked = False
             self._update_capture_controls()
             return False
 
@@ -759,9 +693,3 @@ class ComboEditorDialog(Adw.Dialog):
 
     def _on_cancel_clicked(self, _button: Gtk.Button) -> None:
         self.close()
-
-    def _is_recording_locked(self, result: dict) -> bool:
-        if result.get("error_code") == "recording_locked":
-            return True
-        message = str(result.get("message", "") or "").lower()
-        return "recording_locked" in message

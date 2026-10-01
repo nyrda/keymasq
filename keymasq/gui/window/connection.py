@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from . import _runtime, compositor, gnome_setup, macro_recording, profiles, recording_unlock
+from . import _runtime, compositor, gnome_setup, macro_recording, profiles
 
 
 def register(window) -> None:
@@ -69,11 +69,13 @@ def _handle_session_event(window, event: dict) -> None:
         macro_recording._on_recording_stopped(window, event)
     elif event_type == "recording_progress":
         window._recording_overlay.on_progress(event)
-    elif event_type == "recording_auth_requested":
-        macro_recording.present_recording_settings_dialog(window, reason="recording_locked")
     elif event_type == "macro_recording_disabled":
-        macro_recording._update_macro_recording_state(window, event)
+        window._macro_recording_allowed = False
 
+    _notify_event_handlers(window, event_type, event)
+
+
+def _notify_event_handlers(window, event_type: str, event: dict) -> None:
     callbacks = window._event_handlers.get(event_type)
     if callbacks is None:
         return
@@ -122,10 +124,17 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
     try:
         session_ok = bool(data and data.get("status") == "ok")
         keymasqd_ok = bool(data and data.get("keymasqd_connected") is True)
-        recording_unlock._update_unlock_state(window, data if isinstance(data, dict) else None)
-        macro_recording._update_macro_recording_state(
+        if macro_recording._update_recording_policy(
             window, data if isinstance(data, dict) else None
-        )
+        ):
+            _notify_event_handlers(
+                window,
+                "macro_recording_policy_changed",
+                {
+                    "event": "macro_recording_policy_changed",
+                    "macro_recording_allowed": window._macro_recording_allowed,
+                },
+            )
         compositor._update_compositor_dispatch_state(
             window, data if isinstance(data, dict) else None
         )
@@ -158,8 +167,6 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
         else:
             _update_status_disconnected(window)
     except (OSError, RuntimeError, TypeError, ValueError):
-        recording_unlock._update_unlock_state(window, None)
-        macro_recording._update_macro_recording_state(window, None)
         _update_status_disconnected(window)
 
     return False

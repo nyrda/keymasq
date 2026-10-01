@@ -35,12 +35,3 @@ def _set_capture_status(
     if dot is None:
         return
     cast(Gtk.Widget, dot).set_visible(recording)
-
-
-def make_unlock_button_content(label: str) -> Gtk.Box:
-    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-    icon = Gtk.Image.new_from_icon_name("channel-insecure-symbolic")
-    box.append(icon)
-    lbl = Gtk.Label(label=label)
-    box.append(lbl)
-    return box

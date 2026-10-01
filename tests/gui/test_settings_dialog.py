@@ -45,16 +45,16 @@ def test_settings_dialog_opens_macro_recording_settings(monkeypatch, temp_config
         "session_request_async",
         lambda payload, callback, timeout=5.0: None,
     )
-    captured: dict[str, object] = {}
+    opened: list[bool] = []
 
     class Parent(Gtk.Window):
-        def present_recording_settings_dialog(self, reason: str = "settings") -> None:
-            captured["reason"] = reason
+        def present_recording_settings_dialog(self) -> None:
+            opened.append(True)
 
     dialog = SettingsDialog(Parent())
     dialog._on_macro_settings_clicked(dialog._macro_settings_btn)
 
-    assert captured == {"reason": "settings"}
+    assert opened == [True]
 
 
 def test_settings_dialog_shows_session_apply_error(

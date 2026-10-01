@@ -124,13 +124,13 @@ async def test_grant_removal_failures_do_not_block_removal(host, monkeypatch):
     await operations.prepare_removal()
 
 
-def test_prepare_removal_requires_root_outside_recording_authorization(monkeypatch):
+def test_prepare_removal_requires_root_outside_pkexec(monkeypatch):
     monkeypatch.setattr(operations.os, "geteuid", lambda: 1000)
     with pytest.raises(PermissionError, match="require root"):
         operations.main("prepare-removal")
     monkeypatch.setattr(operations.os, "geteuid", lambda: 0)
     monkeypatch.setenv("PKEXEC_UID", "1000")
-    with pytest.raises(PermissionError, match="Recording authorization"):
+    with pytest.raises(PermissionError, match="pkexec authorization"):
         operations.main("prepare-removal")
 
 

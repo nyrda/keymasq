@@ -119,7 +119,7 @@ button.button-card-mapped-inactive label {
   margin-top: -4px;
 }
 
-.recording-locked-notice {
+.recording-disabled-notice {
   background: alpha(@warning_color, 0.12);
   border-left: 3px solid @warning_color;
   border-radius: 6px;
@@ -277,10 +277,6 @@ button.bound-target {
 .macro-slot-title {
   font-size: 13px;
   font-weight: 700;
-}
-
-.macro-recording-disabled-placeholder {
-  padding: 10px 12px;
 }
 
 button.macro-slot-button {

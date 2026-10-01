@@ -414,12 +414,8 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
         lambda _payload, _callback: None,
     )
 
-    class Parent(Gtk.Window):
-        def macro_recording_enabled(self) -> bool:
-            return True
-
     results: list[MappingAction] = []
-    dialog = KeySelectorDialog(Parent(), "Back")
+    dialog = KeySelectorDialog(Gtk.Window(), "Back")
     monkeypatch.setattr(dialog, "close", lambda: None)
     dialog.connect("key-selected", lambda _dialog, action: results.append(action))
     dialog.stack.set_visible_child_name("macro")
@@ -478,12 +474,13 @@ def test_key_selector_macro_slots_use_card_layout(monkeypatch) -> None:
     assert results[1].macro_recording_slot == 4
 
 
-def test_key_selector_macro_slots_show_disabled_placeholder(monkeypatch) -> None:
+def test_key_selector_macro_slots_disable_recording_when_not_allowed(monkeypatch) -> None:
     gi.require_version("Adw", "1")
     gi.require_version("Gtk", "4.0")
-    from gi.repository import Adw, Gtk
+    from gi.repository import Gtk
 
     import keymasq.gui.widgets.key_selector.macro_tab as key_selector_dialog_module
+    from keymasq.common.recording_policy import MACRO_RECORDING_DISABLED_MESSAGE
     from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 
     monkeypatch.setattr(key_selector_dialog_module.GLib, "idle_add", lambda callback, *args: 0)
@@ -492,48 +489,69 @@ def test_key_selector_macro_slots_show_disabled_placeholder(monkeypatch) -> None
         "session_request_async",
         lambda _payload, _callback: None,
     )
-    opened: list[str] = []
 
     class Parent(Gtk.Window):
-        def macro_recording_enabled(self) -> bool:
-            return False
+        def __init__(self) -> None:
+            super().__init__()
+            self.allowed = False
+            self.handlers: dict[str, list] = {}
 
-        def present_recording_settings_dialog(self, reason: str = "settings") -> None:
-            opened.append(reason)
+        def macro_recording_allowed(self) -> bool:
+            return self.allowed
 
-    dialog = KeySelectorDialog(Parent(), "Back")
-    closed: list[bool] = []
-    monkeypatch.setattr(dialog, "close", lambda: closed.append(True))
+        def register_event_handler(self, event_type: str, callback) -> None:
+            self.handlers.setdefault(event_type, []).append(callback)
+
+        def unregister_event_handler(self, event_type: str, callback) -> None:
+            self.handlers[event_type].remove(callback)
+
+        def notify(self, event_type: str) -> None:
+            for callback in list(self.handlers.get(event_type, [])):
+                callback({"event": event_type})
+
+    def slot_buttons(dialog: KeySelectorDialog) -> tuple[list, list]:
+        macro_tab = dialog.stack.get_child_by_name("macro")
+        assert macro_tab is not None
+        buttons = collect_widgets(macro_tab, Gtk.Button)
+        record_buttons = [
+            button
+            for button in buttons
+            if (button.get_tooltip_text() or "").startswith("Toggle macro recording")
+            or button.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE
+        ]
+        play_buttons = [
+            button
+            for button in buttons
+            if (button.get_tooltip_text() or "").startswith("Play the macro recorded in slot")
+        ]
+        return record_buttons, play_buttons
+
+    parent = Parent()
+    dialog = KeySelectorDialog(parent, "Back")
     dialog.stack.set_visible_child_name("macro")
 
-    macro_tab = dialog.stack.get_child_by_name("macro")
-    assert macro_tab is not None
-    labels = {
-        label.get_label() for label in collect_widgets(macro_tab, Gtk.Label) if label.get_label()
-    }
-    assert "Macro recording is disabled" in labels
-    assert "Macro Library" in labels
-    assert "Slot 1" not in labels
-
-    slot_buttons = [
-        button
-        for button in collect_widgets(macro_tab, Gtk.Button)
-        if button.get_tooltip_text() == "Toggle macro recording into slot 1"
-    ]
-    assert slot_buttons == []
-
-    settings_btn = next(
-        button
-        for button in collect_widgets(macro_tab, Gtk.Button)
-        if button.get_tooltip_text() == "Open macro recording settings"
+    record_buttons, play_buttons = slot_buttons(dialog)
+    assert len(record_buttons) == 4
+    assert all(button.get_sensitive() is False for button in record_buttons)
+    assert all(
+        button.get_tooltip_text() == MACRO_RECORDING_DISABLED_MESSAGE for button in record_buttons
     )
-    settings_content = settings_btn.get_child()
-    assert isinstance(settings_content, Adw.ButtonContent)
-    assert settings_content.get_label() == "Open Settings"
-    settings_btn.emit("clicked")
+    assert len(play_buttons) == 4
+    assert all(button.get_sensitive() is True for button in play_buttons)
 
-    assert opened == ["settings"]
-    assert closed == [True]
+    parent.allowed = True
+    parent.notify("macro_recording_policy_changed")
+    record_buttons, _play_buttons = slot_buttons(dialog)
+    assert len(record_buttons) == 4
+    assert all(button.get_sensitive() is True for button in record_buttons)
+
+    parent.allowed = False
+    parent.notify("macro_recording_disabled")
+    record_buttons, _play_buttons = slot_buttons(dialog)
+    assert all(button.get_sensitive() is False for button in record_buttons)
+
+    dialog.emit("closed")
+    assert all(not callbacks for callbacks in parent.handlers.values())
 
 
 def test_hardware_setup_search_and_raw_toggle_controls(monkeypatch) -> None:

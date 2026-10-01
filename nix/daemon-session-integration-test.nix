@@ -13,6 +13,17 @@ let
   runtimeDir = "/run/user/${toString vmUid}";
   testSource = ./daemon-session-integration-test;
   testPython = pkgs.python3.withPackages (ps: [ evdevPackage ps.fusepy ]);
+  tomlFormat = pkgs.formats.toml { };
+  vmSecurityConfig = {
+    daemon_allowed_uids = [ vmUid ];
+    session_allowed_uids = [ vmUid ];
+    recording_guard.macro_recording_allowed = true;
+  };
+  recordingDisabledSecurityToml = tomlFormat.generate "keymasq-security-recording-disabled.toml" (
+    pkgs.lib.recursiveUpdate vmSecurityConfig {
+      recording_guard.macro_recording_allowed = false;
+    }
+  );
 
   integrationRunner = pkgs.writeShellApplication {
     name = "keymasq-daemon-session-integration-test";
@@ -24,7 +35,6 @@ let
       export PYTHONPATH="${testSource}"
       export KEYMASQ_INTEGRATION_SYSTEMCTL="${pkgs.systemd}/bin/systemctl"
       export KEYMASQ_INTEGRATION_SUDO="/run/wrappers/bin/sudo"
-      export KEYMASQ_INTEGRATION_HELPER="${keymasqPackage}/bin/keymasq-helper"
       exec ${testPython}/bin/python ${testSource}/runner.py "$@"
     '';
   };
@@ -46,7 +56,6 @@ let
   mkDaemonSessionIntegrationTest =
     {
       name,
-      unlockRequired,
       scenarioFilter ? "",
       repeatCount ? "",
     }:
@@ -73,6 +82,7 @@ let
         else
           pkgs.lib.toInt checkedRepeatCount;
       runnerTimeout = 300 * repeatMultiplier;
+      runPolicyDisabledPhase = checkedScenarioFilter == "";
     in
     pkgs.testers.runNixOSTest {
       inherit name;
@@ -105,14 +115,7 @@ let
           services.keymasq = {
             enable = true;
             package = keymasqPackage;
-            securityConfig = {
-              daemon_allowed_uids = [ vmUid ];
-              session_allowed_uids = [ vmUid ];
-              recording_guard = {
-                unlock_required = unlockRequired;
-                macro_edit_requires_unlock = false;
-              };
-            };
+            securityConfig = vmSecurityConfig;
           };
 
           systemd.services.keymasqd.serviceConfig.Environment = [ "KEYMASQ_TEST_UINPUT=1" ];
@@ -137,10 +140,6 @@ let
                   commands = [
                     {
                       command = "${pkgs.systemd}/bin/systemctl restart keymasqd.service";
-                      options = [ "NOPASSWD" ];
-                    }
-                    {
-                      command = "${keymasqPackage}/bin/keymasq-helper";
                       options = [ "NOPASSWD" ];
                     }
                   ];
@@ -191,12 +190,6 @@ let
                 "n=$(ls /sys/class/input | grep '^event' | sort -V | tail -1); "
                 + "ls -l /dev/input/$n; ls -la /run/keymasq/hidden /run/keymasq/hidden-hardware; "
                 + "udevadm test --action=change /sys/class/input/$n 2>&1 | tail -80 || true",
-            )
-            log_command_output(
-                "recording leases",
-                "ls -la /run/keymasq /etc/keymasq || true; "
-                + "cat /run/keymasq/macro-recording-enabled-${toString vmUid} "
-                + "/etc/keymasq/macro-recording-enabled-${toString vmUid} 2>/dev/null || true",
             )
             log_command_output(
                 "generated config",
@@ -253,8 +246,6 @@ let
         machine.succeed("${pkgs.acl}/bin/setfacl -m u:${vmUser}:rw /dev/uinput")
         wait_for_user_command("uinput writable", "test -w /dev/uinput")
 
-        machine.succeed("${keymasqPackage}/bin/keymasq-helper enable-macro-recording-persistent --uid ${toString vmUid}")
-
         machine.succeed("loginctl enable-linger ${vmUser}")
         machine.wait_for_unit("user@${toString vmUid}.service")
         wait_for_command("runtime dir", "test -d ${runtimeDir}")
@@ -270,27 +261,58 @@ let
             "test -S ${runtimeDir}/keymasq/session.sock",
         )
 
-        status_code, runner_output = machine.execute(
-            as_user(
-                f"rm -f {output_path} {status_path}; "
-                "set +e; "
-                "${scenarioEnv}${repeatEnv}keymasq-daemon-session-integration-test "
-                f"> {output_path} 2>&1; "
-                "status=$?; "
-                f"echo \"$status\" > {status_path}; "
-                "exit 0"
-            ),
-            timeout=${toString runnerTimeout},
-        )
-        if status_code != 0:
-            raise Exception(f"failed to launch integration runner: {runner_output}")
+        def run_integration_runner(env: str, timeout: int, label: str) -> None:
+            status_code, runner_output = machine.execute(
+                as_user(
+                    f"rm -f {output_path} {status_path}; "
+                    "set +e; "
+                    f"{env}keymasq-daemon-session-integration-test "
+                    f"> {output_path} 2>&1; "
+                    "status=$?; "
+                    f"echo \"$status\" > {status_path}; "
+                    "exit 0"
+                ),
+                timeout=timeout,
+            )
+            if status_code != 0:
+                raise Exception(f"failed to launch integration runner: {runner_output}")
 
-        output = machine.succeed(f"cat {output_path} || true")
-        print(output)
-        status = int(machine.succeed(f"cat {status_path}").strip())
-        if status != 0:
-            dump_debug("daemon/session integration test failed")
-            raise Exception("daemon-session-integration-test failed")
+            output = machine.succeed(f"cat {output_path} || true")
+            print(output)
+            status = int(machine.succeed(f"cat {status_path}").strip())
+            if status != 0:
+                dump_debug(f"{label} failed")
+                raise Exception(f"{label} failed")
+
+        run_integration_runner(
+            "${scenarioEnv}${repeatEnv}",
+            ${toString runnerTimeout},
+            "daemon-session-integration-test",
+        )
+
+        run_policy_disabled_phase = ${if runPolicyDisabledPhase then "True" else "False"}
+        if run_policy_disabled_phase:
+            # Both services read the policy only at startup.
+            machine.succeed(
+                "rm /etc/keymasq/security.toml && "
+                "install -m 0644 ${recordingDisabledSecurityToml} /etc/keymasq/security.toml"
+            )
+            machine.succeed("systemctl restart keymasqd.service")
+            machine.wait_for_unit("keymasqd.service")
+            machine.succeed(as_user("systemctl --user restart keymasq-session.service"))
+            wait_for_user_command(
+                "keymasq-session",
+                "systemctl --user is-active keymasq-session.service",
+            )
+            wait_for_command(
+                "session socket",
+                "test -S ${runtimeDir}/keymasq/session.sock",
+            )
+            run_integration_runner(
+                "KEYMASQ_INTEGRATION_SCENARIOS=macro-recording-disabled-by-policy ",
+                300,
+                "daemon-session policy-disabled phase",
+            )
       '';
     };
 in
@@ -298,20 +320,12 @@ in
   checks = {
     "daemon-session-integration-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
       name = "daemon-session-integration-test${checkSuffix}";
-      unlockRequired = false;
     };
 
     "daemon-session-selected-integration-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
       name = "daemon-session-selected-integration-test${checkSuffix}";
-      unlockRequired = false;
       scenarioFilter = selectedScenarioFilter;
       repeatCount = selectedRepeatCount;
-    };
-
-    "daemon-session-macro-slot-locked-playback-test${checkSuffix}" = mkDaemonSessionIntegrationTest {
-      name = "daemon-session-macro-slot-locked-playback-test${checkSuffix}";
-      unlockRequired = true;
-      scenarioFilter = "mapped-macro-slot-playback-without-capture-unlock";
     };
   };
 }

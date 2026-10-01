@@ -442,7 +442,7 @@ def test_capture_manager_combo_begin_read_end(monkeypatch) -> None:
     monkeypatch.setattr(CaptureManager, "_start_combo_reader", fake_start_combo_reader)
 
     manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
+    begin = manager.begin_combo()
     token = begin["token"]
 
     first = manager.read_combo_nowait(token)
@@ -467,7 +467,7 @@ def test_capture_manager_combo_reader_notifies_async_waiter(monkeypatch) -> None
     monkeypatch.setattr(CaptureManager, "_start_combo_reader", lambda self, session: None)
 
     manager = CaptureManager()
-    begin = manager.begin_combo(authorization=manager.authorize_combo_capture())
+    begin = manager.begin_combo()
     token = begin["token"]
     session = manager._sessions[token]
     session.notify_loop = Mock()
@@ -592,21 +592,10 @@ def test_capture_manager_begin_combo_without_devices_starts_empty_session(monkey
     monkeypatch.setattr(evdev, "list_devices", lambda: [])
 
     manager = CaptureManager()
-    begin = manager.begin_combo(
-        authorization=manager.authorize_combo_capture(),
-    )
+    begin = manager.begin_combo()
 
     assert begin["warnings"] == []
     assert manager.read_combo_nowait(begin["token"]) == {"event": None}
-
-
-def test_capture_manager_begin_combo_requires_authorization(monkeypatch) -> None:
-    monkeypatch.setattr(evdev, "list_devices", lambda: [])
-
-    manager = CaptureManager()
-
-    with pytest.raises(PermissionError, match="missing authorization"):
-        manager.begin_combo()
 
 
 def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> None:
@@ -615,13 +604,11 @@ def test_capture_manager_begin_combo_rejects_duplicate_token(monkeypatch) -> Non
     manager = CaptureManager()
     manager.begin_combo(
         token="same",
-        authorization=manager.authorize_combo_capture(),
     )
 
     with pytest.raises(ValueError, match="Capture token already active"):
         manager.begin_combo(
             token="same",
-            authorization=manager.authorize_combo_capture(),
         )
 
     assert manager.end("same") == {"status": "ok", "ended": True}
@@ -641,13 +628,11 @@ def test_capture_manager_begin_combo_closes_devices_on_duplicate_token(monkeypat
     manager = CaptureManager()
     manager.begin_combo(
         token="same",
-        authorization=manager.authorize_combo_capture(),
     )
 
     with pytest.raises(ValueError, match="Capture token already active"):
         manager.begin_combo(
             token="same",
-            authorization=manager.authorize_combo_capture(),
         )
 
     assert len(opened) == 2
@@ -807,12 +792,3 @@ def test_capture_manager_parse_hardware_id_strips_duplicate_suffix() -> None:
     manager = CaptureManager()
 
     assert manager._parse_hardware_id("045E:02A1@2") == ("045e", "02a1")
-
-
-def test_close_all_revokes_unused_combo_capture_authorizations() -> None:
-    manager = CaptureManager()
-    manager.authorize_combo_capture()
-
-    assert manager._combo_capture_authorizations
-    assert manager.close_all() == 0
-    assert manager._combo_capture_authorizations == set()

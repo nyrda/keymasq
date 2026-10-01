@@ -101,10 +101,6 @@ class Application(Adw.Application):
         self.add_action(macros_action)
         self.set_accels_for_action("app.macros", ["<Control>m"])
 
-        record_macro_action = Gio.SimpleAction.new("record-macro", None)
-        record_macro_action.connect("activate", self._on_record_macro)
-        self.add_action(record_macro_action)
-
         diagnostics_action = Gio.SimpleAction.new("diagnostics", None)
         diagnostics_action.connect("activate", self._on_diagnostics)
         self.add_action(diagnostics_action)
@@ -200,11 +196,6 @@ class Application(Adw.Application):
 
     def _on_macro_manager_closed(self, _dialog: Adw.Dialog, window: MainWindow) -> None:
         window.set_macro_manager_dialog(None)
-
-    def _on_record_macro(self, action, param) -> None:
-        if not self.window:
-            return
-        self.window.present_recording_settings_dialog()
 
     def _on_diagnostics(self, action, param) -> None:
         if not self.window:

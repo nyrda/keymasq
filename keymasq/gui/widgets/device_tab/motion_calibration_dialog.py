@@ -53,7 +53,6 @@ AxisEditor = tuple[
 class MotionCalibrationDialog(Adw.Dialog):
     def __init__(
         self,
-        parent: Gtk.Window | None,
         hardware_config: HardwareConfig,
         sensor: MotionSensorDefinition,
         hardware_manager: HardwareManager,
@@ -63,7 +62,6 @@ class MotionCalibrationDialog(Adw.Dialog):
             content_width=580,
             content_height=560,
         )
-        self._parent = parent
         self._hardware_config = hardware_config
         self._sensor = sensor
         self._hardware_manager = hardware_manager
@@ -238,23 +236,7 @@ class MotionCalibrationDialog(Adw.Dialog):
             return
         if self._capture_state is not _CaptureState.IDLE:
             return
-        if not self._capture_is_unlocked():
-            present_unlock = getattr(self._parent, "present_unlock_dialog", None)
-            if callable(present_unlock):
-                self._set_status("Authorize original-input capture to calibrate the gyro.")
-                present_unlock(on_success=self._begin_capture)
-                return
         self._begin_capture()
-
-    def _capture_is_unlocked(self) -> bool:
-        if self._parent is None:
-            return True
-        required = bool(getattr(self._parent, "_recording_unlock_required", False))
-        if not required:
-            return True
-        return bool(getattr(self._parent, "_recording_unlocked", False)) and bool(
-            getattr(self._parent, "_recording_refresh_owner", False)
-        )
 
     def _begin_capture(self) -> None:
         if self._capture_state is not _CaptureState.IDLE or self._closed:

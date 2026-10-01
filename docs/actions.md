@@ -552,8 +552,9 @@ Recording slot buttons and playback controls appear in the Macro tab:
 
 Recording triggers must name a slot. Keymasq does not choose a slot
 automatically for mapped recording controls. Slot playback triggers also name
-the slot they play. If macro recording is disabled, the key selector replaces
-the slot controls with a short disabled notice and a settings shortcut.
+the slot they play. If an administrator disabled macro recording, the key
+selector disables the record buttons and explains why in their tooltip. Play
+buttons keep working.
 
 ### Playing a macro
 

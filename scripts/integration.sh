@@ -243,6 +243,12 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if [[ ",${scenario_filter}," == *",macro-recording-disabled-by-policy,"* ]]; then
+  echo "macro-recording-disabled-by-policy needs a policy that disables macro recording." >&2
+  echo "It runs at the end of the full suite: ./scripts/integration.sh daemon-session" >&2
+  exit 1
+fi
+
 tests=()
 if [[ ${#raw_tests[@]} -eq 0 && (-n "$scenario_filter" || -n "$repeat_count" || "$evdev_lane" != "current") ]]; then
   raw_tests=(daemon-session)

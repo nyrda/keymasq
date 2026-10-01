@@ -23,7 +23,7 @@ def _split_scenario_filter(values: list[str]) -> list[str]:
 def selected_scenarios(raw_names: list[str]) -> list[ScenarioCase]:
     wanted = _split_scenario_filter(raw_names)
     if not wanted:
-        return SCENARIOS
+        return [scenario for scenario in SCENARIOS if not scenario.explicit_only]
 
     by_name = {
         key: scenario

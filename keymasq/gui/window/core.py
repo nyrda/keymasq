@@ -23,7 +23,6 @@ from . import (
     device_tabs,
     inspectors,
     macro_recording,
-    recording_unlock,
     tab_layout,
 )
 
@@ -62,34 +61,17 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self._macro_manager_dialog: _runtime.Adw.Dialog | None = None
         self._record_macro_dialog: _runtime.Adw.Dialog | None = None
         self._save_macro_dialog: _runtime.Adw.Dialog | None = None
-        self._recording_unlocked = False
-        self._recording_unlock_required = True
-        self._recording_unlock_source = "none"
-        self._recording_unlock_expires_at = 0
-        self._recording_refresh_owner = False
-        self._macro_recording_enabled = False
-        self._macro_recording_source = "none"
-        self._macro_recording_expires_at = 0
+        self._macro_recording_allowed = True
         self._emergency_cancel_combo_enabled = True
-        self._recording_refresh_lease_id: str = ""
-        self._recording_claim_attempt_key: tuple[str, int] | None = None
-        self._unlock_request_inflight = False
-        self._macro_recording_enable_inflight = False
-        self._unlock_refresh_inflight = False
         self._placeholder_subtitle: _runtime.Gtk.Label | None = None
-        self._menu_unlock_btn: _runtime.Gtk.Button | None = None
-        self._menu_unlock_separator: _runtime.Gtk.Widget | None = None
         self._menu_motion_controls_btn: _runtime.Gtk.Button | None = None
         self._appearance_buttons: dict[str, _runtime.Gtk.ToggleButton] = {}
         self._syncing_appearance = False
-        self._unlock_status_label: _runtime.Gtk.Label | None = None
         self._selected_profile_name: str | None = load_selected_profile() or None
         self._syncing_profile_selection = False
         self._startup_probe_done = False
-        self._lease_claim_inflight = False
         self._placeholder_title: _runtime.Gtk.Label | None = None
         self._session_reconnect_source_id = 0
-        self._unlock_refresh_source_id = 0
         self._profile_runtime_state: dict[str, object] = {
             "active_profiles": [],
             "devices": {},
@@ -125,9 +107,6 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
             self._session_reconnect_source_id = _runtime.GLib.timeout_add(
                 2000, lambda: connection._reconnect_session(self)
             )
-            self._unlock_refresh_source_id = _runtime.GLib.timeout_add_seconds(
-                30, lambda: recording_unlock._refresh_unlock_lease(self)
-            )
             connection._update_status_from_session(self)
 
         self.connect("destroy", self._on_destroy)
@@ -136,9 +115,6 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self._destroyed = True
         self._session_reconnect_source_id = _runtime.remove_timeout_source(
             self._session_reconnect_source_id
-        )
-        self._unlock_refresh_source_id = _runtime.remove_timeout_source(
-            self._unlock_refresh_source_id
         )
         self._gnome_setup_poll_source_id = _runtime.remove_timeout_source(
             self._gnome_setup_poll_source_id
@@ -153,7 +129,6 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         if self.demo_mode:
             return
 
-        recording_unlock.lock_lease_on_close(self)
         connection.unregister(self)
 
     def list_device_tab_configs(self) -> list[HardwareConfig]:
@@ -180,11 +155,11 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
     def get_compositor_action_status(self) -> dict[str, object]:
         return compositor.get_compositor_action_status(self)
 
-    def macro_recording_enabled(self) -> bool:
-        return macro_recording.macro_recording_enabled(self)
+    def macro_recording_allowed(self) -> bool:
+        return macro_recording.macro_recording_allowed(self)
 
     def emergency_cancel_combo_enabled(self) -> bool:
-        return recording_unlock.emergency_cancel_combo_enabled(self)
+        return macro_recording.emergency_cancel_combo_enabled(self)
 
     def show_combo_tab(self) -> None:
         device_tabs.show_combo_tab(self)
@@ -201,14 +176,5 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
     def remove_device_tab(self, hardware_id: str) -> None:
         device_tabs.remove_device_tab(self, hardware_id)
 
-    def present_unlock_dialog(self, on_success=None) -> None:
-        recording_unlock.present_unlock_dialog(self, on_success)
-
-    def present_macro_recording_enable_dialog(self, on_success=None) -> None:
-        macro_recording.present_macro_recording_enable_dialog(self, on_success)
-
-    def present_macro_recording_disable_dialog(self, on_success=None) -> None:
-        macro_recording.present_macro_recording_disable_dialog(self, on_success)
-
-    def present_recording_settings_dialog(self, reason: str = "settings") -> None:
-        macro_recording.present_recording_settings_dialog(self, reason)
+    def present_recording_settings_dialog(self) -> None:
+        macro_recording.present_recording_settings_dialog(self)

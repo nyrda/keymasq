@@ -7,7 +7,6 @@ import pytest
 
 import keymasq.session.manager.events as session_events_module
 import keymasq.session.manager.recording_lifecycle as recording_lifecycle_module
-import keymasq.session.manager.recording_unlock as recording_unlock_module
 from keymasq.common.ipc import Command, CommandType, Response
 from keymasq.common.model.actions import ProfileDeactivationPolicy
 from keymasq.common.model.profiles import ProfileConfig
@@ -1160,11 +1159,7 @@ async def test_macro_recording_trigger_edge_branches(
     await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 3})
 
     manager.recording_state.active = False
-    monkeypatch.setattr(
-        recording_unlock_module,
-        "resolve_macro_recording_status_async",
-        AsyncMock(return_value={"unlocked": False, "source": "disabled"}),
-    )
+    manager.security_policy.macro_recording_allowed = False
     notify_disabled = Mock()
     monkeypatch.setattr(
         recording_lifecycle_module,
@@ -1178,12 +1173,7 @@ async def test_macro_recording_trigger_edge_branches(
     stop_trigger.assert_awaited_once_with(manager, {"recording_slot": 2})
     notify_disabled.assert_called_once_with(manager)
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
-        {
-            "event": "macro_recording_disabled",
-            "macro_recording_enabled": False,
-            "macro_recording_source": "disabled",
-            "macro_recording_expires_at": 0,
-        }
+        {"event": "macro_recording_disabled"}
     )
 
 
@@ -1193,43 +1183,27 @@ async def test_macro_recording_trigger_reports_failed_start_results(
 ) -> None:
     manager = SessionManager()
     manager.broadcast_to_session_clients = Mock()  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        recording_unlock_module,
-        "resolve_macro_recording_status_async",
-        AsyncMock(return_value={"unlocked": True}),
-    )
     start_recording = AsyncMock(
         side_effect=[
             {"status": "error", "error_code": "macro_recording_disabled"},
-            {"status": "error", "error_code": "sensitive_command_denied"},
+            {"status": "error", "message": "Daemon unavailable"},
         ]
     )
     notify_disabled = Mock()
-    notify_unlock = Mock()
     monkeypatch.setattr(recording_lifecycle_module, "start_recording", start_recording)
     monkeypatch.setattr(
         recording_lifecycle_module,
         "notify_macro_recording_disabled",
         notify_disabled,
     )
-    monkeypatch.setattr(
-        recording_unlock_module,
-        "notify_recording_unlock_required",
-        notify_unlock,
-    )
 
     await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 1})
     await session_events_module.handle_start_macro_trigger(manager, {"recording_slot": 1})
 
     notify_disabled.assert_called_once_with(manager)
-    notify_unlock.assert_called_once_with(
-        manager,
-        {"status": "error", "error_code": "sensitive_command_denied"},
+    manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
+        {"event": "macro_recording_disabled"}
     )
-    assert manager.broadcast_to_session_clients.call_args_list == [  # type: ignore[attr-defined]
-        call({"event": "macro_recording_disabled"}),
-        call({"event": "recording_auth_requested"}),
-    ]
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,5 @@
 # pyright: reportUnusedImport=false
 # ruff: noqa: F401
-import os
-import subprocess
-
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -10,8 +7,6 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
-from keymasq.common.paths import KEYMASQ_HELPER_PATH, resolve_keymasq_helper_path
-from keymasq.common.recording_guard import resolve_unlock_status
 from keymasq.gui.session_client import (
     GuiTaskResult,
     register_session_event_callback,

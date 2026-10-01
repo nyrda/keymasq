@@ -934,24 +934,18 @@ def test_appimage_installer_writes_steamos_integration(tmp_path: Path) -> None:
     assert "WantedBy=default.target" in keymasq_session_unit
     assert "WantedBy=graphical-session.target" in keymasq_session_unit
     assert (fake_root / "opt/keymasq/share/keymasq/appimage-update.gpg.asc").is_file()
-    assert "unlock_required = false" in (fake_root / "etc/keymasq/security.toml").read_text(
+    assert "macro_recording_allowed = true" in (fake_root / "etc/keymasq/security.toml").read_text(
         encoding="utf-8"
     )
-    record_rule = (fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules").read_text(
-        encoding="utf-8"
-    )
-    assert "/opt/keymasq/bin/keymasq-helper" in record_rule
-    assert 'action.lookup("user") != "root"' in record_rule
-    assert "com.keymasq.helper" in record_rule
-    assert "polkit.Result.AUTH_SELF" in record_rule
-    assert "AUTH_SELF_KEEP" not in record_rule
+    assert not (fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules").exists()
     assert not (fake_root / "usr/share/polkit-1/actions/com.keymasq.helper.policy").exists()
     atomic_keep_list = (fake_root / "etc/atomic-update.conf.d/keymasq.conf").read_text(
         encoding="utf-8"
     )
     assert "/opt/keymasq/**" not in atomic_keep_list
     assert "/etc/atomic-update.conf.d/keymasq.conf" in atomic_keep_list
-    assert "/etc/polkit-1/rules.d/50-keymasq-helper.rules" in atomic_keep_list
+    assert "/etc/polkit-1/rules.d/49-keymasq-hardware.rules" in atomic_keep_list
+    assert "50-keymasq-helper.rules" not in atomic_keep_list
     assert "/etc/profile.d/keymasq.sh" in atomic_keep_list
     assert "/etc/tmpfiles.d/keymasq.conf" in atomic_keep_list
     assert "Exec=/opt/keymasq/bin/keymasq" in (
@@ -1047,6 +1041,7 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
     source_appimage.chmod(0o755)
     env = _env(tmp_path, fake_root, assets, source_appimage)
     env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    legacy_paths = _write_legacy_helper_files(fake_root)
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
@@ -1056,12 +1051,8 @@ def test_appimage_install_autodetects_systemd_without_steamos_keep_list(
 
     assert (fake_root / "etc/systemd/system/keymasqd.service").is_file()
     assert (fake_root / "root/.config/systemd/user/keymasq-session.service").is_file()
-    record_policy = (fake_root / "usr/share/polkit-1/actions/com.keymasq.helper.policy").read_text(
-        encoding="utf-8"
-    )
-    assert "/opt/keymasq/bin/keymasq-helper" in record_policy
-    assert "auth_self_keep" in record_policy
-    assert (fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules").is_file()
+    assert (fake_root / "etc/polkit-1/rules.d/49-keymasq-hardware.rules").is_file()
+    assert not any(path.exists() for path in legacy_paths)
     assert not (fake_root / "etc/atomic-update.conf.d/keymasq.conf").exists()
     assert not (fake_root / "root/.config/autostart/tools.keymasq.keymasq-session.desktop").exists()
     command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
@@ -1309,11 +1300,13 @@ def test_appimage_install_preserves_non_keymasq_user_wrapper(tmp_path: Path) -> 
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
 
 
-def _write_pre_rename_helper_files(fake_root: Path) -> tuple[Path, ...]:
+def _write_legacy_helper_files(fake_root: Path) -> tuple[Path, ...]:
     paths = (
         fake_root / "opt/keymasq/bin/keymasq-record",
         fake_root / "etc/polkit-1/rules.d/50-keymasq-record.rules",
+        fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules",
         fake_root / "usr/share/polkit-1/actions/com.keymasq.record-macro.policy",
+        fake_root / "usr/share/polkit-1/actions/com.keymasq.helper.policy",
     )
     for path in paths:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1363,7 +1356,7 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     event.touch()
     joystick.touch()
     hidraw.touch()
-    legacy_paths = _write_pre_rename_helper_files(fake_root)
+    legacy_paths = _write_legacy_helper_files(fake_root)
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
@@ -1377,8 +1370,6 @@ def test_appimage_uninstall_removes_integration_but_keeps_config_and_state(
     assert not (fake_root / "etc/tmpfiles.d/keymasq.conf").exists()
     assert not (fake_root / "etc/profile.d/keymasq.sh").exists()
     assert not (fake_root / "etc/udev/rules.d/91-keymasq-acl.rules").exists()
-    assert not (fake_root / "etc/polkit-1/rules.d/50-keymasq-helper.rules").exists()
-    assert not (fake_root / "usr/share/polkit-1/actions/com.keymasq.helper.policy").exists()
     assert not (fake_root / "root/.local/bin/keymasq").exists()
     assert user_waypipe.read_text(encoding="utf-8") == "#!/bin/sh\necho user-waypipe\n"
     assert not (fake_root / "opt/keymasq/Keymasq.AppImage").exists()
@@ -1639,7 +1630,7 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
     for path in stale_paths:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("stale\n", encoding="utf-8")
-    legacy_paths = _write_pre_rename_helper_files(fake_root)
+    legacy_paths = _write_legacy_helper_files(fake_root)
     legacy_user_wrapper = fake_root / "root/.local/bin/keymasq-record"
     legacy_user_wrapper.parent.mkdir(parents=True, exist_ok=True)
     legacy_user_wrapper.write_text("#!/bin/sh\n# Managed by Keymasq AppImage\n", encoding="utf-8")
@@ -1722,11 +1713,11 @@ def test_appimage_hardware_migration_refuses_symlink_destination(tmp_path: Path)
     assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
 
 
-def test_appimage_integration_repair_removes_pre_rename_helper_files(tmp_path: Path) -> None:
+def test_appimage_integration_repair_removes_legacy_helper_files(tmp_path: Path) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     env = _env(tmp_path, fake_root, assets, tmp_path / "source.AppImage")
-    legacy_paths = _write_pre_rename_helper_files(fake_root)
+    legacy_paths = _write_legacy_helper_files(fake_root)
 
     subprocess.run(
         ["sh", str(RUNTIME_SCRIPT), "keymasq-helper", "repair-appimage-integration"],
@@ -1736,6 +1727,14 @@ def test_appimage_integration_repair_removes_pre_rename_helper_files(tmp_path: P
 
     assert not any(path.exists() for path in legacy_paths)
     assert (fake_root / "etc/systemd/system/keymasq-hardware@.service").is_file()
+
+
+def test_appimage_ships_inert_legacy_record_rule_for_v019_updater() -> None:
+    rule = (APPIMAGE_ASSETS / "50-keymasq-record.rules").read_text(encoding="utf-8")
+    code = [line for line in rule.splitlines() if line.strip() and not line.startswith("//")]
+    assert code == []
+    assert not (APPIMAGE_ASSETS / "50-keymasq-helper.rules").exists()
+    assert not (APPIMAGE_ASSETS / "com.keymasq.helper.policy").exists()
 
 
 def _unit_command(unit: Path, fake_root: Path, argument: str) -> Path:
@@ -1778,7 +1777,7 @@ def test_appimage_helper_wrapper_runs_pre_rename_runtime_after_failed_update(
     assert legacy_log.read_text(encoding="utf-8") == "hardware-operation job\n"
 
 
-def test_appimage_integration_repair_rejects_recording_authorization(tmp_path: Path) -> None:
+def test_appimage_integration_repair_rejects_pkexec_authorization(tmp_path: Path) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     env = _env(tmp_path, fake_root, assets, tmp_path / "source.AppImage")
@@ -1791,7 +1790,7 @@ def test_appimage_integration_repair_rejects_recording_authorization(tmp_path: P
         check=False,
     )
     assert result.returncode != 0
-    assert "recording authorization does not authorize integration repair" in result.stderr
+    assert "pkexec authorization does not authorize integration repair" in result.stderr
     assert not (fake_root / "etc/systemd/system/keymasq-hardware@.service").exists()
     assert not Path(env["KEYMASQ_COMMAND_LOG"]).exists()
 

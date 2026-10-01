@@ -78,8 +78,6 @@ class _CaptureCommandCaptureManager(Protocol):
 
     def begin_combo(self, *args: object, **kwargs: object) -> JsonObject: ...
 
-    def authorize_combo_capture(self) -> object: ...
-
     def register_combo_notifier(
         self, token: str, loop: asyncio.AbstractEventLoop, notify_event: asyncio.Event
     ) -> None: ...
@@ -246,13 +244,11 @@ async def capture_combo(
     daemon.device_manager.begin_combo_capture(token, hardware_ids, notify_event)
     capture_started = False
     try:
-        authorization = daemon.capture_manager.authorize_combo_capture()
         capture_result = await asyncio.to_thread(
             daemon.capture_manager.begin_combo,
             token,
             grabbed_paths,
             hardware_ids,
-            authorization=authorization,
             hardware_paths=hardware_paths or {},
             hardware_interfaces=hardware_interfaces or {},
         )

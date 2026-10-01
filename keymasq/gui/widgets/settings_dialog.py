@@ -149,7 +149,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(macro_group)
         macro_row = self._navigation_row(
             "Macro recording",
-            "Recording sources and opt-in state",
+            "Recording sources and options",
             "Open macro recording settings",
             self._on_macro_settings_clicked,
         )
@@ -191,7 +191,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_macro_settings_clicked(self, _row: Gtk.Widget) -> None:
         present_settings = getattr(self._parent, "present_recording_settings_dialog", None)
         if callable(present_settings):
-            present_settings(reason="settings")
+            present_settings()
             return
         if self._parent is None:
             self._set_status("Macro recording settings are available from the main window")

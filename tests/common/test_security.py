@@ -16,9 +16,8 @@ from keymasq.common.security import (
 def test_load_security_policy_defaults_when_missing(tmp_path: Path) -> None:
     policy = load_security_policy(tmp_path / "missing-security.toml")
 
-    assert policy.recording_unlock_required is True
+    assert policy.macro_recording_allowed is True
     assert policy.macro_recording_time_limit == 10
-    assert policy.macro_edit_requires_unlock is False
     assert policy.emergency_cancel_combo_enabled is True
 
 
@@ -79,18 +78,38 @@ def test_load_security_policy_recording_guard_section(tmp_path: Path) -> None:
         "\n".join(
             [
                 "[recording_guard]",
-                "unlock_required = false",
+                "macro_recording_allowed = false",
                 "macro_recording_time_limit = 0",
-                "macro_edit_requires_unlock = true",
             ]
         )
     )
 
     policy = load_security_policy(policy_path)
 
-    assert policy.recording_unlock_required is False
+    assert policy.macro_recording_allowed is False
     assert policy.macro_recording_time_limit == 0
-    assert policy.macro_edit_requires_unlock is True
+
+
+def test_load_security_policy_ignores_removed_unlock_keys(tmp_path: Path, caplog) -> None:
+    policy_path = tmp_path / "security.toml"
+    policy_path.write_text(
+        "\n".join(
+            [
+                "[recording_guard]",
+                "unlock_required = true",
+                "macro_edit_requires_unlock = true",
+                "macro_recording_time_limit = 5",
+            ]
+        )
+    )
+    caplog.set_level(logging.WARNING, logger="keymasq.common.security")
+
+    policy = load_security_policy(policy_path)
+
+    assert policy.macro_recording_allowed is True
+    assert policy.macro_recording_time_limit == 5
+    assert "recording_guard.unlock_required" in caplog.text
+    assert "recording_guard.macro_edit_requires_unlock" in caplog.text
 
 
 @pytest.mark.parametrize("value", ["-1", "true", '"10"'])
@@ -131,8 +150,7 @@ def test_load_security_policy_gui_section(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("section", "setting"),
     [
-        ("recording_guard", "unlock_required"),
-        ("recording_guard", "macro_edit_requires_unlock"),
+        ("recording_guard", "macro_recording_allowed"),
         ("gui", "emergency_cancel_combo_enabled"),
     ],
 )

@@ -11,6 +11,7 @@ from keymasq.common.keyboard_layouts import (
     keyboard_layout,
 )
 from keymasq.common.model.actions import (
+    DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
     DEFAULT_NATURAL_MOUSE_MOVE_MAX_DURATION_MS,
     DEFAULT_NATURAL_MOUSE_MOVE_TOLERANCE,
 )
@@ -25,6 +26,7 @@ _TYPE_MACRO_NATURAL_MOUSE_MOVE_JITTER = 0.0
 _TYPE_MACRO_NATURAL_MOUSE_MOVE_CURVE = "linear"
 _TYPE_MACRO_SETTLE_WAIT_MS = 300
 _TYPE_MACRO_MAX_REPEAT_COUNT = 100
+_TYPE_MACRO_CALL_PREFIX = "macro:"
 
 _TYPE_MACRO_TEXT_TRANSLATION = str.maketrans(
     {
@@ -92,9 +94,11 @@ _TYPE_MACRO_CLICK_BUTTON_CODES = {
 
 
 def normalize_type_macro_text(text: str) -> str:
-    normalized = unicodedata.normalize("NFKC", text)
-    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
-    return normalized.translate(_TYPE_MACRO_TEXT_TRANSLATION)
+    normalized = normalize_unicode_type_macro_text(text)
+    # Normalizing next to a call can create tag or escape syntax, so repeat until stable.
+    while (renormalized := _normalize_outside_macro_calls(normalized)) != normalized:
+        normalized = renormalized
+    return normalized
 
 
 def normalize_unicode_type_macro_text(text: str) -> str:
@@ -105,6 +109,39 @@ def normalize_type_macro_binding_text(text: str, *, use_unicode_input: bool) -> 
     if use_unicode_input:
         return normalize_unicode_type_macro_text(text)
     return normalize_type_macro_text(text)
+
+
+def _normalize_typed_text(text: str) -> str:
+    translated = unicodedata.normalize("NFKC", text).translate(_TYPE_MACRO_TEXT_TRANSLATION)
+    # Dropping zero-width characters can join a base and a combining mark.
+    return unicodedata.normalize("NFKC", translated)
+
+
+def _normalize_outside_macro_calls(text: str) -> str:
+    return "".join(
+        part if is_macro_call else _normalize_typed_text(part)
+        for part, is_macro_call in _split_type_macro_calls(text)
+    )
+
+
+def _split_type_macro_calls(text: str) -> list[tuple[str, bool]]:
+    parts: list[tuple[str, bool]] = []
+    start = 0
+    index = text.find("<")
+    while index >= 0:
+        if index > 0 and text[index - 1] == "\\":
+            index = text.find("<", index + 1)
+            continue
+        end = text.find(">", index + 1)
+        if end < 0:
+            break
+        if _is_type_macro_call_tag(text[index + 1 : end].strip()):
+            parts.append((text[start:index], False))
+            parts.append((text[index : end + 1], True))
+            start = end + 1
+        index = text.find("<", end + 1)
+    parts.append((text[start:], False))
+    return parts
 
 
 def build_type_macro_events(
@@ -133,7 +170,9 @@ def build_type_macro_events(
             _append_wait_event(events, value.split(":"), t_us)
             continue
 
-        if kind == "mouse_move":
+        if kind == "macro":
+            _append_macro_call_event(events, value, t_us)
+        elif kind == "mouse_move":
             t_us = _append_type_macro_mouse_move_event(events, value, t_us)
         elif kind == "mouse_click":
             t_us = _append_type_macro_mouse_click_events(events, value, t_us, down_ms)
@@ -206,9 +245,7 @@ def _type_macro_tokens(text: str) -> list[TypeMacroToken]:
             index += 1
             continue
 
-        raw_tag = text[index + 1 : end]
-        tag = raw_tag.strip().lower()
-        control_tokens = _type_macro_control_tokens(tag)
+        control_tokens = _type_macro_control_tokens(text[index + 1 : end].strip())
         if control_tokens is not None:
             tokens.extend(control_tokens)
             index = end + 1
@@ -220,7 +257,12 @@ def _type_macro_tokens(text: str) -> list[TypeMacroToken]:
     return tokens
 
 
-def _type_macro_control_tokens(tag: str) -> list[TypeMacroToken] | None:
+def _type_macro_control_tokens(raw_tag: str) -> list[TypeMacroToken] | None:
+    macro_call = _parse_type_macro_call_control(raw_tag)
+    if macro_call is not None:
+        return [macro_call]
+
+    tag = raw_tag.lower()
     if tag == "settle":
         return [("wait", str(_TYPE_MACRO_SETTLE_WAIT_MS))]
 
@@ -247,6 +289,20 @@ def _type_macro_control_tokens(tag: str) -> list[TypeMacroToken] | None:
 
     name, repeat_count = named_key
     return [("key", name) for _ in range(repeat_count)]
+
+
+def _is_type_macro_call_tag(raw_tag: str) -> bool:
+    return raw_tag[: len(_TYPE_MACRO_CALL_PREFIX)].lower() == _TYPE_MACRO_CALL_PREFIX
+
+
+def _parse_type_macro_call_control(raw_tag: str) -> TypeMacroToken | None:
+    if not _is_type_macro_call_tag(raw_tag):
+        return None
+
+    macro_name = raw_tag[len(_TYPE_MACRO_CALL_PREFIX) :].strip()
+    if not macro_name:
+        raise ValueError("macro control requires a macro name")
+    return "macro", macro_name
 
 
 def _parse_type_macro_mouse_move_control(tag: str) -> TypeMacroToken | None:
@@ -670,6 +726,26 @@ def _append_wait_event(events: list[JsonObject], args: list[str], t_us: int) -> 
         return
 
     raise ValueError("wait requires one duration or min:max arguments")
+
+
+def _append_macro_call_event(events: list[JsonObject], macro_name: str, t_us: int) -> None:
+    events.append(
+        {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": int(t_us),
+            "macro_action": "macro_sync",
+            "macro_name": macro_name,
+            "replay_mouse_movement": True,
+            "replay_mouse_clicks": True,
+            "speed": 1.0,
+            "loop_mode": "none",
+            "loop_count": 1,
+            "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
+        }
+    )
 
 
 def _append_mouse_move_event(

@@ -296,6 +296,7 @@ Type macro text supports inline controls. These work from the Macro Manager's
 | `<settle>` | Wait 300 ms |
 | `<wait:MS>` | Wait a fixed number of milliseconds |
 | `<wait:MIN:MAX>` | Wait a random number of milliseconds in the inclusive range |
+| `<macro:NAME>` | Run the saved macro `NAME` and wait for it to finish, for example `<macro:open_chat>` |
 
 Shortcut modifiers are `ctrl`, `shift`, `alt`, and `super`, with `control`,
 `meta`, and `win` accepted as modifier aliases.
@@ -304,6 +305,14 @@ Shortcut modifiers are `ctrl`, `shift`, `alt`, and `super`, with `control`,
 the fast defaults: `100000` px/s, zero jitter, linear curve, `2` px tolerance,
 `3000` ms timeout, and `stop_on_failure=false`. The type syntax does not expose
 tuning arguments for this control.
+
+`<macro:NAME>` adds a **Run and wait** call, the same as a
+[macro call](#calling-macros-from-macros) added in the timeline editor. The
+child plays once at normal speed with mouse movement and clicks replayed, and
+typing continues after it finishes. The usual pause between keystrokes applies
+before and after the call. The name is used exactly as written, without
+surrounding spaces, and ends at the first `>`. It is resolved when playback
+reaches the call, so a missing macro stops the type macro there.
 
 Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
 text, so `\\<tab>` types `\<tab>`.

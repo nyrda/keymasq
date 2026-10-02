@@ -7,6 +7,7 @@ import pytest
 from keymasq.common.macro_compile import (
     build_type_macro_events,
     macro_definition_from_events,
+    normalize_type_macro_text,
     parse_macro_json,
 )
 
@@ -36,6 +37,22 @@ def test_type_macro_builder_normalizes_common_pasted_text() -> None:
     assert press_codes.count(evdev.ecodes.KEY_DOT) == 3
     assert press_codes.count(evdev.ecodes.KEY_ENTER) == 1
     assert evdev.ecodes.KEY_MINUS in press_codes
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("\u201ca\u201d<Macro:b\u2013c>\u2026\r\n", '"a"<Macro:b\u2013c>...\n'),
+        ("\\<macro:b\u2013c><macro:d\u2013e>", "\\<macro:b-c><macro:d\u2013e>"),
+        ("\uff3c<macro:b\u2013c>", "\\<macro:b-c>"),
+        ("a\u200b\u0308<macro:b\u2013c>", "\u00e4<macro:b\u2013c>"),
+    ],
+)
+def test_type_macro_normalization_leaves_macro_calls_unchanged(text: str, expected: str) -> None:
+    normalized = normalize_type_macro_text(text)
+
+    assert normalized == expected
+    assert normalize_type_macro_text(normalized) == normalized
 
 
 def test_type_macro_builder_allows_zero_key_down_and_pause() -> None:
@@ -338,6 +355,7 @@ def test_type_macro_builder_rejects_invalid_wait_control() -> None:
         ("<click:1>", "click control accepts optional x and y arguments"),
         ("<click:1:2:3>", "click control accepts optional x and y arguments"),
         ("<rclick:1:soon>", "rclick y must be an integer"),
+        ("<macro: >", "macro control requires a macro name"),
     ],
 )
 def test_type_macro_builder_rejects_invalid_extended_controls(

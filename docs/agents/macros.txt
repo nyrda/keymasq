@@ -86,6 +86,8 @@ keymasq type "hello<enter>" --print-json \
 <settle>             fixed 300ms wait
 <wait:MS>
 <wait:MIN:MAX>
+<macro:NAME>         macro_sync call to saved macro NAME (once, speed 1.0);
+                     name used as written (trimmed), ends at the first >
 ```
 
 ## Macro JSON

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import evdev
 import pytest
 
+from keymasq.common.macro_compile import build_type_macro_events
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.runtime.macro import loops
@@ -63,6 +64,32 @@ async def test_sync_child_blocks_later_parent_events(tmp_path: Path) -> None:
             {"t_us": 0, "macro_action": "macro_sync", "macro_name": "child"},
             _key_event(evdev.ecodes.KEY_A, 1, 0),
         ],
+    )
+    await _wait_for_no_running_macros(manager)
+
+    writes = [call.args for call in manager.output_state.keyboard_uinput.write.call_args_list]
+    assert writes.index((evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 0)) < writes.index(
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    )
+
+
+@pytest.mark.asyncio
+async def test_type_macro_control_runs_named_child_before_later_text(tmp_path: Path) -> None:
+    manager, store = _manager_with_store(tmp_path)
+    store.create(
+        {
+            "name": "Typed Child",
+            "events": [
+                _key_event(evdev.ecodes.KEY_B, 1, 0),
+                _key_event(evdev.ecodes.KEY_B, 0, 20_000),
+            ],
+        }
+    )
+
+    await manager.play_macro(
+        macro_name="parent",
+        load_stored_macro=False,
+        macro_events=build_type_macro_events("<Macro: Typed Child >a", 0, 0),
     )
     await _wait_for_no_running_macros(manager)
 

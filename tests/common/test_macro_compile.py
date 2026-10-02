@@ -44,7 +44,7 @@ def test_type_macro_builder_normalizes_common_pasted_text() -> None:
     [
         ("\u201ca\u201d<Macro:b\u2013c>\u2026\r\n", '"a"<Macro:b\u2013c>...\n'),
         ("\\<macro:b\u2013c><macro:d\u2013e>", "\\<macro:b-c><macro:d\u2013e>"),
-        ("\uff3c<macro:b\u2013c>", "\\<macro:b-c>"),
+        ("\uff3c<macro:b\u2013c><macro:d\u2013e>", "\\<macro:b-c><macro:d\u2013e>"),
         ("a\u200b\u0308<macro:b\u2013c>", "\u00e4<macro:b\u2013c>"),
     ],
 )

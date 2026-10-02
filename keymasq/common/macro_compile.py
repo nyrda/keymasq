@@ -94,12 +94,11 @@ _TYPE_MACRO_CLICK_BUTTON_CODES = {
 
 
 def normalize_type_macro_text(text: str) -> str:
-    text = normalize_unicode_type_macro_text(text)
-    preserved = _normalize_outside_macro_calls(text)
-    if _normalize_outside_macro_calls(preserved) == preserved:
-        return preserved
-    # Normalizing next to a call created tag or escape syntax; stay idempotent.
-    return _normalize_typed_text(text)
+    normalized = normalize_unicode_type_macro_text(text)
+    # Normalizing next to a call can create tag or escape syntax, so repeat until stable.
+    while (renormalized := _normalize_outside_macro_calls(normalized)) != normalized:
+        normalized = renormalized
+    return normalized
 
 
 def normalize_unicode_type_macro_text(text: str) -> str:

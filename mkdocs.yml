@@ -100,6 +100,9 @@ nav:
   - Install: install.md
   - Getting Started: getting-started.md
   - User Guide:
+      - Hardware: hardware.md
+      - Hardware Masking: hardware-masking.md
+      - Device Inspector: device-inspector.md
       - Profiles: profiles.md
       - Actions: actions.md
       - Analog Controls: analog-controls.md
@@ -114,12 +117,14 @@ nav:
   - Examples:
       - Overview: examples.md
       - Custom Modifier Combos: examples/custom-modifier-combos.md
+      - Momentary WASD Navigation Layer: examples/momentary-wasd-navigation-layer.md
       - Mouse UI Automation: examples/mouse-ui-automation.md
       - Universal Copy and Paste: examples/universal-copy-paste.md
       - Volume Rocker Key: examples/volume-rocker-superkey.md
   - Desktop Support:
       - Wayland: wayland.md
       - GNOME: gnome.md
+      - SteamOS: steamos.md
   - Reference:
       - CLI: cli.md
       - Performance: performance.md

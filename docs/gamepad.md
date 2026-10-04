@@ -2,8 +2,8 @@
 
 Keymasq can remap game controller buttons, sticks, triggers, wheels, and
 other analog axes. It can also map keyboard keys and mouse buttons to virtual
-gamepad buttons and axis values for games that expect a controller. Mouse
-movement cannot drive a virtual stick.
+gamepad buttons and axis values for games that expect a controller. To drive
+a virtual stick from mouse movement, see [Pointer Movement](pointer-movement.md).
 
 ## Adding a controller
 
@@ -769,8 +769,8 @@ Button positions are based on physical location, not labels.
   as paired analog axes that return to normalized zero on release. Keymasq
   cannot remap separate touchpad interfaces or multitouch gestures.
 - **Mouse movement as stick input.** Analog controls read absolute axes such
-  as sticks and triggers. Keymasq cannot turn relative mouse movement into
-  gamepad stick output.
+  as sticks and triggers. To turn relative mouse movement into stick or
+  trigger output, use [Pointer Movement](pointer-movement.md) instead.
 - **Dedicated drivers.** Vendor-specific features may still need their
   native driver or Steam Input.
 

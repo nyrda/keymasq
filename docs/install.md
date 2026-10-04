@@ -305,6 +305,13 @@ Manual installs do not need to use `systemd` specifically. Any equivalent
 service manager or launcher arrangement is fine as long as `keymasqd` runs as
 the privileged service identity and `keymasq-session` runs in the user session.
 
+The packaged `keymasq-session` unit sets
+`KEYMASQ_SESSION_RESTART_ON_DAEMON_DISCONNECT=1`. With it, the session exits
+with status 75 when it loses its daemon connection, and the service manager
+starts a fresh one. Set it only if your launcher restarts the session on
+failure. Without it, the session stays running and reconnects to the daemon
+by itself.
+
 If `uvloop` is missing or fails to import, `keymasqd` and `keymasq-session`
 still start and fall back to the default `asyncio` event loop policy. They log
 a warning when this happens so the missing optimization is visible.

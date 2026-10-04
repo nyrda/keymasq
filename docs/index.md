@@ -16,7 +16,8 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 ## Start here
 
 - [Install](install.md) — package installs for Arch, Debian/Ubuntu, Fedora,
-  and NixOS, plus a from-source path.
+  Bazzite, openSUSE, and NixOS, an AppImage for SteamOS and other distros, plus
+  a from-source path.
 - [Getting Started](getting-started.md) — open Keymasq, add a device, and
   create your first remap after installing.
 - [Hardware Configuration](hardware.md) — hardware IDs, event devices, source
@@ -35,18 +36,24 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
 - [Macros](macros.md) — creation, recording, triggers, and playback settings.
 - [Macro timeline editor](macro-editor.md) — add actions, select and reuse sections, and adjust timing.
 - [Gamepad](gamepad.md) — controller remapping, analog controls, and virtual gamepads.
+- [Analog Controls](analog-controls.md) — reusable stick, trigger, and wheel behavior.
 - [Motion Controls](motion-controls.md) — controller gyro setup, normalization, and outputs.
 - [Pointer Movement](pointer-movement.md) — per-profile mouse speed factors and mouse-to-controller axes.
 - [Device Inspector](device-inspector.md) — inspect final mappings, raw events,
   and configured analog inputs for one device.
+- [Hardware masking](hardware-masking.md) — stop Steam and other apps from
+  reading a physical device that Keymasq remaps.
 
 ## Desktop support
 
 - [Wayland](wayland.md) — compositor integrations and fallbacks.
 - [GNOME](gnome.md) — Shell bridge extension setup.
+- [SteamOS](steamos.md) — the AppImage install on SteamOS and the Steam Deck.
 
 ## Reference
 
+- [CLI](cli.md) — status, profiles, macros, typing, masking, and diagnostics
+  from a terminal.
 - [Security model](security.md) — daemon/session split, threat model,
   owner checks.
 - [Troubleshooting](troubleshooting.md) — diagnostics for common problems.

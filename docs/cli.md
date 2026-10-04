@@ -15,6 +15,9 @@ keymasq [--json] [--version] <command>
 | `--version` | Show version number |
 | `-h, --help` | Show help |
 
+Each command also accepts `--json` after its name, for example
+`keymasq status --json`.
+
 ## Commands
 
 ### status
@@ -53,7 +56,7 @@ keymasq type --print-json "hello"
 |---|---|
 | `--down-ms MS` | Key down duration for each typed key. Use `0` for no hold delay. Default: `5` |
 | `--pause-ms MS` | Pause between typed characters. Use `0` for no inter-key delay. Default: `10` |
-| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration |
+| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls keep their wall-clock duration. Default: `1.0` |
 | `--no-unicode` | Fail on unsupported characters instead of using Linux Ctrl+Shift+U input |
 | `--layout LAYOUT` | XKB layout to type for, such as `de` or `us(dvorak)`. Default: the Keymasq keyboard layout setting |
 | `--ordered` | Serialize with other requests that opt into ordering |
@@ -144,7 +147,7 @@ keymasq macros cancel
 
 | Option | Description |
 |---|---|
-| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls are not scaled |
+| `--speed SPEED` | Playback speed multiplier for event timestamps. Explicit wait controls are not scaled. Default: `1.0` |
 | `--wait` | Wait for the terminal playback result. Interruption cancels this request |
 | `--ordered` | Opt into the shared FIFO with other ordered requests. Concurrent playback is the default |
 
@@ -253,9 +256,9 @@ journalctl -u keymasqd -f
 
 | Option | Description |
 |---|---|
-| `--interval SECONDS` | Logging interval in seconds |
-| `--include CATEGORY` | Add a diagnostics category: `mainline`, `combo`, `macro`, `internal`, or `all` |
-| `--exclude CATEGORY` | Hide a diagnostics category after includes are applied: `mainline`, `combo`, `macro`, or `internal` |
+| `--interval SECONDS` | Logging interval in seconds. Default: `5` |
+| `--include CATEGORY` | Add a diagnostics category: `mainline`, `combo`, `macro`, `internal`, or `all`. Repeat to add several |
+| `--exclude CATEGORY` | Hide a diagnostics category after includes are applied: `mainline`, `combo`, `macro`, or `internal`. Repeat to hide several |
 
 The default category is `mainline`, which shows the normal passthrough and
 remap-action paths. Use `--include combo` for combo-specific timing and

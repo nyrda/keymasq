@@ -22,7 +22,7 @@ the compositor sees Keymasq's output as normal hardware input.
 - The session socket is private to its user and lives outside the default
   view of sandboxed apps
 - Root work runs only in short-lived, bounded hardware jobs and the daemon
-  unit's recovery hooks
+  unit's start and stop hooks
 
 The rest of this document covers the security model in detail.
 
@@ -89,10 +89,10 @@ Keymasq defends these boundaries:
   Flatpak do not expose these paths by default. An app granted access to them,
   or to the host filesystem, is not sandboxed from Keymasq.
 - **Around the privileged side.** `keymasqd` runs as its own system user with
-  an empty capability set and a closed device policy. Root work runs only as
-  bounded `keymasq-hardware@` jobs with validated requests. HID-BPF programs
-  are built from bundled drivers and handed to the daemon over a root-only
-  socket. See the sections below.
+  an empty capability set and a closed device policy. While it runs, root
+  work happens only in bounded `keymasq-hardware@` jobs with validated
+  requests. HID-BPF programs are built from bundled drivers and handed to the
+  daemon over a root-only socket. See the sections below.
 
 ### Known limitation: unowned daemon
 
@@ -102,8 +102,9 @@ session's reconnect backoff, and after logout. The owner can grab devices and
 observe input on them. On machines shared with other local users, set
 `daemon_allowed_uids` to the desktop users who should own the daemon.
 
-Recording slots and saved macros are shared by every UID that can own the
-daemon. See [Stored recordings and macros](#stored-recordings-and-macros).
+Recording slots and saved macros, including their command steps, are shared
+by every UID that can own the daemon. See
+[Stored recordings and macros](#stored-recordings-and-macros).
 
 ## Architecture
 
@@ -116,7 +117,9 @@ GUI and CLI do not access kernel input devices directly.
 
 `keymasq-helper` is not resident. It runs as root only in short-lived hardware
 jobs (see [Hardware masking jobs](#hardware-masking-jobs)), in the daemon
-unit's hardware recovery hooks, and from package removal scripts.
+unit's hardware recovery hooks, and from package removal scripts. The AppImage
+unit also runs it before each daemon start to repair the AppImage's system
+integration files.
 
 ## Target environment
 
@@ -228,6 +231,7 @@ user switching and stale session processes.
 systemd service with no Linux capabilities at all:
 
 ```ini
+SupplementaryGroups=input
 NoNewPrivileges=true
 CapabilityBoundingSet=
 DevicePolicy=closed
@@ -243,12 +247,12 @@ ReadWritePaths=/run/keymasq /var/lib/keymasq
 
 Everything the daemon touches is reachable through ordinary permissions:
 
-- **Input devices and uinput.** Explicit ACLs (`setfacl` in `ExecStartPre`
-  and `91-keymasq-acl.rules`) grant reads of `/dev/input/event*`, writes to
-  `/dev/uinput`, and read-only hidraw access. The device
-  policy additionally limits the service to input, uinput, and read-only
-  hidraw nodes, so the daemon cannot open other users' devices, block
-  devices, or anything else under `/dev` even if a rule or ACL is
+- **Input devices and uinput.** Membership in the `input` group and explicit
+  ACLs (`setfacl` in `ExecStartPre` and `91-keymasq-acl.rules`) grant reads of
+  `/dev/input/event*`, writes to `/dev/uinput`, and read-only hidraw access.
+  The device policy additionally limits the service to input, uinput, and
+  read-only hidraw nodes, so the daemon cannot open other users' devices,
+  block devices, or anything else under `/dev` even if a rule or ACL is
   misconfigured. Its writable state lives in its own
   `RuntimeDirectory`/`StateDirectory`.
 - **Source hide/restore.** Hiding a grabbed gamepad source writes a flag file
@@ -371,7 +375,10 @@ Keymasq routes compositor dispatch actions through the active window-listener im
 - KDE Plasma dispatch is restricted to a fixed whitelist of supported KWin actions
 - Hyprland dispatch is sent through the Hyprland IPC command socket as
   Hyprland 0.55 Lua dispatcher expressions
-- Niri dispatch is sent through the Niri IPC command socket with a fixed allowlist
+- Niri dispatch sends the actions Keymasq knows through the Niri IPC command
+  socket. Other action names run as `niri msg action <name> <args>` without a
+  shell and are not filtered, because profiles can already run programs
+  through exec actions
 - Sway dispatch is sent unchanged through Sway's IPC socket, the same as
   `swaymsg`. Keymasq does not filter these commands, because profiles can
   already run programs through exec actions

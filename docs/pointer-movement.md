@@ -60,6 +60,11 @@ can be used: stick components, triggers, throttles, or hats. Choose **None** to 
 direction. New mappings use the right stick. The factors, inversion, and swap still apply
 first.
 
+Pointer Movement writes both of its axes on every mouse report, and Velocity writes rest
+after the mouse stops. As with other mappings that share a destination axis, the last write
+wins: a controller or another mouse that sends to the same axes is overwritten. Use a
+different output device or axis for each source.
+
 **Horizontal Direction** and **Vertical Direction** select how the movement is written to its
 axis:
 

@@ -23,6 +23,12 @@ Include:
 
 ## Scope
 
+Keymasq targets single-user desktops. On machines shared with other local
+users, `daemon_allowed_uids` in `/etc/keymasq/security.toml` restricts who may
+own the daemon. Reports that need another local UID to own the daemon on a
+default single-user install are out of scope. See
+[Known limitation: unowned daemon](docs/security.md#known-limitation-unowned-daemon).
+
 Keymasq does not protect the desktop user's input from unconfined code running
 as that user, which already controls the user's Keymasq configuration. Issues
 that require such code are out of scope unless they reach another user or gain

@@ -36,6 +36,8 @@ Primary docs:
 - Install: https://keymasq.tools/docs/latest/install/
 - Getting Started: https://keymasq.tools/docs/latest/getting-started/
 - Hardware Configuration: https://keymasq.tools/docs/latest/hardware/
+- Hardware Masking: https://keymasq.tools/docs/latest/hardware-masking/
+- Device Inspector: https://keymasq.tools/docs/latest/device-inspector/
 - Profiles: https://keymasq.tools/docs/latest/profiles/
 - Actions: https://keymasq.tools/docs/latest/actions/
 - Macros: https://keymasq.tools/docs/latest/macros/
@@ -45,9 +47,12 @@ Primary docs:
 - Superkeys: https://keymasq.tools/docs/latest/superkeys/
 - Gamepad: https://keymasq.tools/docs/latest/gamepad/
 - Analog Controls: https://keymasq.tools/docs/latest/analog-controls/
+- Motion Controls: https://keymasq.tools/docs/latest/motion-controls/
+- Pointer Movement: https://keymasq.tools/docs/latest/pointer-movement/
 - Examples: https://keymasq.tools/docs/latest/examples/
 - Wayland: https://keymasq.tools/docs/latest/wayland/
 - GNOME: https://keymasq.tools/docs/latest/gnome/
+- SteamOS: https://keymasq.tools/docs/latest/steamos/
 - CLI: https://keymasq.tools/docs/latest/cli/
 - Performance: https://keymasq.tools/docs/latest/performance/
 - Security: https://keymasq.tools/docs/latest/security/
@@ -84,6 +89,8 @@ Primary docs:
   profiles/<profile_name>.toml
   superkeys/<superkey_name>.toml
   analog_controls/<control_name>.toml
+  motion_controls/<control_name>.toml
+  virtual_devices.toml
   recording_settings.toml
   settings.toml
 ```
@@ -99,6 +106,9 @@ Global settings live in `~/.config/keymasq/settings.toml`:
 ```toml
 [gamepads]
 virtual_count = 1
+
+[keyboard]
+layout = "us"        # XKB layout used to compile type macros, e.g. "de" or "us(dvorak)"
 ```
 
 Clamp `virtual_count` to 0..4. Gamepad profile actions may include

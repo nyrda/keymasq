@@ -122,6 +122,10 @@ just as if the key went down or up. For example:
   it is active.
 - A member with tap mode, or a macro that runs once, starts again every time it
   takes over. That includes returning to it with **Return to held keys**.
+- A toggle macro flips every time its member takes over, and keeps running when
+  the member loses, because toggle macros ignore releases. With **Return to
+  held keys**, a toggle macro that a held member started stops when that
+  member takes over again.
 - A pattern superkey reads a handover as a real press or release, so a quick
   handover can count as a tap or a double tap.
 - Actions that only fire on press, such as a command, a profile toggle, or a

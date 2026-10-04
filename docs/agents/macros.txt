@@ -87,7 +87,8 @@ keymasq type "hello<enter>" --print-json \
 <wait:MS>
 <wait:MIN:MAX>
 <macro:NAME>         macro_sync call to saved macro NAME (once, speed 1.0);
-                     name used as written (trimmed), ends at the first >
+                     name trimmed, ends at the first >; characters other
+                     than [A-Za-z0-9_.-] become _ at lookup
 ```
 
 ## Macro JSON

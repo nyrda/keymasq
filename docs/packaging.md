@@ -123,8 +123,10 @@ last tag:
 
 - [ ] `./scripts/check.sh full`
 - [ ] `./scripts/integration.sh daemon-session`
+- [ ] `./scripts/integration.sh masking-behavior masking-recovery`
 - [ ] `./scripts/integration.sh listeners`
 - [ ] `scripts/check-doc-screenshots`
+- [ ] `scripts/test-appimage-brotway <Keymasq.AppImage>` on the built AppImage
 
 These suites are manual gates, and CI does not run them. Prereleases should
 pass the same gates unless the prerelease exists specifically to test packaging
@@ -161,7 +163,9 @@ that the script should preserve in place:
 
 - the top `CHANGELOG.md` section body for the new version if you are writing it
   before the bump
-- the top entry bullet list in `debian/changelog`
+- a new top entry in `debian/changelog` for the new version. The script
+  rewrites the version and date of the first entry in place and never adds
+  one, so without a new entry it renames the previous release's entry
 - the top `<release>` description in `assets/tools.keymasq.keymasq.metainfo.xml`
   if you are writing it before the bump
 
@@ -169,7 +173,14 @@ The script then normalizes or inserts the top `CHANGELOG.md` section for the
 requested version, updates the current release date in Debian changelog and
 AppStream metadata, and refreshes the generated packaging files. Use
 `--dry-run` to preview the file set, or `--release-date YYYY-MM-DD` when the
-release date is not today.
+release date is not today. When it inserts a new AppStream release, its
+description is the placeholder `Update release notes.`. Replace it before
+tagging.
+
+Commit the bump before pushing the tag. The package workflow takes the package
+version from `pyproject.toml` and does not compare it with the tag, so a
+`v1.0.0` tag on an unbumped commit publishes the previous version's packages
+under the new tag.
 
 When writing `CHANGELOG.md`, only include user-facing software changes:
 
@@ -731,24 +742,35 @@ sh debian/tests/installed-cli
 
 The package workflow lives in `.github/workflows/package.yml`.
 
-CI does the following:
+Source checks run in `.github/workflows/tests.yml`, not in the package
+workflow. The package workflow does the following:
 
-1. Runs source checks
+1. Builds the source tarball
 2. Builds the rendered Arch package from the release tarball
 3. Installs and smoke-tests that Arch package in a clean Arch environment
-4. Builds the Debian package
-5. Tests the exact built `.deb` in a clean Debian environment
-6. Builds Fedora and openSUSE RPMs in distro-native environments
-7. Installs and smoke-tests those RPMs in fresh environments
-8. Publishes build artifacts on release tags
+4. Builds the AppImage
+5. Builds the Debian package
+6. Tests the exact built `.deb` in a clean Debian environment
+7. Builds Fedora and openSUSE RPMs in distro-native environments, and signs
+   them for stable releases
+8. Installs and smoke-tests those RPMs in fresh environments
+9. Publishes a GitHub release for stable `v*` tags, or a prerelease for manual
+   dispatches
+10. Publishes the package repositories, COPR, and AUR after a stable release,
+    when the matching `ENABLE_*_PUBLISH` repository variable is `true`
 
-On tagged builds, the workflow publishes:
+A stable release publishes:
 
-- `.deb`
-- `.changes`
-- `.buildinfo`
-- Fedora RPM
-- openSUSE RPM
+- the AppImage
+- `.deb`, `.changes`, and `.buildinfo`
+- Fedora and openSUSE RPMs
+- the source tarball
+- `rpm-signing-key.asc`
+- `SHA256SUMS`
+
+Pushing a tag that contains `-`, such as `v1.0.0-rc1`, builds and tests every
+package but publishes nothing. Create release candidates through the
+workflow's manual dispatch, with `prerelease_tag` and `prerelease_version`.
 
 You can exercise parts of the workflow locally with `act`:
 
@@ -756,7 +778,7 @@ You can exercise parts of the workflow locally with `act`:
 act -j build-deb -W .github/workflows/package.yml
 act -j test-deb -W .github/workflows/package.yml
 act -j build-rpm-fedora -W .github/workflows/package.yml
-act -j test-rpm-fedora -W .github/workflows/package.yml
+act -j test-rpm -W .github/workflows/package.yml
 ```
 
 ## Known packaging notes

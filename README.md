@@ -16,8 +16,8 @@ the same in every app.
 ![Keymasq main window showing a mouse profile with mapped side buttons](docs/assets/screenshots/keymasq_profile.png)
 
 You set things up in the GTK4 GUI. Keymasq stores the configuration as plain
-TOML, so you can also edit it by hand or with scripts. The CLI activates and
-deactivates profiles and plays macros.
+TOML, so you can also edit it by hand or with scripts. The CLI switches
+profiles, plays and types macros, and controls hardware masking.
 
 ## Features
 
@@ -39,6 +39,10 @@ deactivates profiles and plays macros.
 - Repeat Last Action, which re-runs your most recent input from a spare button
 - Analog controls that route sticks, triggers, wheels, and axes to mouse,
   keyboard, or gamepad output
+- Pointer movement per profile, to change mouse speed for one game or drive a
+  stick or trigger from the mouse
+- Rollover groups that let only one of several held keys drive a shared
+  output, for example two keys on one stick axis
 - Motion controls that map a PlayStation, Nintendo, or Steam controller's gyro
   or tilt to mouse movement or stick output, with guided calibration to cancel
   drift
@@ -162,6 +166,8 @@ as plain TOML in `~/.config/keymasq/`:
 - `profiles/` stores global profiles with one or more device layers
 - `superkeys/` stores reusable multi-action key definitions
 - `analog_controls/` stores reusable stick and axis behavior
+- `motion_controls/` stores reusable gyro and tilt behavior
+- `virtual_devices.toml` stores custom virtual controllers
 - `settings.toml` and `recording_settings.toml` store user preferences
 
 The daemon keeps saved macros under `/var/lib/keymasq/macros/`. Use the GUI

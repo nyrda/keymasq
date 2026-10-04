@@ -160,8 +160,9 @@ reads type IDs from `/sys/kernel/btf/vmlinux`, assembles the instructions, and
 loads them with raw `bpf(2)` calls. The job attaches the program as a
 `hid_bpf_ops` struct_ops link and passes the link, a ring buffer, and a state map
 to the daemon over `/run/keymasq/handoff`, then exits. Closing the link detaches
-the program, so releasing the source or stopping the daemon leaves nothing
-attached. See [Security](security.md#native-input-programs) for the privilege
+the program. After the last user releases the source, the daemon keeps the
+link open for 30 seconds, so profile switches do not start a root job each
+time, and then closes it. Stopping the daemon closes it at once. See [Security](security.md#native-input-programs) for the privilege
 boundary.
 
 The program counts every report it recognizes and keeps the latest state and a

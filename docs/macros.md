@@ -310,8 +310,10 @@ tuning arguments for this control.
 [macro call](#calling-macros-from-macros) added in the timeline editor. The
 child plays once at normal speed with mouse movement and clicks replayed, and
 typing continues after it finishes. The usual pause between keystrokes applies
-before and after the call. The name is used exactly as written, without
-surrounding spaces, and ends at the first `>`. It is resolved when playback
+before and after the call. The name ends at the first `>`, and surrounding
+spaces are ignored. Keymasq looks it up the same way it names macro files:
+characters other than letters, digits, `_`, `.`, and `-` become `_`, so
+`<macro:open chat>` runs `open_chat`. The name is resolved when playback
 reaches the call, so a missing macro stops the type macro there.
 
 Use `\<` to type a literal `<`. Backslashes are otherwise treated as normal
@@ -630,6 +632,8 @@ it.
 Deleting a macro does **not** automatically unbind it from keys, superkeys, or
 combos that reference it. Those mappings stay in place but stop working.
 Pressing the trigger does nothing because the macro no longer exists.
+Renaming a macro has the same effect on references to its old name, including
+macro calls and `<macro:NAME>` in type macros.
 
 ## Security notes
 

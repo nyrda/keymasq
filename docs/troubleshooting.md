@@ -35,13 +35,15 @@ journalctl --user -u keymasq-session -n 200
 
 ## Verbose logging
 
-Both services support `-v` and `-vv`.
+Both services support `-v` and `-vv`. `keymasqd` also accepts `-vvv`.
 
 - `keymasqd -v`: more detailed daemon logging, including command flow and
   runtime state changes.
 - `keymasqd -vv`: trace-level daemon logging. Use this when debugging active
   input processing or event-heavy problems. This level can expose every key or
   button event seen by the daemon, so treat the resulting logs as sensitive.
+- `keymasqd -vvv`: also logs every raw hardware event before remapping, except
+  pointer motion. Use it to check what a device actually reports.
 - `keymasq-session -v`: more detailed session and compositor logging,
   including daemon event flow.
 
@@ -207,6 +209,35 @@ What to verify:
 - the service has permission to access `/dev/uinput` and the input event devices
 - no other input remapping tool has already grabbed the device, because only
   one program can exclusively hold a device at a time
+
+### A device does not appear in hardware setup
+
+The **+** dialog lists input devices the daemon can open. It leaves out:
+
+- devices that already have a hardware config. Open that device's tab and use
+  **Hardware Settings** to add more of its event devices
+- Keymasq's own virtual keyboards, mice, and gamepads
+- event devices that report no vendor and product ID
+- touchpads, unless **Show raw evdev devices** is checked
+
+If the list is empty or the dialog reports a permission error, see
+[`uinput` or input-device access problems](#uinput-or-input-device-access-problems).
+While Steam holds the Steam Deck controller, the kernel driver removes its
+input devices. Use [hardware masking](hardware-masking.md) for it.
+
+### A game or Steam ignores the remap
+
+Symptoms:
+
+- a controller remap works on the desktop but not in a game
+- a game sees both the physical controller and the remapped one, or doubled
+  input
+
+Keymasq hides a grabbed controller's evdev and joystick nodes. Steam and games
+that use SDL's HID drivers can still read the physical controller through
+`hidraw`, which bypasses the remap. Turn on
+[hardware masking](hardware-masking.md) for that controller, so only Keymasq
+can open it.
 
 ### Native gyro reports permission denied
 
@@ -495,9 +526,13 @@ Symptoms:
 Checks:
 
 ```bash
+keymasq status
 journalctl --user -u keymasq-session -n 100
-keymasq profiles list
 ```
+
+`keymasq status` names the detected compositor and marks it `[unsupported]`
+when Keymasq has no integration for it. The `listener` line shows whether
+window tracking is active.
 
 Typical causes:
 

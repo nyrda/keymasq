@@ -5,7 +5,14 @@ import pytest
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import EvdevDevice, HardwareConfig
-from keymasq.common.model.pointer import PointerMovementConfig
+from keymasq.common.model.pointer import (
+    MAX_POINTER_COUNTS,
+    MAX_POINTER_FACTOR,
+    MAX_POINTER_RECENTER_MS,
+    MAX_POINTER_WINDOW_MS,
+    MIN_POINTER_WINDOW_MS,
+    PointerMovementConfig,
+)
 from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
 from keymasq.common.virtual_devices import SAME_DEVICE_OUTPUT_ID
 from keymasq.keymasqd.runtime.action_parser import parse_action
@@ -130,3 +137,87 @@ def test_pointer_axes_on_another_output_leave_the_controller_interface_alone():
     interfaces = get_interfaces_to_grab(hardware, resolved, manager=Mock())
 
     assert interfaces == {"mouse": "/dev/input/event4"}
+
+
+def _pointer_profile(**fields: object) -> dict[str, object]:
+    return {
+        "profile": {"name": "Hand edited", "created_at": "2026-01-01T00:00:00"},
+        "devices": {
+            "cafe:0004": {"mapping": {"pointer": {"action": "pointer_movement", **fields}}}
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "clamped"),
+    [
+        ("mode", "axis", "mouse"),
+        ("behavior", "pos", "velocity"),
+        ("overshoot", 1, "drag"),
+        ("x_direction", "up", "both"),
+        ("x_axis", "abs_bogus", None),
+        ("y_axis", 3, None),
+        ("factor_x", -3, 0.0),
+        ("factor_y", 51.0, 50.0),
+        ("factor_x", "2", 2.0),
+        ("full_speed", 0, 1.0),
+        ("window_ms", 20.5, 20),
+        ("window_ms", 1000, 250),
+        ("radius", float("nan"), 1500.0),
+        ("recenter_ms", -1, 0),
+        ("deadzone", 0.96, 0.95),
+        ("minimum_output", True, 0.0),
+        ("response_curve", 5, 4.0),
+        ("invert_x", "yes", True),
+        ("output_id", 2, "2"),
+    ],
+)
+def test_malformed_pointer_mapping_fails_profile_load_but_not_daemon_ipc(field, value, clamped):
+    with pytest.raises(ValueError, match=rf"mapping cafe:0004 pointer: pointer movement {field} "):
+        ProfileCodec().decode(_pointer_profile(**{field: value}), default_name="fallback")
+
+    runtime = parse_action(
+        Mock(),
+        {"action": "pointer_movement", "pointer_movement": {"mode": "axes", field: value}},
+    )
+
+    assert runtime.pointer_movement is not None
+    assert getattr(runtime.pointer_movement, field) == clamped
+
+
+def test_pointer_values_at_the_editor_limits_load_unchanged():
+    lowest = PointerMovementConfig(
+        mode="axes",
+        factor_x=0.0,
+        factor_y=0.0,
+        full_speed=1.0,
+        window_ms=MIN_POINTER_WINDOW_MS,
+        radius=1.0,
+        recenter_ms=0,
+        x_axis=None,
+        y_axis="abs_hat0x",
+        deadzone=0.0,
+        minimum_output=0.0,
+        response_curve=0.25,
+    )
+    highest = PointerMovementConfig(
+        mode="axes",
+        factor_x=MAX_POINTER_FACTOR,
+        factor_y=MAX_POINTER_FACTOR,
+        full_speed=MAX_POINTER_COUNTS,
+        window_ms=MAX_POINTER_WINDOW_MS,
+        radius=MAX_POINTER_COUNTS,
+        recenter_ms=MAX_POINTER_RECENTER_MS,
+        deadzone=95.0 / 100.0,
+        minimum_output=95.0 / 100.0,
+        response_curve=4.0,
+    )
+    codec = ProfileCodec()
+
+    for config in (lowest, highest):
+        action = MappingAction(action_type=ActionType.POINTER_MOVEMENT, pointer_movement=config)
+        layer = DeviceProfileLayer("cafe:0004", mappings={"pointer": action})
+        data = codec.encode(ProfileConfig(name="Limits", device_layers={"cafe:0004": layer}))
+        loaded = codec.decode(data, default_name="fallback").config
+
+        assert loaded.device_layers["cafe:0004"].mappings["pointer"].pointer_movement == config

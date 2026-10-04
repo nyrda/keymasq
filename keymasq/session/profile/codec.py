@@ -18,11 +18,7 @@ from keymasq.common.model.profiles import (
     ProfileConfig,
     WindowRule,
 )
-from keymasq.common.rollover import (
-    layer_rollover_groups,
-    rollover_group_to_data,
-    rollover_groups_from_data,
-)
+from keymasq.common.rollover import rollover_group_to_data, rollover_groups_from_toml
 from keymasq.session.action_toml import (
     mapping_action_from_toml,
     mapping_action_to_toml,
@@ -121,10 +117,13 @@ class ProfileCodec:
                 if isinstance(mapping_table, dict):
                     for button_id, action_data in cast(dict[object, object], mapping_table).items():
                         parsed_action_data = as_toml_dict(action_data)
-                        if parsed_action_data is not None:
-                            mappings[str(button_id)] = self.parse_action(parsed_action_data)
-                        elif isinstance(action_data, str):
-                            mappings[str(button_id)] = self.parse_action(action_data)
+                        try:
+                            if parsed_action_data is not None:
+                                mappings[str(button_id)] = self.parse_action(parsed_action_data)
+                            elif isinstance(action_data, str):
+                                mappings[str(button_id)] = self.parse_action(action_data)
+                        except ValueError as exc:
+                            raise ValueError(f"mapping {hardware_id} {button_id}: {exc}") from exc
                 device_layers[str(hardware_id)] = DeviceProfileLayer(
                     hardware_id=str(hardware_id),
                     always_grab_all=bool(layer_dict.get("always_grab_all", False)),
@@ -149,9 +148,7 @@ class ProfileCodec:
             window_rules=window_rules,
             device_layers=device_layers,
             combos=self._parse_combos(data.get("combos", [])),
-            rollover_groups=layer_rollover_groups(
-                rollover_groups_from_data(data.get("rollover_groups"))
-            ),
+            rollover_groups=rollover_groups_from_toml(data.get("rollover_groups")),
             image=str(profile.get("image")) if profile.get("image") is not None else None,
             created_at=created_at,
         )

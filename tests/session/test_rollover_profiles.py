@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
@@ -102,28 +103,56 @@ def test_codec_round_trips_rollover_groups() -> None:
     assert decoded.rollover_groups == original.rollover_groups
 
 
-def test_codec_omits_empty_groups_and_drops_invalid_ones() -> None:
+def _member(button: str) -> dict[str, str]:
+    return {"hardware_id": KEYBOARD, "button": button}
+
+
+def test_codec_omits_empty_groups() -> None:
     codec = ProfileCodec()
+
     assert "rollover_groups" not in codec.encode(_profile("Plain", 0, []))
 
-    def member(button: str) -> dict[str, str]:
-        return {"hardware_id": KEYBOARD, "button": button}
 
-    decoded = codec.decode(
-        {
-            "profile": {"name": "Hand edited", "created_at": "2026-01-01T00:00:00"},
-            "rollover_groups": [
-                {"name": "single", "members": [member("key_a"), member("key_a")]},
-                {"name": "first", "members": [member("key_a"), member("key_d")], "winner": "x"},
-                {"name": "second", "members": [member("key_d"), member("key_w")]},
+@pytest.mark.parametrize(
+    ("groups", "message"),
+    [
+        (
+            [{"name": "AD", "members": [_member("key_a"), {"hardware_id": KEYBOARD, "btn": "d"}]}],
+            "rollover group 'AD' member 2 needs a hardware_id and a button",
+        ),
+        ([{"members": [_member("key_a")]}], "rollover group 1 needs at least 2 members"),
+        ([{"name": "AD"}], "rollover group 'AD' needs a members array"),
+        (
+            [{"name": "AA", "members": [_member("key_a"), _member("key_a")]}],
+            f"rollover group 'AA' lists {KEYBOARD} key_a twice",
+        ),
+        (
+            [
+                {"name": "AD", "members": [_member("key_a"), _member("key_d")]},
+                {"name": "DW", "members": [_member("key_d"), _member("key_w")]},
             ],
-        },
-        default_name="fallback",
-    ).config
+            f"{KEYBOARD} key_d is in both rollover group 'AD' and rollover group 'DW'",
+        ),
+        (
+            [{"name": "AD", "members": [_member("key_a"), _member("key_d")], "winner": "last"}],
+            "rollover group 'AD' winner must be",
+        ),
+        (
+            [{"name": "AD", "members": [_member("key_a"), _member("key_d")], "restore": "no"}],
+            "rollover group 'AD' restore must be true or false",
+        ),
+        ([["key_a", "key_d"]], "rollover group 1 must be a table"),
+        ({"name": "AD"}, "rollover_groups must be an array of tables"),
+    ],
+)
+def test_codec_rejects_malformed_groups(groups: object, message: str) -> None:
+    data = {
+        "profile": {"name": "Hand edited", "created_at": "2026-01-01T00:00:00"},
+        "rollover_groups": groups,
+    }
 
-    assert decoded.rollover_groups == [
-        RolloverGroup(name="second", members=[kb("key_d"), kb("key_w")])
-    ]
+    with pytest.raises(ValueError, match=re.escape(message)):
+        ProfileCodec().decode(data, default_name="fallback")
 
 
 def test_resolver_layers_groups_across_profiles_and_marks_member_devices() -> None:

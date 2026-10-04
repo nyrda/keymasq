@@ -226,7 +226,10 @@ disable and toggle, mpris, macro slot and recording controls, emergency reset)
 run once per physical press, not again on each takeover. Two members that send the same plain key, button, or axis target
 without tap or rapidfire hand over by overwriting it, without a release. A
 member belongs to one group. A group in a higher-priority profile replaces
-lower groups that share a member. Groups need at least two distinct members.
+lower groups that share a member. Groups need at least two members, each with
+`hardware_id` and `button`. A member listed twice, a member in two groups of
+one profile, an unknown `winner`, or a non-boolean `restore` fails the profile
+load (logged; a live reload keeps the old config and notifies).
 Members on a device that no profile maps still get their interface grabbed.
 When a device disconnects, its held members count as released.
 
@@ -403,6 +406,11 @@ invert_y = true
 
 `action = "suppress"` on `pointer` blocks pointer movement, and `action = "passthrough"`
 restores normal movement over a lower-priority profile's pointer mapping.
+Ranges: `factor_x`/`factor_y` 0-50, `full_speed` and `radius` 1-1000000, `window_ms`
+4-250, `recenter_ms` 0-60000, `deadzone` and `minimum_output` 0-0.95, `response_curve`
+0.25-4. An unknown choice or axis name, an out-of-range number, or a wrong type fails the
+profile load (logged; a live reload keeps the old config and notifies). Negative factors are
+invalid; use `invert_x`/`invert_y`.
 
 Bind a saved macro:
 

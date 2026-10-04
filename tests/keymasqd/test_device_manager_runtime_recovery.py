@@ -809,6 +809,9 @@ class TestDeviceManagerHelpers:
                 self.hidden = hidden
                 self.grabbed = True
 
+            def cancel_event_loop(self) -> None:
+                pass
+
             async def stop_event_loop(self) -> None:
                 pass
 
@@ -866,6 +869,9 @@ class TestDeviceManagerHelpers:
                 self.path = path
                 self.cancel = cancel
 
+            def cancel_event_loop(self) -> None:
+                pass
+
             async def stop_event_loop(self) -> None:
                 pass
 
@@ -910,6 +916,9 @@ class TestDeviceManagerHelpers:
         class _Device:
             def __init__(self, path: str) -> None:
                 self.path = path
+
+            def cancel_event_loop(self) -> None:
+                pass
 
             async def stop_event_loop(self) -> None:
                 pass

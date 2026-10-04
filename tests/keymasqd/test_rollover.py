@@ -1235,8 +1235,11 @@ async def cursor_member_setup(
             )
         )
 
-    async def press(device: GrabbedDevice, code: int, *, value: int = 1) -> None:
+    def feed(device: GrabbedDevice, code: int, *, value: int = 1) -> None:
         inputs[device.hardware_id].put_nowait(SimpleNamespace(type=EV_KEY, code=code, value=value))
+
+    async def press(device: GrabbedDevice, code: int, *, value: int = 1) -> None:
+        feed(device, code, value=value)
         await settle_tasks()
 
     async def move_on_keyboard() -> None:
@@ -1261,6 +1264,9 @@ async def cursor_member_setup(
         assert manager.grabbed_devices == {}
 
     return SimpleNamespace(
+        manager=manager,
+        aim=aim,
+        feed=feed,
         keyboard=keyboard,
         mouse=mouse,
         keys=setup.keyboard,
@@ -1292,6 +1298,42 @@ async def test_emergency_reset_cancels_a_resettle_waiting_behind_a_member(monkey
     await rig.reset_during_update(restore=False)
 
     assert key_writes(rig.keys) == [(evdev.ecodes.KEY_X, 1), (evdev.ecodes.KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_stops_a_reader_in_the_middle_of_a_member_event(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    combos = rig.mouse.event_callback
+    combos_done = asyncio.Event()
+
+    async def slow_combos(*args: object, **kwargs: object) -> object:
+        await combos_done.wait()
+        return await combos(*args, **kwargs)
+
+    rig.mouse.event_callback = slow_combos
+    await rig.move_on_keyboard()
+    await rig.press(rig.mouse, BTN_SIDE)
+
+    reset = asyncio.create_task(rig.manager.emergency_reset())
+    await asyncio.sleep(0)
+    combos_done.set()
+    await asyncio.wait_for(reset, timeout=1)
+
+    assert key_writes(rig.keys) == []
+
+
+@pytest.mark.asyncio
+async def test_a_group_update_during_a_full_release_waits_for_the_devices(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    reset = asyncio.create_task(rig.manager.emergency_reset())
+    while rig.manager.rollover is not None:
+        await asyncio.sleep(0)
+    assert rig.manager.grabbed_devices
+
+    await rig.manager.set_rollover_groups([rig.aim])
+
+    assert rig.manager.grabbed_devices == {}
+    await reset
 
 
 @pytest.mark.asyncio

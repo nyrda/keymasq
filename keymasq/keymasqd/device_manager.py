@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import errno
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import replace
 from typing import Any, Protocol, cast
 
@@ -427,11 +427,11 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         # Groups come from the session. Its next connection sends them again.
         # Dropping them first keeps a member from taking over on a device that
         # is about to be released.
-        await self._drop_rollover_groups()
-        await release_all_devices(
-            self,
-            fire_and_observe_fn=fire_and_observe,
-        )
+        async with self._rollover_groups_dropped():
+            await release_all_devices(
+                self,
+                fire_and_observe_fn=fire_and_observe,
+            )
         async with self._op_lock:
             self.device_inspector_state.reset()
             await self._refresh_combo_runtime()
@@ -711,22 +711,24 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             await self._install_rollover_groups(parsed)
         return {"updated": True, "group_count": len(parsed)}
 
-    async def _drop_rollover_groups(self) -> None:
+    @contextlib.asynccontextmanager
+    async def _rollover_groups_dropped(self) -> AsyncGenerator[None]:
         """Remove every group without waiting for member actions in flight.
 
         A member action runs under its group's lock, a cursor movement for as
         long as it is configured to. Readers, queued member events and
         resettles hold or wait for those locks, so they are stopped instead.
+        No group comes back until the block ends.
         """
         devices = [device for devices in self.grabbed_devices.values() for device in devices]
         # Before the action in flight ends and frees its lock, nothing else may
-        # start a member: readers take no further events, queued events and
-        # resettles are cancelled, and no new resettle starts, including one
-        # for groups a waiting update installs once the lock is free.
+        # start a member: readers are cancelled, also mid-event, queued events
+        # and resettles are cancelled, and no new resettle starts, including
+        # one for groups a waiting update installs once the lock is free.
         self._rollover_drops += 1
         try:
             for device in devices:
-                device.running = False
+                device.cancel_event_loop()
             self._cancel_rollover_work()
             await self.cancel_cursor_move()
             for device in devices:
@@ -736,6 +738,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     log.exception("Stopping the reader of %s failed", device.path)
             async with self._rollover_update_lock:
                 await self._install_rollover_groups([])
+                yield
         finally:
             self._rollover_drops -= 1
 

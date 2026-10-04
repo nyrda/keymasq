@@ -200,6 +200,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         # installed.
         self._rollover_update_lock = asyncio.Lock()
         self._rollover_resettles: set[asyncio.Task[object]] = set()
+        self._rollover_drops = 0
         self.mask_registry = MaskRegistry()
         from keymasq.masking.paths import POLICY_DIR
 
@@ -719,22 +720,24 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         """
         devices = [device for devices in self.grabbed_devices.values() for device in devices]
         # Before the action in flight ends and frees its lock, nothing else may
-        # start a member: readers take no further events, and queued events
-        # and resettles are cancelled. This also frees a group update that
-        # waits for the same locks.
-        for device in devices:
-            device.running = False
-        self._cancel_rollover_work()
-        await self.cancel_cursor_move()
-        for device in devices:
-            try:
-                await device.stop_event_loop()
-            except Exception:
-                log.exception("Stopping the reader of %s failed", device.path)
-        async with self._rollover_update_lock:
-            # That update may have resettled the groups it installed.
+        # start a member: readers take no further events, queued events and
+        # resettles are cancelled, and no new resettle starts, including one
+        # for groups a waiting update installs once the lock is free.
+        self._rollover_drops += 1
+        try:
+            for device in devices:
+                device.running = False
             self._cancel_rollover_work()
-            await self._install_rollover_groups([])
+            await self.cancel_cursor_move()
+            for device in devices:
+                try:
+                    await device.stop_event_loop()
+                except Exception:
+                    log.exception("Stopping the reader of %s failed", device.path)
+            async with self._rollover_update_lock:
+                await self._install_rollover_groups([])
+        finally:
+            self._rollover_drops -= 1
 
     def _cancel_rollover_work(self) -> None:
         for devices in self.grabbed_devices.values():
@@ -771,6 +774,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         rollover: RolloverRuntime,
         group_state: RolloverGroupState,
     ) -> None:
+        if self._rollover_drops:
+            return
         task = fire_and_observe(
             resettle_rollover_group(
                 rollover,

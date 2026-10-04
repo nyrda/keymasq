@@ -1261,6 +1261,7 @@ async def cursor_member_setup(
         assert manager.grabbed_devices == {}
 
     return SimpleNamespace(
+        keyboard=keyboard,
         mouse=mouse,
         keys=setup.keyboard,
         press=press,
@@ -1282,16 +1283,30 @@ async def test_emergency_reset_does_not_wait_for_a_member_moving_the_cursor(monk
 
 
 @pytest.mark.asyncio
-async def test_emergency_reset_does_not_wait_for_a_member_a_group_update_presses(
+async def test_emergency_reset_cancels_a_resettle_waiting_behind_a_member(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    await rig.press(rig.mouse, BTN_SIDE)
+    await rig.move_on_keyboard()
+    rig.keyboard.release_tracked_outputs()
+
+    await rig.reset_during_update(restore=False)
+
+    assert key_writes(rig.keys) == [(evdev.ecodes.KEY_X, 1), (evdev.ecodes.KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_keeps_a_waiting_group_update_from_pressing_a_member(
     monkeypatch,
 ) -> None:
     mouse_mapping = {"btn_side": key("key_x")}
     rig = await cursor_member_setup(monkeypatch, mouse_mapping, restore=False)
     await rig.press(rig.mouse, BTN_SIDE)
-    mouse_mapping["btn_side"] = CURSOR_MOVE
+    mouse_mapping["btn_side"] = key("key_y")
     await rig.move_on_keyboard()
 
     await rig.reset_during_update(winner="oldest", restore=True)
+
+    assert evdev.ecodes.KEY_Y not in {code for code, _value in key_writes(rig.keys)}
 
 
 @pytest.mark.asyncio

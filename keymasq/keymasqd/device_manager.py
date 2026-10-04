@@ -423,7 +423,6 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     async def release_all_devices(self) -> None:
         self.profile_activation_tracker.reset()
         self.repeat_state.history.clear()
-        await self.cancel_cursor_move()
         # Groups come from the session. Its next connection sends them again.
         # Dropping them first keeps a member from taking over on a device that
         # is about to be released.
@@ -718,13 +717,20 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         long as it is configured to. Readers, queued member events and
         resettles hold or wait for those locks, so they are stopped instead.
         """
-        for device in [device for devices in self.grabbed_devices.values() for device in devices]:
+        devices = [device for devices in self.grabbed_devices.values() for device in devices]
+        # Before the action in flight ends and frees its lock, nothing else may
+        # start a member: readers take no further events, and queued events
+        # and resettles are cancelled. This also frees a group update that
+        # waits for the same locks.
+        for device in devices:
+            device.running = False
+        self._cancel_rollover_work()
+        await self.cancel_cursor_move()
+        for device in devices:
             try:
                 await device.stop_event_loop()
             except Exception:
                 log.exception("Stopping the reader of %s failed", device.path)
-        # Also frees a group update that waits for the same locks.
-        self._cancel_rollover_work()
         async with self._rollover_update_lock:
             # That update may have resettled the groups it installed.
             self._cancel_rollover_work()

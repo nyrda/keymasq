@@ -35,6 +35,7 @@ def acquire(manager, owner, paths):
             path=path,
             hardware_id=owner,
             interface_id=path,
+            cancel_event_loop=Mock(),
             stop_event_loop=AsyncMock(),
             release_tracked_outputs=Mock(),
             release=AsyncMock(),

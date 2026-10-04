@@ -176,6 +176,12 @@ as released. With **Return to held keys** on, a member still held on another
 device takes over. A device that isn't connected has no held keys, so the rest
 of its group works as usual.
 
+An emergency reset, and anything else that releases every device, such as the
+session disconnecting or `keymasqd` stopping, does not wait for member actions.
+A member action that is still running, such as a natural cursor movement, stops
+right away, member presses waiting behind it are dropped, and no other member
+takes over.
+
 ## Storage
 
 Groups are stored in the profile TOML, next to the device layers:

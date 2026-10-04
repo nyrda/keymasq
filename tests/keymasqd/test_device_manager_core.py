@@ -4185,12 +4185,19 @@ class TestReleaseScheduling:
     ):
         """One interface's failed cleanup must not skip its siblings' release."""
         manager = DeviceManager()
-        keyboard = SimpleNamespace(
-            path="/dev/input/event1",
-            release=AsyncMock(side_effect=OSError("keyboard cleanup failed")),
+        def interface(path: str, release: AsyncMock) -> SimpleNamespace:
+            return SimpleNamespace(
+                path=path,
+                cancel_event_loop=Mock(),
+                stop_event_loop=AsyncMock(),
+                release=release,
+            )
+
+        keyboard = interface(
+            "/dev/input/event1", AsyncMock(side_effect=OSError("keyboard cleanup failed"))
         )
-        mouse = SimpleNamespace(path="/dev/input/event2", release=AsyncMock())
-        other = SimpleNamespace(path="/dev/input/event3", release=AsyncMock())
+        mouse = interface("/dev/input/event2", AsyncMock())
+        other = interface("/dev/input/event3", AsyncMock())
         manager.grabbed_devices["combo"] = [keyboard, mouse]
         manager.grabbed_devices["other"] = [other]
         monkeypatch.setattr(release, "stop_device_event_loops", AsyncMock())

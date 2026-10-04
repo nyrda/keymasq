@@ -884,13 +884,17 @@ class GrabbedDevice:
 
         log.info("Grabbed %s for %s", self.path, self.hardware_id)
 
-    async def stop_event_loop(self) -> None:
+    def cancel_event_loop(self) -> None:
         self.running = False
+        if self.task is not None and self.task is not asyncio.current_task():
+            self.task.cancel()
+
+    async def stop_event_loop(self) -> None:
+        self.cancel_event_loop()
         if self.task:
             task = self.task
             self.task = None
             if task is not asyncio.current_task():
-                task.cancel()
                 try:
                     await asyncio.wait_for(task, timeout=1.0)
                 except (TimeoutError, asyncio.CancelledError):

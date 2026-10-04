@@ -1,16 +1,21 @@
 import asyncio
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import evdev
 import pytest
 
+from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.common.model.profiles import RolloverGroup, RolloverMember, RolloverWinner
 from keymasq.common.model.superkeys import SuperkeyConfig
 from keymasq.common.virtual_device_templates import VirtualDeviceConfig, resolve_virtual_devices
 from keymasq.keymasqd.device_manager import DeviceManager
+from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.default_controller_route import DefaultControllerRoute
+from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device import outputs
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
@@ -29,6 +34,7 @@ from keymasq.keymasqd.runtime.virtual_gamepads import GamepadOutputRouter
 from tests.keymasqd.device_manager_support import (
     FakeUInput,
     grabbed_event_processing_deps,
+    make_combo_grabbed_device,
     make_combo_runtime_setup,
     make_grabbed_device,
 )
@@ -1152,6 +1158,197 @@ async def test_group_updates_do_not_stall_a_device_behind_a_busy_group(monkeypat
     await rig.send((KEY_A, 0))
 
     assert held_keys(rig.passthrough) == set()
+
+
+CURSOR_MOVE = MappingAction(
+    action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
+    move_x=1_000_000,
+    move_speed=100.0,
+    move_max_duration_ms=600_000,
+)
+
+
+async def cursor_member_setup(
+    monkeypatch, mouse_mapping: dict[str, MappingAction], *, restore: bool = True
+) -> SimpleNamespace:
+    setup = await make_combo_runtime_setup(
+        monkeypatch,
+        [],
+        hardware_id=KEYBOARD,
+        button_map=BUTTON_MAP,
+        mapping={"key_a": CURSOR_MOVE},
+    )
+    manager, keyboard = setup.manager, setup.device
+    mouse = make_combo_grabbed_device(
+        monkeypatch,
+        manager,
+        hardware_id=MOUSE,
+        path="/dev/input/event-mouse",
+        source="mouse",
+        button_map=MOUSE_BUTTON_MAP,
+        mapping_getter=lambda: mouse_mapping,
+        keyboard_uinput=setup.keyboard,
+    )
+    aim: dict[str, object] = {
+        "name": "aim",
+        "members": [
+            {"hardware_id": KEYBOARD, "button": "key_a"},
+            {"hardware_id": MOUSE, "button": "btn_side"},
+        ],
+        "restore": restore,
+    }
+    await manager.set_rollover_groups([aim])
+    pointer = FakeUInput()
+    manager.output_state.mouse_uinput = pointer
+
+    def cursor_x() -> int:
+        return sum(
+            value
+            for event_type, code, value in pointer.writes
+            if event_type == evdev.ecodes.EV_REL and code == evdev.ecodes.REL_X
+        )
+
+    async def compositor(event_type: CommandType, data: dict[str, object]) -> None:
+        if event_type == CommandType.CURSOR_POSITION_REQUEST:
+            manager.handle_cursor_position_response(
+                {"request_id": data["request_id"], "status": "ok", "x": cursor_x(), "y": 0}
+            )
+
+    manager.broadcast_callback = compositor
+    inputs: dict[str, asyncio.Queue[SimpleNamespace]] = {
+        KEYBOARD: asyncio.Queue(),
+        MOUSE: asyncio.Queue(),
+    }
+
+    async def read_events(runtime: GrabbedDevice) -> AsyncIterator[SimpleNamespace]:
+        while True:
+            yield await inputs[runtime.hardware_id].get()
+
+    monkeypatch.setattr(pipeline, "read_events", read_events)
+    for device in (keyboard, mouse):
+        device.rollover_getter = lambda: manager.rollover
+        device.natural_mouse_mover = manager.move_cursor_natural
+        device.device = Mock()
+        device.task = asyncio.create_task(
+            pipeline.event_loop(
+                device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
+            )
+        )
+
+    def feed(device: GrabbedDevice, code: int, *, value: int = 1) -> None:
+        inputs[device.hardware_id].put_nowait(SimpleNamespace(type=EV_KEY, code=code, value=value))
+
+    async def press(device: GrabbedDevice, code: int, *, value: int = 1) -> None:
+        feed(device, code, value=value)
+        await settle_tasks()
+
+    async def move_on_keyboard() -> None:
+        await press(keyboard, KEY_A)
+        while not pointer.writes:
+            await asyncio.sleep(0.01)
+
+    async def reset_during_update(**changes: object) -> None:
+        update = asyncio.create_task(manager.set_rollover_groups([{**aim, **changes}]))
+        await asyncio.sleep(0)
+        reset = asyncio.create_task(manager.emergency_reset())
+        await asyncio.sleep(0)
+        await press(mouse, BTN_SIDE, value=0)
+        await press(mouse, BTN_SIDE)
+        await asyncio.wait_for(reset, timeout=1)
+        await update
+        await asyncio.sleep(0.1)
+        moved = len(pointer.writes)
+        await asyncio.sleep(0.1)
+        assert len(pointer.writes) == moved
+        assert manager.rollover is None
+        assert manager.grabbed_devices == {}
+
+    return SimpleNamespace(
+        manager=manager,
+        aim=aim,
+        feed=feed,
+        keyboard=keyboard,
+        mouse=mouse,
+        keys=setup.keyboard,
+        press=press,
+        move_on_keyboard=move_on_keyboard,
+        reset_during_update=reset_during_update,
+    )
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_does_not_wait_for_a_member_moving_the_cursor(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    await rig.move_on_keyboard()
+    await rig.press(rig.mouse, BTN_SIDE)
+    assert rig.mouse.state.rollover_tasks
+
+    await rig.reset_during_update(restore=False)
+
+    assert key_writes(rig.keys) == []
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_cancels_a_resettle_waiting_behind_a_member(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    await rig.press(rig.mouse, BTN_SIDE)
+    await rig.move_on_keyboard()
+    rig.keyboard.release_tracked_outputs()
+
+    await rig.reset_during_update(restore=False)
+
+    assert key_writes(rig.keys) == [(evdev.ecodes.KEY_X, 1), (evdev.ecodes.KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_stops_a_reader_in_the_middle_of_a_member_event(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    combos = rig.mouse.event_callback
+    combos_done = asyncio.Event()
+
+    async def slow_combos(*args: object, **kwargs: object) -> object:
+        await combos_done.wait()
+        return await combos(*args, **kwargs)
+
+    rig.mouse.event_callback = slow_combos
+    await rig.move_on_keyboard()
+    await rig.press(rig.mouse, BTN_SIDE)
+
+    reset = asyncio.create_task(rig.manager.emergency_reset())
+    await asyncio.sleep(0)
+    combos_done.set()
+    await asyncio.wait_for(reset, timeout=1)
+
+    assert key_writes(rig.keys) == []
+
+
+@pytest.mark.asyncio
+async def test_a_group_update_during_a_full_release_waits_for_the_devices(monkeypatch) -> None:
+    rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    reset = asyncio.create_task(rig.manager.emergency_reset())
+    while rig.manager.rollover is not None:
+        await asyncio.sleep(0)
+    assert rig.manager.grabbed_devices
+
+    await rig.manager.set_rollover_groups([rig.aim])
+
+    assert rig.manager.grabbed_devices == {}
+    await reset
+
+
+@pytest.mark.asyncio
+async def test_emergency_reset_keeps_a_waiting_group_update_from_pressing_a_member(
+    monkeypatch,
+) -> None:
+    mouse_mapping = {"btn_side": key("key_x")}
+    rig = await cursor_member_setup(monkeypatch, mouse_mapping, restore=False)
+    await rig.press(rig.mouse, BTN_SIDE)
+    mouse_mapping["btn_side"] = key("key_y")
+    await rig.move_on_keyboard()
+
+    await rig.reset_during_update(winner="oldest", restore=True)
+
+    assert evdev.ecodes.KEY_Y not in {code for code, _value in key_writes(rig.keys)}
 
 
 @pytest.mark.asyncio

@@ -404,13 +404,18 @@ def forget_runtime_rollover(runtime: object) -> None:
     quarantined = cast(set[str] | None, getattr(state, "rollover_quarantined", None))
     if quarantined is not None:
         quarantined.clear()
-    if state is not None and hasattr(state, "rollover_epoch"):
-        state.rollover_epoch += 1
-    tasks = cast("set[asyncio.Task[object]] | None", getattr(state, "rollover_tasks", None))
-    for task in list(tasks or ()):
-        # Queued work of this device, including an action it already started.
-        task.cancel()
+    cancel_queued_rollover_events(runtime)
     getter = cast(RolloverGetterFn | None, getattr(runtime, "rollover_getter", None))
     rollover = getter() if getter is not None else None
     if rollover is not None:
         rollover.forget_runtime(cast("GrabbedDeviceRuntime", runtime))
+
+
+def cancel_queued_rollover_events(runtime: object) -> None:
+    """Drop a runtime's queued member events, including an action one already started."""
+    state = getattr(runtime, "state", None)
+    if state is not None and hasattr(state, "rollover_epoch"):
+        state.rollover_epoch += 1
+    tasks = cast("set[asyncio.Task[object]] | None", getattr(state, "rollover_tasks", None))
+    for task in list(tasks or ()):
+        task.cancel()

@@ -118,7 +118,11 @@ def test_codec_omits_empty_groups() -> None:
     [
         (
             [{"name": "AD", "members": [_member("key_a"), {"hardware_id": KEYBOARD, "btn": "d"}]}],
-            "rollover group 'AD' member 2 needs a hardware_id and a button",
+            "rollover group 'AD' member 2 needs a hardware_id and a button as strings",
+        ),
+        (
+            [{"name": "AD", "members": [_member("key_a"), {"hardware_id": 1234, "button": True}]}],
+            "rollover group 'AD' member 2 needs a hardware_id and a button as strings",
         ),
         ([{"members": [_member("key_a")]}], "rollover group 1 needs at least 2 members"),
         ([{"name": "AD"}], "rollover group 'AD' needs a members array"),

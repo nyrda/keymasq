@@ -128,9 +128,19 @@ def rollover_groups_from_toml(value: object) -> list[RolloverGroup]:
             raise ValueError(f"{label} needs a members array")
         members: list[RolloverMember] = []
         for position, raw_member in enumerate(cast(list[object], raw_members), start=1):
-            member = rollover_member_from_data(raw_member)
-            if member is None:
-                raise ValueError(f"{label} member {position} needs a hardware_id and a button")
+            fields = raw_member if isinstance(raw_member, Mapping) else {}
+            hardware_id = cast(Mapping[str, object], fields).get("hardware_id")
+            button = cast(Mapping[str, object], fields).get("button")
+            if not (
+                isinstance(hardware_id, str)
+                and hardware_id.strip()
+                and isinstance(button, str)
+                and button.strip()
+            ):
+                raise ValueError(
+                    f"{label} member {position} needs a hardware_id and a button as strings"
+                )
+            member = RolloverMember(hardware_id=hardware_id.strip(), button=button.strip())
             if member in members:
                 raise ValueError(f"{label} lists {member.hardware_id} {member.button} twice")
             owner = owners.get(member)

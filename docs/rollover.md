@@ -197,8 +197,13 @@ restore = true
   `newest`.
 - `restore` defaults to `true`.
 
-Keymasq drops groups with fewer than two distinct members when it loads a
-profile. When two groups in one profile share a member, the later group wins.
+A group needs at least two members, each with both `hardware_id` and
+`button`. A member can appear only once, in one group of the profile.
+A group that breaks these rules, or has an unknown `winner` or a `restore`
+that is not `true` or `false`, stops the profile from loading. Keymasq logs
+the error and leaves the profile out at startup. A reload while Keymasq runs
+keeps the previous configuration and shows a desktop notification. The file
+stays as written, so fix it and save it again.
 Deleting a hardware control also removes it from every group. Deleting a
 whole device or one of its interfaces does so only when you choose to remove
 its mappings from profiles.

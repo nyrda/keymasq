@@ -126,11 +126,11 @@ invert_y = false
 swap_axes = false
 # output_id = "virtual-gamepad-2"  # omitted: Virtual Gamepad 1
 behavior = "position"      # "velocity" or "position"
-full_speed = 4000.0        # velocity: counts per second for full output
+full_speed = 4000.0        # velocity: counts per second for full output, 1 to 1000000
 window_ms = 20             # velocity: averaging window, 4 to 250
-radius = 1500.0            # position: counts for full output
+radius = 1500.0            # position: counts for full output, 1 to 1000000
 overshoot = "drag"         # position: "drag" or "keep"
-recenter_ms = 0            # position: 0 turns recentering off
+recenter_ms = 0            # position: 0 to 60000; 0 turns recentering off
 x_axis = "abs_x"           # any ABS axis name, or "none"; default "abs_rx"
 y_axis = "none"            # default "abs_ry"
 x_direction = "both"       # "both", "max", or "min"
@@ -143,3 +143,10 @@ response_curve = 1.0       # 0.25 to 4.0
 `mode = "mouse"` uses only the factor, invert, and swap fields. Other fields are kept so
 that switching modes in the editor does not lose them. **Unchanged** saves
 `action = "passthrough"` and **Blocked** saves `action = "suppress"` on the `pointer` source.
+
+Every field is optional and takes the default shown above. A field that is set must hold a
+listed value, or a number in its range: `mode = "axis"`, `x_axis = "abs_bogus"`, or
+`factor_x = -3` stops the profile from loading. Keymasq logs the error and leaves the profile
+out at startup. A reload while Keymasq runs keeps the previous configuration and shows a
+desktop notification. The file stays as written, so fix it and save it again. To invert a
+direction, use `invert_x` or `invert_y` instead of a negative factor.

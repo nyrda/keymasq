@@ -1,5 +1,6 @@
 """Per-profile pointer movement factors and controller-axis output."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,26 @@ MIN_POINTER_WINDOW_MS = 4
 MAX_POINTER_WINDOW_MS = 250
 MAX_POINTER_RECENTER_MS = 60_000
 MAX_POINTER_COUNTS = 1_000_000.0
+
+_POINTER_CHOICES: dict[str, tuple[str, ...]] = {
+    "mode": POINTER_MODES,
+    "behavior": POINTER_BEHAVIORS,
+    "overshoot": POINTER_OVERSHOOT_MODES,
+    "x_direction": POINTER_AXIS_DIRECTIONS,
+    "y_direction": POINTER_AXIS_DIRECTIONS,
+}
+_POINTER_RANGES: dict[str, tuple[float, float]] = {
+    "factor_x": (0.0, MAX_POINTER_FACTOR),
+    "factor_y": (0.0, MAX_POINTER_FACTOR),
+    "full_speed": (1.0, MAX_POINTER_COUNTS),
+    "window_ms": (MIN_POINTER_WINDOW_MS, MAX_POINTER_WINDOW_MS),
+    "radius": (1.0, MAX_POINTER_COUNTS),
+    "recenter_ms": (0, MAX_POINTER_RECENTER_MS),
+    "deadzone": (0.0, 0.95),
+    "minimum_output": (0.0, 0.95),
+    "response_curve": (0.25, 4.0),
+}
+_POINTER_INT_FIELDS = frozenset({"window_ms", "recenter_ms"})
 
 
 @dataclass
@@ -51,27 +72,25 @@ class PointerMovementConfig:
 
     def __post_init__(self) -> None:
         self.mode = _choice(self.mode, POINTER_MODES)
-        self.factor_x = _clamp(coerce_float(self.factor_x, 1.0), 0.0, MAX_POINTER_FACTOR)
-        self.factor_y = _clamp(coerce_float(self.factor_y, 1.0), 0.0, MAX_POINTER_FACTOR)
+        self.factor_x = _ranged(self.factor_x, 1.0, "factor_x")
+        self.factor_y = _ranged(self.factor_y, 1.0, "factor_y")
         self.invert_x = coerce_bool(self.invert_x)
         self.invert_y = coerce_bool(self.invert_y)
         self.swap_axes = coerce_bool(self.swap_axes)
         self.output_id = str(self.output_id or "").strip() or None
         self.behavior = _choice(self.behavior, POINTER_BEHAVIORS)
-        self.full_speed = _clamp(coerce_float(self.full_speed, 4000.0), 1.0, MAX_POINTER_COUNTS)
-        self.window_ms = int(
-            _clamp(coerce_int(self.window_ms, 20), MIN_POINTER_WINDOW_MS, MAX_POINTER_WINDOW_MS)
-        )
-        self.radius = _clamp(coerce_float(self.radius, 1500.0), 1.0, MAX_POINTER_COUNTS)
+        self.full_speed = _ranged(self.full_speed, 4000.0, "full_speed")
+        self.window_ms = int(_ranged(coerce_int(self.window_ms, 20), 20, "window_ms"))
+        self.radius = _ranged(self.radius, 1500.0, "radius")
         self.overshoot = _choice(self.overshoot, POINTER_OVERSHOOT_MODES)
-        self.recenter_ms = int(_clamp(coerce_int(self.recenter_ms, 0), 0, MAX_POINTER_RECENTER_MS))
+        self.recenter_ms = int(_ranged(coerce_int(self.recenter_ms, 0), 0, "recenter_ms"))
         self.x_axis = pointer_output_axis(self.x_axis)
         self.y_axis = pointer_output_axis(self.y_axis)
         self.x_direction = _choice(self.x_direction, POINTER_AXIS_DIRECTIONS)
         self.y_direction = _choice(self.y_direction, POINTER_AXIS_DIRECTIONS)
-        self.deadzone = _clamp(coerce_float(self.deadzone, 0.0), 0.0, 0.95)
-        self.minimum_output = _clamp(coerce_float(self.minimum_output, 0.0), 0.0, 0.95)
-        self.response_curve = _clamp(coerce_float(self.response_curve, 1.0), 0.25, 4.0)
+        self.deadzone = _ranged(self.deadzone, 0.0, "deadzone")
+        self.minimum_output = _ranged(self.minimum_output, 0.0, "minimum_output")
+        self.response_curve = _ranged(self.response_curve, 1.0, "response_curve")
 
 
 def is_pointer_interface(device: "EvdevDevice") -> bool:
@@ -154,10 +173,57 @@ def pointer_movement_from_dict(data: dict[str, object]) -> PointerMovementConfig
     )
 
 
+def pointer_movement_from_toml(data: Mapping[str, object]) -> PointerMovementConfig:
+    """Parse a profile file mapping, rejecting values that would otherwise be replaced."""
+    for key, choices in _POINTER_CHOICES.items():
+        value = data.get(key)
+        if value is not None and (
+            not isinstance(value, str) or value.strip().lower() not in choices
+        ):
+            allowed = ", ".join(map(repr, choices))
+            raise ValueError(f"pointer movement {key} must be one of {allowed}, got {value!r}")
+    for key, (minimum, maximum) in _POINTER_RANGES.items():
+        value = data.get(key)
+        if value is None:
+            continue
+        integer = key in _POINTER_INT_FIELDS
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int if integer else int | float)
+            or not minimum <= value <= maximum
+        ):
+            kind = "an integer" if integer else "a number"
+            raise ValueError(
+                f"pointer movement {key} must be {kind} from {minimum:g} to {maximum:g}, "
+                f"got {value!r}"
+            )
+    for key in ("x_axis", "y_axis"):
+        value = data.get(key)
+        if value is not None and (
+            not isinstance(value, str)
+            or (
+                value.strip().lower() not in {"", POINTER_AXIS_NONE}
+                and normalize_gamepad_axis_target(value) is None
+            )
+        ):
+            raise ValueError(
+                f"pointer movement {key} must be an ABS axis name or 'none', got {value!r}"
+            )
+    for key in ("invert_x", "invert_y", "swap_axes"):
+        value = data.get(key)
+        if value is not None and not isinstance(value, bool):
+            raise ValueError(f"pointer movement {key} must be true or false, got {value!r}")
+    output_id = data.get("output_id")
+    if output_id is not None and not isinstance(output_id, str):
+        raise ValueError(f"pointer movement output_id must be a string, got {output_id!r}")
+    return pointer_movement_from_dict(dict(data))
+
+
 def _choice(value: object, choices: tuple[str, ...]) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in choices else choices[0]
 
 
-def _clamp(value: float, minimum: float, maximum: float) -> float:
-    return max(minimum, min(maximum, float(value)))
+def _ranged(value: object, default: float, key: str) -> float:
+    minimum, maximum = _POINTER_RANGES[key]
+    return max(minimum, min(maximum, coerce_float(value, default)))

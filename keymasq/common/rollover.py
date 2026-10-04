@@ -96,6 +96,73 @@ def rollover_groups_from_data(value: object) -> list[RolloverGroup]:
     return groups
 
 
+def rollover_groups_from_toml(value: object) -> list[RolloverGroup]:
+    """Parse a profile file's groups, rejecting any group that would otherwise be dropped."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("rollover_groups must be an array of tables")
+    groups: list[RolloverGroup] = []
+    owners: dict[RolloverMember, str] = {}
+    for index, item in enumerate(cast(list[object], value), start=1):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"rollover group {index} must be a table")
+        values = cast(Mapping[str, object], item)
+        name = values.get("name", "")
+        if not isinstance(name, str):
+            raise ValueError(f"rollover group {index} name must be a string")
+        label = f"rollover group {name.strip()!r}" if name.strip() else f"rollover group {index}"
+        winner = values.get("winner")
+        winners = [choice.value for choice in RolloverWinner]
+        if winner is not None and (
+            not isinstance(winner, str) or winner.strip().lower() not in winners
+        ):
+            raise ValueError(
+                f"{label} winner must be one of {', '.join(map(repr, winners))}, got {winner!r}"
+            )
+        restore = values.get("restore")
+        if restore is not None and not isinstance(restore, bool):
+            raise ValueError(f"{label} restore must be true or false, got {restore!r}")
+        raw_members = values.get("members")
+        if not isinstance(raw_members, list):
+            raise ValueError(f"{label} needs a members array")
+        members: list[RolloverMember] = []
+        for position, raw_member in enumerate(cast(list[object], raw_members), start=1):
+            fields = raw_member if isinstance(raw_member, Mapping) else {}
+            hardware_id = cast(Mapping[str, object], fields).get("hardware_id")
+            button = cast(Mapping[str, object], fields).get("button")
+            if not (
+                isinstance(hardware_id, str)
+                and hardware_id.strip()
+                and isinstance(button, str)
+                and button.strip()
+            ):
+                raise ValueError(
+                    f"{label} member {position} needs a hardware_id and a button as strings"
+                )
+            member = RolloverMember(hardware_id=hardware_id.strip(), button=button.strip())
+            if member in members:
+                raise ValueError(f"{label} lists {member.hardware_id} {member.button} twice")
+            owner = owners.get(member)
+            if owner is not None:
+                raise ValueError(
+                    f"{member.hardware_id} {member.button} is in both {owner} and {label}"
+                )
+            owners[member] = label
+            members.append(member)
+        if len(members) < ROLLOVER_MIN_MEMBERS:
+            raise ValueError(f"{label} needs at least {ROLLOVER_MIN_MEMBERS} members")
+        groups.append(
+            RolloverGroup(
+                name=name.strip(),
+                members=members,
+                winner=parse_rollover_winner(winner),
+                restore=True if restore is None else restore,
+            )
+        )
+    return groups
+
+
 def rollover_group_to_data(group: RolloverGroup) -> dict[str, object]:
     return {
         "name": group.name,

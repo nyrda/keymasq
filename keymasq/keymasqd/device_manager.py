@@ -22,6 +22,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction, parse_profile_deactivation_policy
+from keymasq.common.model.profiles import RolloverGroup
 from keymasq.common.rollover import layer_rollover_groups, rollover_groups_from_data
 from keymasq.common.types import JsonObject
 from keymasq.common.virtual_device_templates import (
@@ -84,6 +85,7 @@ from keymasq.keymasqd.runtime.profile_activation_tracker import ProfileActivatio
 from keymasq.keymasqd.runtime.rollover import (
     RolloverGroupState,
     RolloverRuntime,
+    cancel_queued_rollover_events,
     replace_rollover_groups,
 )
 from keymasq.keymasqd.task_helpers import fire_and_observe
@@ -197,6 +199,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
         # One group update at a time, so each sees the groups the last one
         # installed.
         self._rollover_update_lock = asyncio.Lock()
+        self._rollover_resettles: set[asyncio.Task[object]] = set()
         self.mask_registry = MaskRegistry()
         from keymasq.masking.paths import POLICY_DIR
 
@@ -420,10 +423,11 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     async def release_all_devices(self) -> None:
         self.profile_activation_tracker.reset()
         self.repeat_state.history.clear()
+        await self.cancel_cursor_move()
         # Groups come from the session. Its next connection sends them again.
         # Dropping them first keeps a member from taking over on a device that
         # is about to be released.
-        await self.set_rollover_groups([])
+        await self._drop_rollover_groups()
         await release_all_devices(
             self,
             fire_and_observe_fn=fire_and_observe,
@@ -704,37 +708,64 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     async def set_rollover_groups(self, groups: object) -> JsonObject:
         parsed = layer_rollover_groups(rollover_groups_from_data(groups))
         async with self._rollover_update_lock:
-            previous = self.rollover
-            states = list(previous.states) if previous is not None else []
-            # Busy groups queue new events instead of stalling their device
-            # while this waits for in-flight handovers.
-            for state in states:
-                state.pending += 1
-            try:
-                async with contextlib.AsyncExitStack() as stack:
-                    for state in states:
-                        await stack.enter_async_context(state.lock)
-                    replace_rollover_groups(
-                        self,
-                        parsed,
-                        resettle=self._resettle_rollover_group,
-                        runtimes=[
-                            device
-                            for devices in self.grabbed_devices.values()
-                            for device in devices
-                        ],
-                    )
-            finally:
-                for state in states:
-                    state.pending -= 1
+            await self._install_rollover_groups(parsed)
         return {"updated": True, "group_count": len(parsed)}
+
+    async def _drop_rollover_groups(self) -> None:
+        """Remove every group without waiting for member actions in flight.
+
+        A member action runs under its group's lock, a cursor movement for as
+        long as it is configured to. Readers, queued member events and
+        resettles hold or wait for those locks, so they are stopped instead.
+        """
+        for device in [device for devices in self.grabbed_devices.values() for device in devices]:
+            try:
+                await device.stop_event_loop()
+            except Exception:
+                log.exception("Stopping the reader of %s failed", device.path)
+        # Also frees a group update that waits for the same locks.
+        self._cancel_rollover_work()
+        async with self._rollover_update_lock:
+            # That update may have resettled the groups it installed.
+            self._cancel_rollover_work()
+            await self._install_rollover_groups([])
+
+    def _cancel_rollover_work(self) -> None:
+        for devices in self.grabbed_devices.values():
+            for device in devices:
+                cancel_queued_rollover_events(device)
+        for task in list(self._rollover_resettles):
+            task.cancel()
+
+    async def _install_rollover_groups(self, parsed: list[RolloverGroup]) -> None:
+        previous = self.rollover
+        states = list(previous.states) if previous is not None else []
+        # Busy groups queue new events instead of stalling their device
+        # while this waits for in-flight handovers.
+        for state in states:
+            state.pending += 1
+        try:
+            async with contextlib.AsyncExitStack() as stack:
+                for state in states:
+                    await stack.enter_async_context(state.lock)
+                replace_rollover_groups(
+                    self,
+                    parsed,
+                    resettle=self._resettle_rollover_group,
+                    runtimes=[
+                        device for devices in self.grabbed_devices.values() for device in devices
+                    ],
+                )
+        finally:
+            for state in states:
+                state.pending -= 1
 
     def _resettle_rollover_group(
         self,
         rollover: RolloverRuntime,
         group_state: RolloverGroupState,
     ) -> None:
-        fire_and_observe(
+        task = fire_and_observe(
             resettle_rollover_group(
                 rollover,
                 group_state,
@@ -742,6 +773,8 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             ),
             "rollover resettle",
         )
+        self._rollover_resettles.add(task)
+        task.add_done_callback(self._rollover_resettles.discard)
 
     async def set_diagnostics(
         self,

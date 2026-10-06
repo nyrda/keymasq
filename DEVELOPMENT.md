@@ -69,28 +69,34 @@ wrapper behavior, not as the fastest GUI iteration loop.
 
 ## Sudo rules for the development daemon
 
-`dev-keymasqd.sh` needs root for a fixed set of commands: stopping the installed
-`keymasqd.service`, creating `/run/keymasq` and `/var/lib/keymasq`, and starting
-the daemon as the `keymasq` user through `sudo -u keymasq`. Like
+`dev-keymasqd.sh` runs three commands as root: it stops the installed
+`keymasqd.service` and creates `/run/keymasq` and `/var/lib/keymasq`. It then
+starts the daemon as the `keymasq` user through `sudo -u keymasq`. Like
 `keymasqd.service`, the foreground daemon holds no capabilities. Source hiding
 runs its `udevadm trigger` calls through the installed `keymasq-hardware@` jobs,
 so hiding only works when the hardware job unit and its Polkit rule are
 installed. Without them the daemon logs `udev trigger job failed` warnings (see
 `docs/troubleshooting.md`) and everything else keeps working.
 
-Without any sudo rule the launcher prompts for your password on every restart.
-The three setup commands are fixed and safe to allow without a password. The
-daemon start is not. It runs whatever the worktree contains as the daemon
-account, with its input device access and its authority to start root hardware
-jobs, and without the service's sandbox. A passwordless rule for it would hand
-that to every process running as your desktop user, so let that command keep
-prompting. Sudo's credential cache reduces the prompts, and
-`Defaults timestamp_timeout=30` in your sudoers keeps one password per half
-hour.
+Without sudo rules the launcher asks for your password whenever sudo's
+credential cache has expired. The three root commands are fixed and safe to
+allow without a password.
 
-The launcher prefers stable `/run/current-system/sw/bin` paths on NixOS so one
-rule keeps matching across worktrees with different nixpkgs pins. Replace `alice`
-with your desktop user:
+The daemon start runs whatever the worktree contains as the `keymasq` account,
+without the service's sandbox. That account can read and write every input
+event device and `/dev/uinput`, read hidraw devices, and start
+`keymasq-hardware@` root jobs. It is not root. A passwordless rule for it hands
+this access to every process running as your desktop user. The
+[threat model](docs/security.md#threat-model) already trusts that code: it
+controls your Keymasq configuration and can own the daemon. On a single-user
+machine the rule therefore adds little. Keep the prompt when
+`daemon_allowed_uids` protects other local users: as `keymasq`, your user's code
+could read their input directly and stand in for the daemon on
+`/run/keymasq/socket`, which bypasses the allowlist.
+
+On NixOS the launcher runs `systemctl`, `install`, and `env` from the stable
+`/run/current-system/sw/bin` paths, so one rule keeps matching across worktrees
+with different nixpkgs pins. Replace `alice` with your desktop user:
 
 ```nix
 security.sudo.extraRules = [
@@ -109,12 +115,30 @@ security.sudo.extraRules = [
 ];
 ```
 
+To also start the daemon without a password on a single-user machine, add a
+rule for the `keymasq` account. The launcher passes `PATH` and `PYTHONPATH` to
+the daemon, so a rule narrower than `ALL` would not restrict what runs:
+
+```nix
+{
+  users = [ "alice" ];
+  runAs = "keymasq";
+  commands = [
+    {
+      command = "ALL";
+      options = [ "NOPASSWD" "NOSETENV" ];
+    }
+  ];
+}
+```
+
 The equivalent plain sudoers entries, for example in
-`/etc/sudoers.d/keymasq-dev`, are one line per command with the same
-`NOPASSWD:NOSETENV:` options. On other distributions the launcher resolves
-`install` and `systemctl` from the dev shell `PATH`, which points into the Nix
-store. Check the exact paths with `command -v` inside `nix develop` before
-pinning them.
+`/etc/sudoers.d/keymasq-dev`, are one line per root command with the same
+`NOPASSWD:NOSETENV:` options, and optionally
+`alice ALL=(keymasq) NOPASSWD:NOSETENV: ALL` for the daemon start. On other
+distributions the launcher resolves `install` and `systemctl` from the dev shell
+`PATH`, which points into the Nix store. Check the exact paths with
+`command -v` inside `nix develop` before pinning them.
 
 ## Running checks
 
@@ -125,8 +149,9 @@ Run the standard validation with:
 ```
 
 By default, `check.sh` runs in `auto` mode and selects the narrowest safe
-category from pending and untracked changes under `keymasq/` and `tests/`.
-It falls back to `full` for shared, mixed, or broad changes.
+category from pending and untracked changes under `keymasq/`, `tests/`, the
+checked Nix Python helpers, and the AppImage packaging tree. It falls back to
+`full` for shared, mixed, or broad changes.
 
 You can also run a category explicitly:
 
@@ -134,12 +159,20 @@ You can also run a category explicitly:
 ./scripts/check.sh keymasqd
 ./scripts/check.sh session
 ./scripts/check.sh gui
+./scripts/check.sh docshots
 ./scripts/check.sh full
 ```
 
 `./scripts/check.sh` runs `ruff`, `basedpyright`, and the selected pytest
-subset from the dev shell when `auto` finds relevant code changes. Use `full`
-for multi-area changes, shared code, or before handing off a broad refactor.
+subset from the dev shell when `auto` finds relevant code changes. The `gui`
+and `full` categories also run `stylelint` on the GUI CSS. `docshots` only
+lints the screenshot harness under `nix/docshots/` and runs no tests. Use
+`full` for multi-area changes, shared code, or before handing off a broad
+refactor.
+
+Pytest runs against the python-evdev version in the current nixpkgs. Use
+`--evdev 1.6.1` or `--evdev 1.7.0` to run the compatibility lanes for older
+python-evdev releases.
 
 Test modules live under `tests/common/`, `tests/keymasqd/`, `tests/session/`, or
 `tests/gui/`. Pytest assigns each test its directory's category. Keep shared
@@ -167,21 +200,28 @@ The VM integration suites are manual gates before PRs, merges, and releases. CI
 does not run them, by design. `docs/vm-testing.md` defines which suites each
 change category requires.
 
-Keymasq has two NixOS VM integration suites:
+Keymasq has these NixOS VM integration suites:
 
 - listener VM tests for compositor/window tracking under GNOME, KDE, Hyprland,
-  Niri, XFCE/X11, COSMIC, and Sway
+  Niri, XFCE/X11, COSMIC, Sway, and a generic wlroots compositor (Mango)
 - the daemon/session runtime suite, which starts `keymasqd` and
   `keymasq-session`, drives virtual input devices, and checks remapped output
+- two hardware masking suites: `masking-recovery` covers crash, watchdog, and
+  reboot recovery, and `masking-behavior` covers confirmation, reconnects,
+  profiles, and saved choices
 
 Use the integration helper from the repository root:
 
 ```bash
 ./scripts/integration.sh cosmic
 ./scripts/integration.sh daemon-session
+./scripts/integration.sh daemon-session --scenario hotplug-replug
+./scripts/integration.sh masking-recovery --repeat 3
 ```
 
-List the available shortcuts with:
+`--scenario` runs selected daemon/session scenarios, `--repeat` repeats the
+selected checks, and `--evdev` selects the python-evdev version for
+daemon/session checks. List the available shortcuts with:
 
 ```bash
 ./scripts/integration.sh --help
@@ -191,8 +231,9 @@ The helper runs `nix build` against `path:.#checks.x86_64-linux...` targets so
 local builds include new or uncommitted VM files. These tests are VM-heavy, so
 use a Linux host with KVM acceleration.
 
-For detailed behavior and debugging notes, see `docs/listener-vm-tests.md` and
-`docs/daemon-session-integration-test.md`. For the gate policy and the
+For detailed behavior and debugging notes, see `docs/listener-vm-tests.md`,
+`docs/daemon-session-integration-test.md`, and `docs/masking-vm-tests.md`. For
+the gate policy and the
 change-category matrix, see `docs/vm-testing.md`.
 
 ## Local test input suppression

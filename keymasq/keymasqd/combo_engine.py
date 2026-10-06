@@ -59,6 +59,7 @@ class ComboActionTransition:
     kind: str
     trigger_binding: RuntimeComboBinding
     trigger_bindings: tuple[RuntimeComboBinding, ...] = ()
+    keyboard_blocked: bool = False
 
 
 @dataclass
@@ -89,6 +90,8 @@ class ActiveCandidate:
     next_step_deadline_monotonic: float | None = None
     final_completing_binding: RuntimeComboBinding | None = None
     action_active: bool = False
+    # A tracked press happened while a macro blocked the keyboard.
+    keyboard_blocked: bool = False
 
     def current_step(self) -> RuntimeComboStep:
         return self.combo.steps[self.step_index]
@@ -124,6 +127,7 @@ class ComboEngine:
         self._held_binding_any_source_index: dict[tuple[str, str], set[RuntimeComboBinding]] = {}
         self._held_binding_any_hardware_index: dict[tuple[str, str], set[RuntimeComboBinding]] = {}
         self._held_binding_any_hardware_any_source_index: dict[str, set[RuntimeComboBinding]] = {}
+        self._keyboard_blocked_bindings: set[RuntimeComboBinding] = set()
 
     def set_combos(
         self,
@@ -167,6 +171,14 @@ class ComboEngine:
         self._held_binding_any_source_index.clear()
         self._held_binding_any_hardware_index.clear()
         self._held_binding_any_hardware_any_source_index.clear()
+        self._keyboard_blocked_bindings.clear()
+
+    def set_keyboard_blocked(self, binding: RuntimeComboBinding, blocked: bool) -> None:
+        """Mark a key pressed while a macro blocks the keyboard, until its release."""
+        if blocked:
+            self._keyboard_blocked_bindings.add(binding)
+        else:
+            self._keyboard_blocked_bindings.discard(binding)
 
     def prime_held_bindings(self, held_bindings: set[RuntimeComboBinding]) -> None:
         for binding in sorted(
@@ -377,6 +389,7 @@ class ComboEngine:
                             kind=("pulse" if self._binding_is_pulse(event.binding) else "press"),
                             trigger_binding=event.binding,
                             trigger_bindings=self._trigger_bindings(candidate),
+                            keyboard_blocked=candidate.keyboard_blocked,
                         )
                     )
                     if self._binding_is_pulse(event.binding):
@@ -528,6 +541,8 @@ class ComboEngine:
         binding: RuntimeComboBinding,
         passed_through: bool,
     ) -> None:
+        if binding in self._keyboard_blocked_bindings:
+            candidate.keyboard_blocked = True
         if any(tracked.binding == binding for tracked in candidate.tracked_presses):
             return
         self._press_counter += 1
@@ -634,6 +649,7 @@ class ComboEngine:
                         kind=("pulse" if self._binding_is_pulse(event.binding) else "press"),
                         trigger_binding=event.binding,
                         trigger_bindings=self._trigger_bindings(candidate),
+                        keyboard_blocked=candidate.keyboard_blocked,
                     )
                 )
                 if self._binding_is_pulse(event.binding):

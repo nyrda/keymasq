@@ -62,8 +62,6 @@ class ComboRuntimeState:
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
-    # Trigger keys pressed while a macro blocked the keyboard, until released.
-    keyboard_blocked_bindings: set[RuntimeComboBinding] = field(default_factory=set)
     starting_keyboard_blocked: bool = False
     superkey_machine_bindings: dict[str, tuple[RuntimeComboBinding, ...]] = field(
         default_factory=dict

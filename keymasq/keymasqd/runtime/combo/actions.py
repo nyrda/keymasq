@@ -59,10 +59,7 @@ async def apply_combo_action_transition(
     deps: ComboRuntimeDeps,
 ) -> None:
     state = manager.combo_state
-    bindings = transition.trigger_bindings or (transition.trigger_binding,)
-    state.starting_keyboard_blocked = transition.kind != "release" and not (
-        state.keyboard_blocked_bindings.isdisjoint(bindings)
-    )
+    state.starting_keyboard_blocked = transition.kind != "release" and transition.keyboard_blocked
     try:
         await _apply_combo_action_transition(manager, transition, deps=deps)
     finally:

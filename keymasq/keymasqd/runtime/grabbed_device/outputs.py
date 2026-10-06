@@ -485,6 +485,7 @@ def ensure_key_released(
     uinput_dev: object | None,
     *,
     bucket: str | None = None,
+    block_check: bool = True,
 ) -> None:
     try:
         if uinput_dev:
@@ -496,6 +497,7 @@ def ensure_key_released(
                 evdev_mod=evdev,
                 uinput_writer=identity_uinput_writer,
                 bucket=bucket,
+                block_check=block_check,
             )
     except OSError as exc:
         log.debug(

@@ -281,11 +281,10 @@ def _track_keyboard_blocked_binding(
 ) -> None:
     if is_combo_pulse_evdev(binding.evdev) or value == 2:
         return
-    blocked = manager.combo_state.keyboard_blocked_bindings
-    if value == 1 and combo_keyboard_blocked(manager):
-        blocked.add(binding)
-    else:
-        blocked.discard(binding)
+    manager.combo_state.progression.engine.set_keyboard_blocked(
+        binding,
+        value == 1 and combo_keyboard_blocked(manager),
+    )
 
 
 def begin_combo_capture(

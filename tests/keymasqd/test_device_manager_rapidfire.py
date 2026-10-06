@@ -1306,6 +1306,73 @@ class TestRapidfireRelease:
         ]
 
     @pytest.mark.asyncio
+    async def test_keyboard_block_keeps_each_rapidfire_pulse_paired_with_its_release(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(grabbed_device, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(grabbed_device, "get_interface_id", lambda _path: "kbd")
+        blocked = True
+        fake_uinput = FakeUInput()
+        device = GrabbedDevice(
+            path="/dev/input/event-test",
+            hardware_id="1234:5678",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=AsyncMock(return_value=None),
+            device_type=DeviceType.KEYBOARD,
+            keyboard_uinput=fake_uinput,  # type: ignore[arg-type]
+            keyboard_block_getter=lambda: blocked,
+        )
+        device.running = True
+        gates: dict[str, asyncio.Future[None]] = {}
+
+        def stepped(name: str) -> SimpleNamespace:
+            async def sleep(_delay: float) -> None:
+                gate = asyncio.get_running_loop().create_future()
+                gates[name] = gate
+                await gate
+
+            return SimpleNamespace(
+                CancelledError=asyncio.CancelledError,
+                current_task=asyncio.current_task,
+                sleep=sleep,
+            )
+
+        async def step(name: str) -> None:
+            gates.pop(name).set_result(None)
+            for _ in range(5):
+                await asyncio.sleep(0)
+
+        tasks = []
+        for name in ("first", "second"):
+            device.state.rapidfire_active[name] = True
+            tasks.append(
+                asyncio.create_task(
+                    repeat.rapidfire_key(
+                        device,
+                        evdev.ecodes.KEY_A,
+                        50,
+                        50,
+                        name,
+                        fake_uinput,  # type: ignore[arg-type]
+                        asyncio_mod=stepped(name),
+                    )
+                )
+            )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        await step("first")
+        blocked = False
+        await step("first")
+        await step("second")
+
+        assert fake_uinput.writes == [(evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    @pytest.mark.asyncio
     async def test_start_rapidfire_task_stops_existing_state_before_creating_new_task(
         self,
         monkeypatch: pytest.MonkeyPatch,

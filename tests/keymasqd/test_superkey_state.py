@@ -728,6 +728,40 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
 
 
 @pytest.mark.asyncio
+async def test_keyboard_block_keeps_rapidfire_inactive_while_its_source_is_held() -> None:
+    keyboard_uinput = MagicMock()
+    blocked = True
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="blocked_rapidfire",
+            hold_actions=[
+                SuperkeyActionData(
+                    action_type="keyboard",
+                    target="key_d",
+                    rapidfire_enabled=True,
+                    rapidfire_hold_ms=20,
+                    rapidfire_wait_ms=20,
+                )
+            ],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        keyboard_block_getter=lambda: blocked,
+    )
+
+    await machine._start_holding()
+    await asyncio.sleep(0.03)
+    blocked = False
+    await asyncio.sleep(0.1)
+    await machine.on_up()
+    await asyncio.sleep(0.05)
+
+    keyboard_uinput.write.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_superkey_rapidfire_respects_shared_key_refcounts() -> None:
     keyboard_uinput = MagicMock()
     keyboard_uinput.write = MagicMock()

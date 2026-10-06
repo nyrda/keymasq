@@ -11,9 +11,11 @@ import asyncio
 import bisect
 from collections.abc import Coroutine
 
+from keymasq.common.model.core import ActionType
 from keymasq.common.model.profiles import RolloverMember
 from keymasq.common.rollover import ONE_SHOT_ACTION_TYPES
 from keymasq.common.types import SyntheticInputEvent
+from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.grabbed_device import actions, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event.classification import (
@@ -341,6 +343,7 @@ async def _apply_member_event(
             # it compete again, as the newest press.
             held.recalled = False
             held.fired = False
+            held.withheld = _keyboard_withheld(device_runtime, event, event_name)
             held.press_seq = press_seq
             group_state.held.remove(held)
             bisect.insort(group_state.held, held, key=_press_order)
@@ -354,6 +357,7 @@ async def _apply_member_event(
                     event_code=int(event.code),
                     event_name=event_name,
                     press_seq=press_seq,
+                    withheld=_keyboard_withheld(device_runtime, event, event_name),
                 ),
                 key=_press_order,
             )
@@ -367,6 +371,32 @@ async def _apply_member_event(
         _record_member_event(device_runtime, event, event_name, deps=deps)
     await _settle(group_state, trigger_runtime, int(event.type), deps=deps)
     return "rollover_member"
+
+
+def _keyboard_withheld(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    event_name: str,
+) -> bool:
+    action = find_action_for_code(
+        device_runtime,
+        int(event.type),
+        int(event.code),
+        1,
+        event_name,
+        device_runtime.mapping_getter(),
+    )
+    if action is None or action.action_type == ActionType.PASSTHROUGH:
+        if passthrough_output(device_runtime, int(event.code))[0] != "passthrough":
+            return False
+        code = int(event.code)
+    elif action.action_type == ActionType.KEYBOARD:
+        code = resolve_output_code(action.target or "")
+        if code is None:
+            return False
+    else:
+        return False
+    return outputs.keyboard_blocked(device_runtime, code)
 
 
 def _record_member_event(

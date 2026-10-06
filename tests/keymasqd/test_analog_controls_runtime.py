@@ -966,6 +966,49 @@ async def test_overlapping_thresholds_refcount_shared_output() -> None:
 
 
 @pytest.mark.asyncio
+async def test_keyboard_block_keeps_withheld_threshold_out_of_shared_output() -> None:
+    keyboard = FakeUInput()
+    mapping = {
+        "left_stick": MappingAction(
+            action_type=ActionType.ANALOG_CONTROL,
+            analog_control_config=AnalogControlConfig(
+                name="Overlap",
+                thresholds=[
+                    AnalogActionThreshold(
+                        "x",
+                        0.55,
+                        1.0,
+                        0.5,
+                        1.0,
+                        [MappingAction(action_type=ActionType.KEYBOARD, target="key_w")],
+                    ),
+                    AnalogActionThreshold(
+                        "x",
+                        0.4,
+                        0.6,
+                        0.3,
+                        0.65,
+                        [MappingAction(action_type=ActionType.KEYBOARD, target="key_w")],
+                    ),
+                ],
+            ),
+        )
+    }
+    runtime = _runtime(mapping, keyboard)
+    blocked = False
+    runtime.keyboard_block_getter = lambda: blocked
+
+    assert await process_analog_event(runtime, FakeEvent(14000), "abs_x", mapping, deps=_deps())
+    blocked = True
+    assert await process_analog_event(runtime, FakeEvent(23000), "abs_x", mapping, deps=_deps())
+
+    assert keyboard.events == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_W, 1),
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_W, 0),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stick_gamepad_output_routes_axes_with_deadzone() -> None:
     keyboard = FakeUInput()
     gamepad = FakeUInput()

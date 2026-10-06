@@ -131,6 +131,8 @@ class HeldMember:
     # The member's mapping ran for this physical press. One-shot actions, such
     # as a profile toggle, do not run again when the member takes over again.
     fired: bool = False
+    # Pressed while the keyboard was blocked; out of the running until released.
+    withheld: bool = False
 
 
 @dataclass(eq=False)
@@ -155,7 +157,7 @@ class RolloverGroupState:
     def next_active(self) -> HeldMember | None:
         chosen = choose_active(
             self.group,
-            [held.member for held in self.held if not held.recalled],
+            [held.member for held in self.held if not held.recalled and not held.withheld],
             self.lost,
         )
         return self.member(chosen) if chosen is not None else None

@@ -248,6 +248,44 @@ async def test_newest_with_restore_releases_and_repeats_keyboard_outputs(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_member_pressed_during_keyboard_block_is_not_restored(monkeypatch) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_left"), "key_d": key("key_right")},
+        [group("key_a", "key_d")],
+    )
+    blocked = True
+    rig.device.keyboard_block_getter = lambda: blocked
+
+    await rig.send((KEY_D, 1), (KEY_A, 1))
+    blocked = False
+    await rig.send((KEY_A, 0), (KEY_D, 0), (KEY_D, 1), (KEY_D, 0))
+
+    right = evdev.ecodes.KEY_RIGHT
+    assert rig.key_writes() == [(right, 1), (right, 0)]
+
+
+@pytest.mark.asyncio
+async def test_member_pressed_during_keyboard_block_does_not_take_over(monkeypatch) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_left"), "key_d": key("key_right")},
+        [group("key_a", "key_d")],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+
+    await rig.send((KEY_A, 1))
+    blocked = True
+    await rig.send((KEY_D, 1))
+
+    left = evdev.ecodes.KEY_LEFT
+    assert rig.key_writes() == [(left, 1)]
+    await rig.send((KEY_D, 0), (KEY_A, 0))
+    assert rig.key_writes() == [(left, 1), (left, 0)]
+
+
+@pytest.mark.asyncio
 async def test_newest_without_restore_does_not_return_to_a_replaced_key(monkeypatch) -> None:
     rig = Rig(
         monkeypatch,

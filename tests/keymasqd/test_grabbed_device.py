@@ -781,7 +781,8 @@ class TestPassthrough:
         ]
 
 
-def test_keyboard_block_drops_one_release_per_withheld_press():
+@pytest.mark.parametrize("code", [evdev.ecodes.KEY_A, evdev.ecodes.KEY_KBD_LAYOUT_NEXT])
+def test_keyboard_block_drops_one_release_per_withheld_press(code: int):
     keyboard = MagicMock()
     blocked = True
     grabbed = GrabbedDevice(
@@ -798,7 +799,7 @@ def test_keyboard_block_drops_one_release_per_withheld_press():
         outputs.write_key(
             grabbed,
             keyboard,
-            evdev.ecodes.KEY_A,
+            code,
             value,
             evdev_mod=evdev,
             uinput_writer=lambda device: device,
@@ -812,6 +813,4 @@ def test_keyboard_block_drops_one_release_per_withheld_press():
     write(0)
     write(1)
 
-    assert [call.args for call in keyboard.write.call_args_list] == [
-        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
-    ]
+    assert [call.args for call in keyboard.write.call_args_list] == [(evdev.ecodes.EV_KEY, code, 1)]

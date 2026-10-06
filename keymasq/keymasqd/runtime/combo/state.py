@@ -62,6 +62,9 @@ class ComboRuntimeState:
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
+    # Trigger keys pressed while a macro blocked the keyboard, until released.
+    keyboard_blocked_bindings: set[RuntimeComboBinding] = field(default_factory=set)
+    starting_keyboard_blocked: bool = False
     superkey_machine_bindings: dict[str, tuple[RuntimeComboBinding, ...]] = field(
         default_factory=dict
     )
@@ -90,3 +93,10 @@ class ComboRuntimeDeps:
     uinput_writer: adapters.UInputWriter
     resolve_code_fn: ResolveCodeFn
     fire_and_observe_fn: FireAndObserve
+
+
+def combo_keyboard_blocked(manager: ComboManager) -> bool:
+    if manager.combo_state.starting_keyboard_blocked:
+        return True
+    live = getattr(manager, "macro_keyboard_blocked", None)
+    return live is not None and bool(live())

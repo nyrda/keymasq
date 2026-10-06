@@ -728,6 +728,37 @@ async def test_rapidfire_hold_release_emits_single_key_up() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("slot", ["tap", "hold"])
+async def test_superkey_pressed_during_keyboard_block_resolves_without_key_output(
+    slot: str,
+) -> None:
+    keyboard_uinput = MagicMock()
+    blocked = True
+    action = [SuperkeyActionData(action_type="keyboard", target="key_a")]
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="blocked_pattern",
+            hold_threshold_ms=20,
+            tap_actions=action if slot == "tap" else [],
+            hold_actions=action if slot == "hold" else [],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        keyboard_block_getter=lambda: blocked,
+    )
+
+    await machine.on_down()
+    blocked = False
+    await asyncio.sleep(0.05)
+    await machine.on_up()
+    await asyncio.sleep(0.05)
+
+    keyboard_uinput.write.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_keyboard_block_keeps_rapidfire_inactive_while_its_source_is_held() -> None:
     keyboard_uinput = MagicMock()
     blocked = True

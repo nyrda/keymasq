@@ -28,6 +28,7 @@ async def clear_combo_runtime_unlocked(
 ) -> None:
     errors: list[Exception] = []
     manager.combo_state.progression.engine.reset()
+    manager.combo_state.keyboard_blocked_bindings.clear()
     for combo_id in list(manager.combo_state.active_actions):
         try:
             await stop_combo_action(manager, combo_id, deps=deps)

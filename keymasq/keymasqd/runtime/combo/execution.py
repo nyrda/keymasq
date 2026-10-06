@@ -9,7 +9,11 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.combo_engine import RuntimeComboBinding
 from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
-from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
+from keymasq.keymasqd.runtime.combo.state import (
+    ComboManager,
+    ComboRuntimeDeps,
+    combo_keyboard_blocked,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps, EvdevModule
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 
@@ -46,7 +50,7 @@ def action_runtime(
         macro_player=manager.play_macro,
         emergency_resetter=manager.emergency_reset,
         repeat_state=manager.repeat_state,
-        keyboard_block_getter=manager.macro_keyboard_blocked,
+        keyboard_block_getter=lambda: combo_keyboard_blocked(manager),
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,
             context=context,

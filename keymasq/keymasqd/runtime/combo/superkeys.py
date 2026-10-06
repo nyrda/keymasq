@@ -13,7 +13,11 @@ from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.action.triggers import dispatch_action_trigger
 from keymasq.keymasqd.runtime.combo.execution import action_execution_deps
 from keymasq.keymasqd.runtime.combo.recall import combo_step_count, ordered_unique_bindings
-from keymasq.keymasqd.runtime.combo.state import ComboManager, ComboRuntimeDeps
+from keymasq.keymasqd.runtime.combo.state import (
+    ComboManager,
+    ComboRuntimeDeps,
+    combo_keyboard_blocked,
+)
 from keymasq.keymasqd.runtime.grabbed_device.outputs import track_refcounted_output_bucket
 from keymasq.keymasqd.runtime.repeat import remember_superkey_path
 from keymasq.keymasqd.superkey_state import SuperkeyConfig, SuperkeyMachine
@@ -143,7 +147,7 @@ async def build_machine(
         action_deps=action_execution_deps(deps),
         await_action_tasks=False,
         repeat_path_recorder=repeat_path_recorder,
-        keyboard_block_getter=manager.macro_keyboard_blocked,
+        keyboard_block_getter=lambda: combo_keyboard_blocked(manager),
     )
     manager.combo_state.superkey_machines[combo_id] = machine
     manager.combo_state.superkey_machine_bindings[combo_id] = machine_bindings

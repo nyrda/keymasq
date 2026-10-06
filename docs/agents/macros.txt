@@ -118,7 +118,8 @@ physical input produces through grabbed devices: passthrough, remaps,
 superkeys, combos, analog thresholds. Macro output is never blocked, including
 other macros. Releases of keys held before the block still pass; a key pressed
 during the block stays inactive until it is released and pressed again, also
-when rapidfire or a rollover group would press it again. Each macro instance,
+when rapidfire, a rollover group, a superkey tap or hold, or a combo would use
+it after the block ends. Each macro instance,
 including called children, applies its own setting; pause_run lifts the block
 until resume.
 

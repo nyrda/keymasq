@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.combo.state import (
     IntValueFn,
     ResolveStablePathFn,
     StrValueFn,
+    combo_keyboard_blocked,
 )
 
 
@@ -234,6 +235,7 @@ async def process_runtime_combo_event(
     # registered the separate long-running playback task.
     async with manager.combo_state.transition_lock:
         async with manager.combo_state.runtime_lock:
+            _track_keyboard_blocked_binding(manager, binding, value)
             held_modifiers = (
                 held_combo_modifier_bindings_for_scope(
                     manager,
@@ -270,6 +272,20 @@ async def process_runtime_combo_event(
     ):
         return decision
     return None
+
+
+def _track_keyboard_blocked_binding(
+    manager: ComboManager,
+    binding: RuntimeComboBinding,
+    value: int,
+) -> None:
+    if is_combo_pulse_evdev(binding.evdev) or value == 2:
+        return
+    blocked = manager.combo_state.keyboard_blocked_bindings
+    if value == 1 and combo_keyboard_blocked(manager):
+        blocked.add(binding)
+    else:
+        blocked.discard(binding)
 
 
 def begin_combo_capture(

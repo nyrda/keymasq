@@ -258,7 +258,7 @@ def key_blocked(
     *,
     bucket: str | None = None,
 ) -> bool:
-    """Withhold keyboard presses while a macro blocks the keyboard; each drops one release."""
+    """Withhold keyboard presses during a macro block, with their repeats and release."""
     if code not in KEYBOARD_KEY_CODES:
         return False
     bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
@@ -274,57 +274,14 @@ def key_blocked(
         else:
             del held_back[code]
         return True
+    if value != 1:
+        return count > 0
     if not keyboard_blocked(device_runtime, code):
-        if value == 1 and count:
-            # A press that goes out owns the next release, even if one was lost upstream.
-            del held_back[code]
-            return False
-        return value == 2 and count > 0
-    if value == 1:
-        held_back[code] = count + 1
+        # A press that goes out owns the next release, even if one was lost upstream.
+        held_back.pop(code, None)
+        return False
+    held_back[code] = count + 1
     return True
-
-
-def action_key_blocked(
-    device_runtime: ActionRuntime,
-    source: str,
-    uinput_dev: object | None,
-    code: int,
-    value: int,
-    *,
-    bucket: str | None = None,
-) -> bool:
-    """Withhold one source's keyboard press while a macro blocks the keyboard, with its release."""
-    if code not in KEYBOARD_KEY_CODES:
-        return False
-    bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
-    if not bucket:
-        return False
-    withheld = device_runtime.state.blocked_action_keys
-    key = (source, bucket, code)
-    blocked = value != 0 and action_keyboard_blocked(device_runtime, source, code)
-    if key in withheld:
-        if value == 1 and not blocked:
-            withheld.discard(key)
-            return False
-        if value == 0:
-            withheld.discard(key)
-        return True
-    if blocked and value == 1:
-        withheld.add(key)
-    return blocked
-
-
-def action_keyboard_blocked(device_runtime: ActionRuntime, source: str, code: int) -> bool:
-    if keyboard_blocked(device_runtime, code):
-        return True
-    return int(code) in KEYBOARD_KEY_CODES and source_keyboard_blocked(device_runtime, source)
-
-
-def source_keyboard_blocked(device_runtime: ActionRuntime, source: str) -> bool:
-    # Overload children run as "<source>#overload#<index>".
-    root = source.split("#", 1)[0]
-    return root in device_runtime.state.keyboard_blocked_sources
 
 
 def keyboard_blocked(device_runtime: ActionRuntime, code: int) -> bool:
@@ -345,14 +302,11 @@ def write_key(
     bucket: str | None = None,
     sync: bool = True,
     defer_syn_to_passthrough_frame: bool = True,
-    block_check: bool = True,
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
         return
-    if block_check and key_blocked(
-        device_runtime, uinput_dev, int(code), int(value), bucket=bucket
-    ):
+    if key_blocked(device_runtime, uinput_dev, int(code), int(value), bucket=bucket):
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     if sync:
@@ -497,7 +451,6 @@ def ensure_key_released(
     uinput_dev: object | None,
     *,
     bucket: str | None = None,
-    block_check: bool = True,
 ) -> None:
     try:
         if uinput_dev:
@@ -509,7 +462,6 @@ def ensure_key_released(
                 evdev_mod=evdev,
                 uinput_writer=identity_uinput_writer,
                 bucket=bucket,
-                block_check=block_check,
             )
     except OSError as exc:
         log.debug(
@@ -580,7 +532,6 @@ def release_all_keys(
     if route is not None:
         route.release_axes(device_runtime)
     device_runtime.state.blocked_output_keys.clear()
-    device_runtime.state.blocked_action_keys.clear()
     devices: dict[str, object | None] = {
         "passthrough": device_runtime.uinput,
         "keyboard": device_runtime.keyboard_uinput,

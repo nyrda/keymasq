@@ -215,8 +215,6 @@ class SuperkeyMachine:
         self.await_action_tasks = await_action_tasks
         self.repeat_path_recorder = repeat_path_recorder
         self._monotonic_clock = monotonic_clock
-        self._outer_keyboard_block_getter = keyboard_block_getter
-        self._sequence_keyboard_blocked = False
 
         self.state = SuperkeyState.IDLE
         self.source_action: MappingAction | None = None
@@ -238,7 +236,7 @@ class SuperkeyMachine:
             natural_mouse_mover=natural_mouse_mover,
             macro_player=macro_player,
             emergency_resetter=emergency_resetter,
-            keyboard_block_getter=self._keyboard_blocked,
+            keyboard_block_getter=keyboard_block_getter,
             gamepad_output_resolver=gamepad_output_resolver,
         )
 
@@ -282,19 +280,9 @@ class SuperkeyMachine:
 
     async def on_down(self) -> None:
         if self.state == SuperkeyState.IDLE:
-            self._sequence_keyboard_blocked = self._outer_keyboard_blocked()
             await self._transition_to_down_wait()
         elif self.state == SuperkeyState.UP_WAIT:
-            self._sequence_keyboard_blocked |= self._outer_keyboard_blocked()
             await self._on_second_down()
-
-    def _outer_keyboard_blocked(self) -> bool:
-        getter = self._outer_keyboard_block_getter
-        return getter is not None and bool(getter())
-
-    def _keyboard_blocked(self) -> bool:
-        # Taps and holds resolve later, so a sequence started during a block stays blocked.
-        return self._sequence_keyboard_blocked or self._outer_keyboard_blocked()
 
     async def on_up(self) -> None:
         if self.state == SuperkeyState.DOWN_WAIT:

@@ -15,7 +15,6 @@ from keymasq.keymasqd.runtime.adapters import (
     identity_uinput_writer,
 )
 from keymasq.keymasqd.runtime.grabbed_device.outputs import (
-    action_key_blocked,
     emit_configured_mouse_move,
     ensure_abs_axis_released,
     ensure_key_released,
@@ -113,7 +112,7 @@ def stop_rapidfire(device_runtime: ActionRuntime, event_name: str) -> None:
         code = state.code
         uinput = state.uinput
         if code is not None:
-            _release_rapidfire_key(device_runtime, state, event_name, code, uinput)
+            _release_rapidfire_key(device_runtime, state, code, uinput)
             return
 
 
@@ -149,7 +148,7 @@ def finish_rapidfire_task(device_runtime: ActionRuntime, event_name: str, task: 
         code = state.code
         uinput = state.uinput
         if code is not None:
-            _release_rapidfire_key(device_runtime, state, event_name, code, uinput)
+            _release_rapidfire_key(device_runtime, state, code, uinput)
 
 
 def _release_rapidfire_abs_axis(
@@ -182,14 +181,9 @@ def _release_rapidfire_abs_axis(
 def _release_rapidfire_key(
     device_runtime: ActionRuntime,
     rapidfire_state: RapidfireOutputState,
-    event_name: str,
     code: int,
     uinput: object | None,
 ) -> None:
-    if action_key_blocked(
-        device_runtime, event_name, uinput, code, 0, bucket=rapidfire_state.bucket
-    ):
-        return
     if rapidfire_state.output_tracker is not None:
         if not rapidfire_state.pressed:
             return
@@ -201,9 +195,7 @@ def _release_rapidfire_key(
         rapidfire_state.pressed = False
         if not should_emit:
             return
-    ensure_key_released(
-        device_runtime, code, uinput, bucket=rapidfire_state.bucket, block_check=False
-    )
+    ensure_key_released(device_runtime, code, uinput, bucket=rapidfire_state.bucket)
 
 
 async def rapidfire_abs_axis(
@@ -387,11 +379,9 @@ async def rapidfire_key(
         while (
             device_runtime.state.rapidfire_active.get(event_name, False) and device_runtime.running
         ):
-            should_emit = not action_key_blocked(
-                device_runtime, event_name, uinput_dev, code, 1, bucket=bucket
-            )
+            should_emit = True
             state = device_runtime.state.rapidfire_outputs.get(event_name)
-            if should_emit and output_tracker is not None:
+            if output_tracker is not None:
                 should_emit = output_tracker(str(bucket or "keyboard"), int(code), 1)
                 if state is not None:
                     state.pressed = True
@@ -404,7 +394,6 @@ async def rapidfire_key(
                     evdev_mod=evdev,
                     uinput_writer=identity_uinput_writer,
                     bucket=bucket,
-                    block_check=False,
                 )
             pressed = True
             if not started_set:
@@ -413,11 +402,9 @@ async def rapidfire_key(
             await asyncio_mod.sleep(hold)
 
             if pressed:
-                should_emit = not action_key_blocked(
-                    device_runtime, event_name, uinput_dev, code, 0, bucket=bucket
-                )
+                should_emit = True
                 state = device_runtime.state.rapidfire_outputs.get(event_name)
-                if should_emit and output_tracker is not None:
+                if output_tracker is not None:
                     should_emit = output_tracker(str(bucket or "keyboard"), int(code), 0)
                     if state is not None:
                         state.pressed = False
@@ -430,7 +417,6 @@ async def rapidfire_key(
                         evdev_mod=evdev,
                         uinput_writer=identity_uinput_writer,
                         bucket=bucket,
-                        block_check=False,
                     )
                 pressed = False
             if not device_runtime.state.rapidfire_active.get(event_name, False):
@@ -440,7 +426,7 @@ async def rapidfire_key(
     finally:
         if pressed and event_name in device_runtime.state.rapidfire_outputs:
             state = device_runtime.state.rapidfire_outputs[event_name]
-            _release_rapidfire_key(device_runtime, state, event_name, code, uinput_dev)
+            _release_rapidfire_key(device_runtime, state, code, uinput_dev)
         if task is not None:
             finish_rapidfire_task(device_runtime, event_name, task)
         if not started_set:

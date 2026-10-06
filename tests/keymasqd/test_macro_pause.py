@@ -546,6 +546,15 @@ async def test_pause_releases_input_blocks_until_resume(manager) -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancel_all_unblocks_the_keyboard_even_with_a_leftover_claim(manager) -> None:
+    manager.macro_state.keyboard_block_count = 1
+
+    await manager.cancel_macro_playback()
+
+    assert not manager.macro_keyboard_blocked()
+
+
+@pytest.mark.asyncio
 async def test_pause_timeout_discards_progress_and_next_press_starts_fresh(manager) -> None:
     events = [key(30, 1), key(30, 0, 500_000)]
     await trigger(

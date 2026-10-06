@@ -505,10 +505,11 @@ Keyboard blocking follows these rules:
   start while the block is active.
 - Keys that were already held when playback started stay held, and releasing
   them still works.
-- A key pressed during playback does nothing until it is released and pressed
-  again, even if playback ends while it is still held. This includes rapidfire,
-  rollover groups, superkey taps and holds, and combos that resolve after
-  playback ends.
+- A key pressed during playback sends nothing, and its release is dropped too.
+  A plain key still held when playback ends needs to be pressed again.
+- Features that press keys on their own, such as rapidfire, rollover groups,
+  superkey taps and holds, and combos, work normally again once playback ends,
+  even for a key that was pressed during playback.
 - Actions that do not output keys still run, such as commands, profile
   switches, and macro triggers. The macro's own trigger and the emergency
   cancel combo keep working.

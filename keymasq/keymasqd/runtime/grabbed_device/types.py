@@ -220,10 +220,6 @@ class GrabbedDeviceState:
     )
     # Presses withheld while a macro blocks the keyboard, counted until their releases.
     blocked_output_keys: dict[str, dict[int, int]] = field(default_factory=dict)
-    # Action outputs withheld the same way, by source event, bucket, and code.
-    blocked_action_keys: set[tuple[str, str, int]] = field(default_factory=set)
-    # Physical keys pressed while the keyboard was blocked, until released.
-    keyboard_blocked_sources: set[str] = field(default_factory=set)
     superkey_output_refcounts: dict[str, dict[int, int]] = field(
         default_factory=lambda: {
             "keyboard": {},

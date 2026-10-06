@@ -10,8 +10,6 @@ from keymasq.keymasqd.runtime.action.state import (
     register_action_task,
 )
 from keymasq.keymasqd.runtime.grabbed_device.outputs import (
-    action_key_blocked,
-    action_keyboard_blocked,
     bucket_for_uinput,
     target_axis_release_value,
     write_abs_axis,
@@ -206,14 +204,6 @@ async def execute_key_action(
     if code is None:
         mark_action_started(execution_handle)
         return
-    # Pulses press again while the source is held, so a block decides at the press.
-    if (
-        (action.rapidfire_enabled or action.tap_enabled)
-        and int(event.value) == 1
-        and action_keyboard_blocked(device_runtime, event_name, code)
-    ):
-        mark_action_started(execution_handle)
-        return
     if action.rapidfire_enabled:
         if int(event.value) == 1:
             tracker_bucket = explicit_bucket or bucket_for_uinput(device_runtime, uinput_dev)
@@ -268,16 +258,6 @@ async def execute_key_action(
             mark_action_started(execution_handle)
         return
 
-    if action_key_blocked(
-        device_runtime,
-        event_name,
-        uinput_dev,
-        int(code),
-        int(event.value),
-        bucket=explicit_bucket,
-    ):
-        mark_action_started(execution_handle)
-        return
     should_emit = True
     if shared_output_tracker is not None:
         bucket = explicit_bucket or bucket_for_uinput(device_runtime, uinput_dev)
@@ -292,7 +272,6 @@ async def execute_key_action(
             evdev_mod=deps.evdev_mod,
             uinput_writer=deps.uinput_writer,
             bucket=explicit_bucket,
-            block_check=False,
         )
     mark_action_started(execution_handle)
 

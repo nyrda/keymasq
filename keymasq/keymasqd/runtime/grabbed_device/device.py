@@ -941,7 +941,6 @@ class GrabbedDevice:
         except Exception:
             log.exception("Release cleanup failed while releasing held keys for %s", self.path)
         self.state.held_source_keys.clear()
-        self.state.keyboard_blocked_sources.clear()
         self.state.held_source_press_order.clear()
         self.state.held_source_actions.clear()
         self.state.combo_passthrough_held.clear()

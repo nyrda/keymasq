@@ -365,7 +365,9 @@ numbers, underscores, and hyphens. Existing names are not overwritten. Renaming
 does not update references from profiles or other macros.
 
 The controls below the timeline also set the macro's loop behavior, starting
-cursor options, and mouse blocking. See [Loop Modes](macros.md#loop-modes) and
+cursor options, and mouse and keyboard blocking. See
+[Loop Modes](macros.md#loop-modes),
+[Blocking physical input](macros.md#blocking-physical-input), and
 [Playback Triggers](macros.md#playback-triggers) for what these settings mean.
 
 Closing with unsaved changes asks whether to save, discard, or keep editing.

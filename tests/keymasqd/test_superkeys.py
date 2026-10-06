@@ -451,6 +451,7 @@ def test_runtime_action_payload_shared_fields_match_superkey_parser() -> None:
             "macro_loop_count": "3",
             "macro_loop_stop_behavior": "cancel_run",
             "macro_block_mouse_movement": True,
+            "macro_block_keyboard": True,
         },
         {
             "action": "profile_enable",
@@ -524,6 +525,7 @@ def test_runtime_action_payload_shared_fields_match_superkey_parser() -> None:
         "macro_loop_count",
         "macro_loop_stop_behavior",
         "macro_block_mouse_movement",
+        "macro_block_keyboard",
         "macro_recording_slot",
         "profile_name",
         "profile_deactivation",

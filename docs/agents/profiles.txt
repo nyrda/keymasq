@@ -136,6 +136,7 @@ loop_mode = "none" # none, count, hold, toggle
 loop_count = 1
 loop_stop_behavior = "finish_run" # finish_run or cancel_run
 block_mouse_movement = false
+block_keyboard = false
 
 # control profiles
 action = "profile_toggle" # or profile_enable, profile_disable

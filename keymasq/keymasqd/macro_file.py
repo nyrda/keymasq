@@ -98,6 +98,7 @@ class MacroFileMeta:
     created_at: str = ""
     revision: int = 1
     block_mouse_movement: bool = False
+    block_keyboard: bool = False
     loop_mode: str = "none"
     loop_count: int = 1
     loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
@@ -119,6 +120,7 @@ class MacroFileMeta:
             created_at=macro_payload_str(payload, "created_at", datetime.now().isoformat()),
             revision=macro_payload_int(payload, "revision", 1),
             block_mouse_movement=bool(payload.get("block_mouse_movement", False)),
+            block_keyboard=bool(payload.get("block_keyboard", False)),
             loop_mode=macro_payload_str(payload, "loop_mode", "none") or "none",
             loop_count=macro_payload_int(payload, "loop_count", 1),
             pause_timeout_s=max(0.0, coerce_float(payload.get("pause_timeout_s"), 0.0)),
@@ -145,6 +147,7 @@ class MacroFileMeta:
             "created_at": self.created_at,
             "revision": int(self.revision),
             "block_mouse_movement": bool(self.block_mouse_movement),
+            "block_keyboard": bool(self.block_keyboard),
             "loop_mode": self.loop_mode,
             "loop_count": int(self.loop_count),
             "loop_stop_behavior": self.loop_stop_behavior,

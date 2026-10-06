@@ -14,6 +14,7 @@ def add_inspector_fields(data: dict[str, object], action: MappingAction) -> None
     data["loop_stop_behavior"] = action.macro_loop_stop_behavior
     data["pause_timeout_s"] = action.macro_pause_timeout_s
     data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    data["block_keyboard"] = bool(action.macro_block_keyboard)
 
 
 def add_runtime_fields(
@@ -34,4 +35,5 @@ def add_runtime_fields(
     data["macro_loop_stop_behavior"] = action.macro_loop_stop_behavior
     data["macro_pause_timeout_s"] = action.macro_pause_timeout_s
     data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+    data["macro_block_keyboard"] = bool(action.macro_block_keyboard)
     return True

@@ -165,6 +165,20 @@ class MacroSettingsMixin:
             self._macro_block_mouse_check,
             tooltip="Suppress movement from the physical mouse while this macro plays.",
         )
+        self._macro_block_keyboard_check = Gtk.CheckButton()
+        self._macro_block_keyboard_check.set_active(self._macro_block_keyboard)
+        self._macro_block_keyboard_check.connect(
+            "toggled",
+            self._on_macro_block_keyboard_toggled,
+        )
+        block_keyboard_row = check_row(
+            "Block physical keyboard",
+            self._macro_block_keyboard_check,
+            tooltip=(
+                "Ignore key presses from keyboards and remapped keys while this macro plays. "
+                "Keys typed by macros still go through."
+            ),
+        )
 
         self._exec_summary_label = Gtk.Label()
         self._exec_summary_label.add_css_class("dim-label")
@@ -179,6 +193,7 @@ class MacroSettingsMixin:
             self._macro_pause_row,
             self._macro_pause_timeout,
             block_mouse_row,
+            block_keyboard_row,
         )
         toggles.set_margin_top(8)
         outer = group_box(header, fields, toggles, summary)
@@ -193,6 +208,7 @@ class MacroSettingsMixin:
         loop_stop_behavior = self._macro_loop_stop_behavior
         pause_timeout_s = self._macro_pause_timeout_s
         block_mouse_movement = self._macro_block_mouse_movement
+        block_keyboard = self._macro_block_keyboard
         name = str(self._macro_data.get("name", self._macro_name) or self._macro_name)
         self._name_entry.set_text(name)
         _set_dropdown_selected_id(
@@ -207,6 +223,7 @@ class MacroSettingsMixin:
         self._macro_pause_check.set_active(loop_stop_behavior == "pause_run")
         self._macro_pause_timeout.set_timeout(pause_timeout_s)
         self._macro_block_mouse_check.set_active(block_mouse_movement)
+        self._macro_block_keyboard_check.set_active(block_keyboard)
         self._update_loop_controls()
 
     def _on_macro_loop_mode_changed(
@@ -265,4 +282,8 @@ class MacroSettingsMixin:
 
     def _on_macro_block_mouse_toggled(self, check: Gtk.CheckButton) -> None:
         self._macro_block_mouse_movement = check.get_active()
+        self._sync_close_guard()
+
+    def _on_macro_block_keyboard_toggled(self, check: Gtk.CheckButton) -> None:
+        self._macro_block_keyboard = check.get_active()
         self._sync_close_guard()

@@ -597,6 +597,7 @@ class TestSaveMacroDialog:
             },
         )
         dialog._name_entry.set_text("macro_1")
+        dialog._block_keyboard_check.set_active(True)
 
         dialog._on_save_edit_clicked(dialog._save_edit_btn)
 
@@ -604,6 +605,7 @@ class TestSaveMacroDialog:
             "command": "save_recording",
             "name": "macro_1",
             "block_mouse_movement": False,
+            "block_keyboard": True,
             "pending_save_token": "pending-1",
         }
         assert captured["editor_parent"] is parent

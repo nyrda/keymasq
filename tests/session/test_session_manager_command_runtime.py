@@ -1001,6 +1001,7 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
             "pending_recording_id": "recording-4",
             "start_position_recorded": True,
             "block_mouse_movement": True,
+            "block_keyboard": True,
         },
         slot=4,
     )
@@ -1032,6 +1033,7 @@ async def test_play_macro_slot_trigger_sends_pending_recording_to_daemon() -> No
         "loop_count": 1,
         "loop_stop_behavior": "finish_run",
         "block_mouse_movement": True,
+        "block_keyboard": True,
         "source_device": "kbd",
         "source_button": "key_f13",
         "trigger_value": 0,
@@ -2916,6 +2918,7 @@ async def test_save_recording_keeps_pending_macro_save_slot() -> None:
             "start_x": 100,
             "start_y": 200,
             "block_mouse_movement": True,
+            "block_keyboard": True,
         },
         peer,
         writer,  # type: ignore[arg-type]
@@ -2929,6 +2932,7 @@ async def test_save_recording_keeps_pending_macro_save_slot() -> None:
     assert "start_x" not in sent_command.data
     assert "start_y" not in sent_command.data
     assert sent_command.data["block_mouse_movement"] is True
+    assert sent_command.data["block_keyboard"] is True
     assert manager.recording_state.pending_slots[1].token == "pending-1"
     assert manager.recording_state.pending_slots[1].owner_writer_id == 123
     assert manager.recording_state.pending_slots[1] is pending_slot
@@ -2940,6 +2944,7 @@ async def test_save_recording_keeps_pending_macro_save_slot() -> None:
         "recording_slot": 1,
         "pending_save_token": "pending-1",
         "block_mouse_movement": True,
+        "block_keyboard": True,
     }
 
 

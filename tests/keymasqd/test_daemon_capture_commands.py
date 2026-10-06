@@ -73,6 +73,7 @@ async def test_macro_play_by_name_loads_store_and_forwards_runtime_options(daemo
             loop_count=3,
             loop_stop_behavior="cancel_run",
             block_mouse_movement=True,
+            block_keyboard=True,
             source_device="",
             source_button="",
             trigger_value=1,
@@ -138,6 +139,7 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
             loop_count=3,
             loop_stop_behavior="cancel_run",
             block_mouse_movement=True,
+            block_keyboard=True,
             source_device="kbd",
             source_button="a",
             trigger_value=0,
@@ -157,6 +159,7 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
                 "loop_count": 1,
                 "loop_stop_behavior": "finish_run",
                 "block_mouse_movement": False,
+                "block_keyboard": False,
             },
         ),
         (
@@ -167,6 +170,7 @@ async def test_macro_play_payload_loads_store_and_forwards_runtime_options(daemo
                 "loop_count": 1,
                 "loop_stop_behavior": "finish_run",
                 "block_mouse_movement": False,
+                "block_keyboard": False,
             },
         ),
     ],
@@ -190,6 +194,7 @@ async def test_macro_play_request_runtime_options_override_stored_options(
     assert options.loop_count == 1
     assert options.loop_stop_behavior == "finish_run"
     assert options.block_mouse_movement is False
+    assert options.block_keyboard is False
 
 
 @pytest.mark.asyncio

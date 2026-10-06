@@ -740,3 +740,41 @@ class TestPassthrough:
 
         outputs.passthrough(grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device)
         passthrough.write.assert_called_once_with(evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 12)
+
+    def test_keyboard_block_withholds_new_key_presses_until_their_release(self):
+        passthrough = MagicMock()
+        blocked = False
+        grabbed = GrabbedDevice(
+            path="/dev/input/event0",
+            hardware_id="test",
+            button_map={},
+            mapping_getter=lambda: {},
+            event_callback=lambda *args: None,
+            keyboard_block_getter=lambda: blocked,
+        )
+        grabbed.uinput = passthrough
+
+        def send(code: int, value: int) -> None:
+            event = evdev.InputEvent(10, 100, evdev.ecodes.EV_KEY, code, value)
+            outputs.passthrough(
+                grabbed, event, evdev_mod=evdev, uinput_writer=lambda device: device
+            )
+
+        send(evdev.ecodes.KEY_A, 1)
+        blocked = True
+        send(evdev.ecodes.KEY_A, 0)
+        send(evdev.ecodes.KEY_B, 1)
+        send(evdev.ecodes.BTN_LEFT, 1)
+        send(evdev.ecodes.BTN_LEFT, 0)
+        blocked = False
+        send(evdev.ecodes.KEY_B, 2)
+        send(evdev.ecodes.KEY_B, 0)
+        send(evdev.ecodes.KEY_B, 1)
+
+        assert [call.args for call in passthrough.write.call_args_list] == [
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 1),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
+            (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
+        ]

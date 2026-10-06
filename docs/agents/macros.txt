@@ -104,12 +104,22 @@ Canonical macro object:
   "loop_count": 1,
   "loop_stop_behavior": "finish_run",
   "block_mouse_movement": false,
+  "block_keyboard": false,
   "events": [
     {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": 0},
     {"device_type": "keyboard", "type": 1, "code": 30, "value": 0, "t_us": 10000}
   ]
 }
 ```
+
+block_mouse_movement drops pointer movement from grabbed mice during playback.
+block_keyboard holds back keyboard key output (codes below BTN_MISC) that
+physical input produces through grabbed devices: passthrough, remaps,
+superkeys, combos. Macro output is never blocked, including other macros.
+Releases of keys held before the block still pass; a key pressed during the
+block stays inactive until it is released and pressed again. Each macro
+instance, including called children, applies its own setting; pause_run lifts
+the block until resume.
 
 Raw key/button event fields:
 

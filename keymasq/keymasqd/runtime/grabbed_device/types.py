@@ -218,6 +218,8 @@ class GrabbedDeviceState:
             "gamepad": set(),
         }
     )
+    # Presses withheld while a macro blocks the keyboard; they wait for their release.
+    blocked_output_keys: dict[str, set[int]] = field(default_factory=dict)
     superkey_output_refcounts: dict[str, dict[int, int]] = field(
         default_factory=lambda: {
             "keyboard": {},
@@ -326,6 +328,9 @@ class ActionRuntime(Protocol):
 
     @property
     def suppress_rel_getter(self) -> Callable[[], bool] | None: ...
+
+    @property
+    def keyboard_block_getter(self) -> Callable[[], bool] | None: ...
 
     @property
     def state(self) -> GrabbedDeviceState: ...

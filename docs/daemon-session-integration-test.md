@@ -23,6 +23,9 @@ that the core runtime classes still work together:
 - parallel-child failure aborts a parent paused with Never and releases a
   sibling's held key without another trigger press, and the next press starts a
   fresh invocation
+- macro keyboard blocking: passthrough and remapped presses are held back while
+  another macro still types, a key held before playback can be released, and a
+  key pressed during playback needs a fresh press afterwards
 - superkey tap
 - overloaded superkey with multiple press and release actions
 - chord, multi-step, prefix-shadowing, overlapping, negative, and multi-source combos

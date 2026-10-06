@@ -248,6 +248,7 @@ def _save_pending_recording_sync(
         "device_types": list(snapshot.device_types),
         "event_count": int(snapshot.event_count),
         "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
+        "block_keyboard": coerce_bool(data.get("block_keyboard"), False),
     }
     macro = daemon.macro_store.create_from_events(
         payload,

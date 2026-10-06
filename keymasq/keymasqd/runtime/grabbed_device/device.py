@@ -322,6 +322,7 @@ class GrabbedDevice:
         profile_activation_trigger_start_observer: Callable[[str | None], None] | None = None,
         profile_activation_trigger_end_observer: Callable[[str | None], None] | None = None,
         suppress_rel_getter: Callable[[], bool] | None = None,
+        keyboard_block_getter: Callable[[], bool] | None = None,
         mouse_rel_suppression_start_callback: Callable[[], None] | None = None,
         diagnostics_recorder: Callable[[str, float], None] | None = None,
         runtime_cleanup_callback: Callable[[str, str | None], Awaitable[None]] | None = None,
@@ -400,6 +401,7 @@ class GrabbedDevice:
         self.profile_activation_trigger_start_observer = profile_activation_trigger_start_observer
         self.profile_activation_trigger_end_observer = profile_activation_trigger_end_observer
         self.suppress_rel_getter = suppress_rel_getter
+        self.keyboard_block_getter = keyboard_block_getter
         self.mouse_rel_suppression_start_callback = mouse_rel_suppression_start_callback
         self.diagnostics_recorder = diagnostics_recorder
         self.runtime_cleanup_callback = runtime_cleanup_callback

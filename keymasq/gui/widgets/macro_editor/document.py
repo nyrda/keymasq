@@ -35,6 +35,7 @@ class MacroDocument:
     loop_count: int
     loop_stop_behavior: str
     pause_timeout_s: float = 0.0
+    block_keyboard: bool = False
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "MacroDocument":
@@ -58,6 +59,7 @@ class MacroDocument:
             controls=controls,
             duration_us=duration_us,
             block_mouse_movement=bool(source.get("block_mouse_movement", False)),
+            block_keyboard=bool(source.get("block_keyboard", False)),
             loop_mode=str(source.get("loop_mode", "none") or "none"),
             loop_count=max(1, int(source.get("loop_count", 1) or 1)),
             pause_timeout_s=max(0.0, coerce_float(source.get("pause_timeout_s"), 0.0)),
@@ -72,6 +74,7 @@ class MacroDocument:
         loop_count: int,
         loop_stop_behavior: str,
         block_mouse_movement: bool,
+        block_keyboard: bool | None = None,
         pause_timeout_s: float | None = None,
     ) -> dict[str, Any]:
         raw_events = reconstruct_events(
@@ -103,6 +106,9 @@ class MacroDocument:
                 if pause_timeout_s is None
                 else pause_timeout_s,
                 "block_mouse_movement": bool(block_mouse_movement),
+                "block_keyboard": self.block_keyboard
+                if block_keyboard is None
+                else bool(block_keyboard),
             }
         )
         # Legacy move-to-start keys are dropped; the first natural move holds the start position.

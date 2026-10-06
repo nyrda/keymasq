@@ -111,6 +111,7 @@ class MacroEditorMixin(
         self._macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
         self._macro_pause_timeout_s: float = 0.0
         self._macro_block_mouse_movement: bool = False
+        self._macro_block_keyboard: bool = False
         self._slurp_capture = get_slurp_capture()
         self._slurp_capture.set_compositor(session_compositor_id())
         self._selected_move_capture = PositionCaptureController(

@@ -246,6 +246,7 @@ def construct_grabbed_device(
         profile_activation_trigger_start_observer=(manager.observe_profile_trigger_start),
         profile_activation_trigger_end_observer=manager.observe_profile_trigger_end,
         suppress_rel_getter=lambda: manager.macro_state.mouse_rel_suppressed,
+        keyboard_block_getter=getattr(manager, "macro_keyboard_blocked", None),
         mouse_rel_suppression_start_callback=lambda: None,
         diagnostics_recorder=diagnostics_recorder,
         runtime_cleanup_callback=callbacks.runtime_cleanup_callback,

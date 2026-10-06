@@ -78,6 +78,7 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
                 macro_loop_count=3,
                 macro_loop_stop_behavior="cancel_run",
                 macro_block_mouse_movement=True,
+                macro_block_keyboard=True,
             ),
             "profile": MappingAction(
                 action_type=ActionType.PROFILE_TOGGLE,
@@ -130,6 +131,7 @@ def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:
     assert macro_mapping["macro_name"] == "paste"
     assert macro_mapping["macro_loop_count"] == 3
     assert macro_mapping["macro_block_mouse_movement"] is True
+    assert macro_mapping["macro_block_keyboard"] is True
     assert mapping["profile"] == {"action": "profile_toggle", "profile_name": "Gaming"}
     assert mapping["repeat"] == {
         "action": "repeat",
@@ -178,6 +180,7 @@ def test_shared_mapping_action_serializer_preserves_inspector_contract() -> None
         "loop_count": 2,
         "loop_stop_behavior": "finish_run",
         "block_mouse_movement": False,
+        "block_keyboard": False,
     }
     assert action_payload.serialize_mapping_action(
         MappingAction(

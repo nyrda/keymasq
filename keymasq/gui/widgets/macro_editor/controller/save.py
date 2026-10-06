@@ -352,6 +352,7 @@ class SaveControllerMixin:
             controls=self._control_events,
             duration_us=self._duration_us,
             block_mouse_movement=self._macro_block_mouse_movement,
+            block_keyboard=self._macro_block_keyboard,
             loop_mode=self._macro_loop_mode,
             loop_count=self._macro_loop_count,
             loop_stop_behavior=self._macro_loop_stop_behavior,
@@ -374,4 +375,5 @@ class SaveControllerMixin:
                 else "cancel_run"
             ),
             block_mouse_movement=self._macro_block_mouse_check.get_active(),
+            block_keyboard=self._macro_block_keyboard_check.get_active(),
         )

@@ -244,6 +244,34 @@ def write_abs_axis(
     )
 
 
+def key_blocked(
+    device_runtime: ActionRuntime,
+    uinput_dev: object | None,
+    code: int,
+    value: int,
+    *,
+    bucket: str | None = None,
+) -> bool:
+    """Withhold keyboard presses while a macro blocks the keyboard, until their release."""
+    if not 0 < code < evdev.ecodes.BTN_MISC:
+        return False
+    bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
+    if not bucket:
+        return False
+    blocked = device_runtime.state.blocked_output_keys.get(bucket)
+    if blocked is not None and code in blocked:
+        if value == 0:
+            blocked.discard(code)
+        return True
+    if value != 1 or code in device_runtime.state.held_output_keys.get(bucket, ()):
+        return False
+    block_getter = device_runtime.keyboard_block_getter
+    if block_getter is None or not block_getter():
+        return False
+    device_runtime.state.blocked_output_keys.setdefault(bucket, set()).add(code)
+    return True
+
+
 def write_key(
     device_runtime: ActionRuntime,
     uinput_dev: object | None,
@@ -258,6 +286,8 @@ def write_key(
 ) -> None:
     writer = uinput_writer(uinput_dev)
     if writer is None:
+        return
+    if key_blocked(device_runtime, uinput_dev, int(code), int(value), bucket=bucket):
         return
     writer.write(evdev_mod.ecodes.EV_KEY, int(code), int(value))
     if sync:
@@ -482,6 +512,7 @@ def release_all_keys(
     route = controller_route(device_runtime)
     if route is not None:
         route.release_axes(device_runtime)
+    device_runtime.state.blocked_output_keys.clear()
     devices: dict[str, object | None] = {
         "passthrough": device_runtime.uinput,
         "keyboard": device_runtime.keyboard_uinput,

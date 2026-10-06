@@ -111,6 +111,7 @@ def _build_superkey_machine(
         cancel_macro_playback=cancel_macro_playback,
         action_deps=deps,
         repeat_path_recorder=repeat_path_recorder,
+        keyboard_block_getter=device_runtime.keyboard_block_getter,
     )
     machine.source_action = action
     return machine

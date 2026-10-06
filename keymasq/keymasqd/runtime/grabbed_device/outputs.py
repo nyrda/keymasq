@@ -252,24 +252,27 @@ def key_blocked(
     *,
     bucket: str | None = None,
 ) -> bool:
-    """Withhold keyboard presses while a macro blocks the keyboard, until their release."""
+    """Withhold keyboard presses while a macro blocks the keyboard; each drops one release."""
     if not 0 < code < evdev.ecodes.BTN_MISC:
         return False
     bucket = bucket or bucket_for_uinput(device_runtime, uinput_dev)
     if not bucket:
         return False
-    blocked = device_runtime.state.blocked_output_keys.get(bucket)
-    if blocked is not None and code in blocked:
-        if value == 0:
-            blocked.discard(code)
-        return True
+    held_back = device_runtime.state.blocked_output_keys.setdefault(bucket, {})
+    count = held_back.get(code, 0)
     if value == 0:
-        return False
+        if not count:
+            return False
+        if count > 1:
+            held_back[code] = count - 1
+        else:
+            del held_back[code]
+        return True
     block_getter = getattr(device_runtime, "keyboard_block_getter", None)
     if block_getter is None or not block_getter():
-        return False
-    if value == 1 and code not in device_runtime.state.held_output_keys.get(bucket, ()):
-        device_runtime.state.blocked_output_keys.setdefault(bucket, set()).add(code)
+        return value == 2 and count > 0
+    if value == 1:
+        held_back[code] = count + 1
     return True
 
 

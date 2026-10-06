@@ -659,7 +659,11 @@ async def test_keyboard_block_withholds_threshold_key_press() -> None:
     event.code = evdev.ecodes.ABS_Z
 
     assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
-    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1) not in keyboard.events
+    event = FakeEvent(0)
+    event.code = evdev.ecodes.ABS_Z
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+
+    assert [entry for entry in keyboard.events if entry[1] == evdev.ecodes.KEY_A] == []
 
 
 @pytest.mark.asyncio

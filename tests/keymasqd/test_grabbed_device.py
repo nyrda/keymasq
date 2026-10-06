@@ -779,3 +779,39 @@ class TestPassthrough:
             (evdev.ecodes.EV_KEY, evdev.ecodes.BTN_LEFT, 0),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1),
         ]
+
+
+def test_keyboard_block_drops_one_release_per_withheld_press():
+    keyboard = MagicMock()
+    blocked = True
+    grabbed = GrabbedDevice(
+        path="/dev/input/event0",
+        hardware_id="test",
+        button_map={},
+        mapping_getter=lambda: {},
+        event_callback=lambda *args: None,
+        keyboard_uinput=keyboard,
+        keyboard_block_getter=lambda: blocked,
+    )
+
+    def write(value: int) -> None:
+        outputs.write_key(
+            grabbed,
+            keyboard,
+            evdev.ecodes.KEY_A,
+            value,
+            evdev_mod=evdev,
+            uinput_writer=lambda device: device,
+        )
+
+    write(1)
+    write(1)
+    write(0)
+    blocked = False
+    write(2)
+    write(0)
+    write(1)
+
+    assert [call.args for call in keyboard.write.call_args_list] == [
+        (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+    ]

@@ -495,9 +495,9 @@ affect devices that Keymasq has grabbed.
 - **Block physical keyboard** holds back keyboard key presses while the macro
   plays. The rule applies to the key Keymasq would output, not the physical
   input: a gamepad button mapped to a keyboard key is blocked, while a keyboard
-  key mapped to a mouse click is not. Passthrough keys, remaps, superkeys, and
-  combos are all covered. Mouse button, wheel, and gamepad output is never
-  blocked.
+  key mapped to a mouse click is not. Passthrough keys, remaps, superkeys,
+  combos, and analog thresholds are all covered. Mouse button, wheel, and
+  gamepad output is never blocked.
 
 Keyboard blocking follows these rules:
 

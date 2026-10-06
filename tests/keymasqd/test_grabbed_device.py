@@ -762,6 +762,7 @@ class TestPassthrough:
 
         send(evdev.ecodes.KEY_A, 1)
         blocked = True
+        send(evdev.ecodes.KEY_A, 2)
         send(evdev.ecodes.KEY_A, 0)
         send(evdev.ecodes.KEY_B, 1)
         send(evdev.ecodes.BTN_LEFT, 1)

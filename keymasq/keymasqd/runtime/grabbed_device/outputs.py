@@ -263,12 +263,13 @@ def key_blocked(
         if value == 0:
             blocked.discard(code)
         return True
-    if value != 1 or code in device_runtime.state.held_output_keys.get(bucket, ()):
+    if value == 0:
         return False
-    block_getter = device_runtime.keyboard_block_getter
+    block_getter = getattr(device_runtime, "keyboard_block_getter", None)
     if block_getter is None or not block_getter():
         return False
-    device_runtime.state.blocked_output_keys.setdefault(bucket, set()).add(code)
+    if value == 1 and code not in device_runtime.state.held_output_keys.get(bucket, ()):
+        device_runtime.state.blocked_output_keys.setdefault(bucket, set()).add(code)
     return True
 
 

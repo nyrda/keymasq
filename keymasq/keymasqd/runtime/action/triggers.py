@@ -131,6 +131,7 @@ def build_macro_playback_request(
         "pause_timeout_s": action.macro_pause_timeout_s,
         "loop_stop_behavior": normalize_macro_loop_stop_behavior(action.macro_loop_stop_behavior),
         "block_mouse_movement": action.macro_block_mouse_movement,
+        "block_keyboard": action.macro_block_keyboard,
         "source_device": source_device,
         "source_button": source_button,
         "trigger_value": trigger_value,

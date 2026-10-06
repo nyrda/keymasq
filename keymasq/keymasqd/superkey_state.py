@@ -64,6 +64,7 @@ class SuperkeyActionData:
     macro_loop_stop_behavior: str = "finish_run"
     macro_pause_timeout_s: float = 0.0
     macro_block_mouse_movement: bool = False
+    macro_block_keyboard: bool = False
     macro_recording_slot: int = 0
     profile_name: str | None = None
     compositor_id: str | None = None
@@ -192,6 +193,7 @@ class SuperkeyMachine:
         action_deps: "ActionExecutionDeps | None" = None,
         await_action_tasks: bool = True,
         repeat_path_recorder: Callable[[str], None] | None = None,
+        keyboard_block_getter: Callable[[], bool] | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.config = config
@@ -234,6 +236,7 @@ class SuperkeyMachine:
             natural_mouse_mover=natural_mouse_mover,
             macro_player=macro_player,
             emergency_resetter=emergency_resetter,
+            keyboard_block_getter=keyboard_block_getter,
             gamepad_output_resolver=gamepad_output_resolver,
         )
 

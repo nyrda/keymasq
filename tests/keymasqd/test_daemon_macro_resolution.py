@@ -64,6 +64,7 @@ async def test_resolve_mapping_macros_loads_macro_definition(daemon_testbed):
     assert action["macro_loop_count"] == 3
     assert action["macro_loop_stop_behavior"] == "cancel_run"
     assert action["macro_block_mouse_movement"] is True
+    assert action["macro_block_keyboard"] is True
 
 
 @pytest.mark.asyncio

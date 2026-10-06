@@ -48,6 +48,9 @@ class MacroManagerMixin:
     def runtime_input_paused(self) -> bool:
         raise NotImplementedError
 
+    def macro_keyboard_blocked(self) -> bool:
+        return self.macro_state.keyboard_block_count > 0
+
     async def play_macro(
         self,
         playback_options: MacroPlaybackOptions | None = None,
@@ -199,6 +202,7 @@ class MacroManagerMixin:
             ),
             pause_timeout_s=max(0.0, coerce_float(event.get("pause_timeout_s"), 0.0)),
             block_mouse_movement=coerce_bool(meta.get("block_mouse_movement"), False),
+            block_keyboard=coerce_bool(meta.get("block_keyboard"), False),
         )
         return playback.start_child_macro(
             self,

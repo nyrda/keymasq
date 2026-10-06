@@ -74,6 +74,46 @@ async def test_sync_child_blocks_later_parent_events(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_child_keyboard_block_lasts_only_for_the_child(tmp_path: Path) -> None:
+    manager, store = _manager_with_store(tmp_path)
+    store.create(
+        {
+            "name": "child",
+            "block_keyboard": True,
+            "events": [
+                _key_event(evdev.ecodes.KEY_B, 1, 0),
+                _key_event(evdev.ecodes.KEY_B, 0, 20_000),
+            ],
+        }
+    )
+    blocked_at_write: list[tuple[int, int, bool]] = []
+    manager.output_state.keyboard_uinput.write.side_effect = (
+        lambda _type, code, value: blocked_at_write.append(
+            (code, value, manager.macro_keyboard_blocked())
+        )
+    )
+
+    await manager.play_macro(
+        macro_name="parent",
+        load_stored_macro=False,
+        macro_events=[
+            {"t_us": 0, "macro_action": "macro_sync", "macro_name": "child"},
+            _key_event(evdev.ecodes.KEY_A, 1, 0),
+            _key_event(evdev.ecodes.KEY_A, 0, 10_000),
+        ],
+    )
+    await _wait_for_no_running_macros(manager)
+
+    assert blocked_at_write == [
+        (evdev.ecodes.KEY_B, 1, True),
+        (evdev.ecodes.KEY_B, 0, True),
+        (evdev.ecodes.KEY_A, 1, False),
+        (evdev.ecodes.KEY_A, 0, False),
+    ]
+    assert not manager.macro_keyboard_blocked()
+
+
+@pytest.mark.asyncio
 async def test_type_macro_control_runs_named_child_before_later_text(tmp_path: Path) -> None:
     manager, store = _manager_with_store(tmp_path)
     store.create(

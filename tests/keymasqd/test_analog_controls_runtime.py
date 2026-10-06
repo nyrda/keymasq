@@ -604,9 +604,9 @@ async def test_obsolete_mouse_plus_digital_runs_only_digital_actions() -> None:
     assert runtime.mouse_uinput.events == []
 
 
-@pytest.mark.asyncio
-async def test_trigger_threshold_uses_positive_normalized_range() -> None:
-    keyboard = FakeUInput()
+def _trigger_threshold_runtime(
+    keyboard: FakeUInput,
+) -> tuple[SimpleNamespace, dict[str, MappingAction]]:
     mapping = {
         "left_trigger": MappingAction(
             action_type=ActionType.ANALOG_CONTROL,
@@ -631,6 +631,13 @@ async def test_trigger_threshold_uses_positive_normalized_range() -> None:
         (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_Z): ("left_trigger", "x")
     }
     runtime.analog_axis_ranges = {("left_trigger", "x"): (0, 255)}
+    return runtime, mapping
+
+
+@pytest.mark.asyncio
+async def test_trigger_threshold_uses_positive_normalized_range() -> None:
+    keyboard = FakeUInput()
+    runtime, mapping = _trigger_threshold_runtime(keyboard)
     event = FakeEvent(200)
     event.code = evdev.ecodes.ABS_Z
 
@@ -641,6 +648,22 @@ async def test_trigger_threshold_uses_positive_normalized_range() -> None:
     event.code = evdev.ecodes.ABS_Z
     assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
     assert keyboard.events[-1] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 0)
+
+
+@pytest.mark.asyncio
+async def test_keyboard_block_withholds_threshold_key_press() -> None:
+    keyboard = FakeUInput()
+    runtime, mapping = _trigger_threshold_runtime(keyboard)
+    runtime.keyboard_block_getter = lambda: True
+    event = FakeEvent(200)
+    event.code = evdev.ecodes.ABS_Z
+
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+    event = FakeEvent(0)
+    event.code = evdev.ecodes.ABS_Z
+    assert await process_analog_event(runtime, event, "abs_z", mapping, deps=_deps())
+
+    assert [entry for entry in keyboard.events if entry[1] == evdev.ecodes.KEY_A] == []
 
 
 @pytest.mark.asyncio

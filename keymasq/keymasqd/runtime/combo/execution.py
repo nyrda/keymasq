@@ -46,6 +46,7 @@ def action_runtime(
         macro_player=manager.play_macro,
         emergency_resetter=manager.emergency_reset,
         repeat_state=manager.repeat_state,
+        keyboard_block_getter=manager.macro_keyboard_blocked,
         gamepad_output_resolver=lambda output_id, context: manager.resolve_gamepad_output(
             output_id,
             context=context,

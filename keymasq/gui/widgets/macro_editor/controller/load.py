@@ -179,6 +179,7 @@ class LoadControllerMixin:
         self._control_events = document.controls
         self._duration_us = document.duration_us
         self._macro_block_mouse_movement = document.block_mouse_movement
+        self._macro_block_keyboard = document.block_keyboard
         self._macro_loop_mode = document.loop_mode
         self._macro_loop_count = document.loop_count
         self._macro_loop_stop_behavior = document.loop_stop_behavior

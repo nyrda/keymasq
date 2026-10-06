@@ -63,6 +63,7 @@ class _ParsedActionFields:
     macro_loop_stop_behavior: str
     macro_pause_timeout_s: float
     macro_block_mouse_movement: bool
+    macro_block_keyboard: bool
     macro_recording_slot: int
     profile_name: str | None
     profile_deactivation: ProfileDeactivationPolicy | None
@@ -133,6 +134,7 @@ def _parse_shared_action_fields(
             action_data.get("macro_loop_stop_behavior")
         ),
         macro_block_mouse_movement=bool(action_data.get("macro_block_mouse_movement", False)),
+        macro_block_keyboard=bool(action_data.get("macro_block_keyboard", False)),
         macro_recording_slot=normalize_macro_recording_slot(
             action_data.get("recording_slot", action_data.get("macro_recording_slot"))
         ),
@@ -263,6 +265,7 @@ def parse_action(
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
         macro_pause_timeout_s=shared.macro_pause_timeout_s,
         macro_block_mouse_movement=shared.macro_block_mouse_movement,
+        macro_block_keyboard=shared.macro_block_keyboard,
         macro_recording_slot=shared.macro_recording_slot,
         profile_name=shared.profile_name,
         profile_deactivation=shared.profile_deactivation,
@@ -670,6 +673,7 @@ def parse_superkey_action(
         macro_loop_stop_behavior=shared.macro_loop_stop_behavior,
         macro_pause_timeout_s=shared.macro_pause_timeout_s,
         macro_block_mouse_movement=shared.macro_block_mouse_movement,
+        macro_block_keyboard=shared.macro_block_keyboard,
         macro_recording_slot=shared.macro_recording_slot,
         profile_name=shared.profile_name,
         profile_deactivation=shared.profile_deactivation,

@@ -210,6 +210,7 @@ def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
             macro_loop_stop_behavior="cancel_run",
             macro_pause_timeout_s=120,
             macro_block_mouse_movement=True,
+            macro_block_keyboard=True,
         ),
         rapidfire_warning_context="test config",
     )
@@ -221,6 +222,7 @@ def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
     assert macro.macro_loop_stop_behavior == "cancel_run"
     assert macro.macro_pause_timeout_s == 120
     assert macro.macro_block_mouse_movement is True
+    assert macro.macro_block_keyboard is True
 
     axis_data = mapping_action_to_toml(
         MappingAction(

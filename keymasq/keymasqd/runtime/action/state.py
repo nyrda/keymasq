@@ -70,6 +70,7 @@ class MacroPlaybackRequest(TypedDict):
     loop_stop_behavior: str
     pause_timeout_s: float
     block_mouse_movement: bool
+    block_keyboard: bool
     source_device: str
     source_button: str
     trigger_value: int
@@ -100,6 +101,7 @@ class ActionRuntimeContext:
     emergency_resetter: EmergencyResetter | None = None
     repeat_state: RepeatRuntimeState | None = None
     suppress_rel_getter: Callable[[], bool] | None = None
+    keyboard_block_getter: Callable[[], bool] | None = None
     gamepad_output_resolver: Callable[[str | None, str], object | None] | None = None
     running: bool = True
 

@@ -144,6 +144,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
             "start_x": 320,
             "start_y": 240,
             "block_mouse_movement": True,
+            "block_keyboard": True,
             "loop_mode": "count",
             "loop_count": 3,
             "loop_stop_behavior": "cancel_run",
@@ -177,6 +178,7 @@ def test_macro_editor_initial_state_load_applies_macro_fields(monkeypatch) -> No
     assert dialog._macro_loop_finish_check.get_active() is False
     assert dialog._macro_loop_finish_check.get_visible() is False
     assert dialog._macro_block_mouse_check.get_active() is True
+    assert dialog._macro_block_keyboard_check.get_active() is True
 
 
 def test_macro_editor_gamepad_events_round_trip_output_id(monkeypatch) -> None:
@@ -960,6 +962,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     dialog._on_macro_loop_mode_changed(dialog._macro_loop_mode_combo)
     dialog._macro_loop_count_spin.set_value(2)
     dialog._macro_block_mouse_check.set_active(True)
+    dialog._macro_block_keyboard_check.set_active(True)
 
     dialog._on_key_selected_for_insert(
         None,
@@ -989,6 +992,7 @@ def test_macro_editor_insert_delete_and_save_payload(monkeypatch) -> None:
     assert "start_x" not in payload
     assert "start_y" not in payload
     assert payload["block_mouse_movement"] is True
+    assert payload["block_keyboard"] is True
     assert payload["device_types"] == ["keyboard", "mouse"]
     assert {
         "device_type": "macro",

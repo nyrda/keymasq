@@ -108,6 +108,10 @@ class MacroPlaybackOptions:
         default=False,
         metadata=_playback_metadata(_parse_playback_bool, runtime_default=True),
     )
+    block_keyboard: bool = field(
+        default=False,
+        metadata=_playback_metadata(_parse_playback_bool, runtime_default=True),
+    )
     source_device: str = field(
         default="",
         metadata=_playback_metadata(_parse_playback_text),

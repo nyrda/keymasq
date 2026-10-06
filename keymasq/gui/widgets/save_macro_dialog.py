@@ -30,6 +30,7 @@ class SaveMacroDialog(Adw.Dialog):
         self._recording_slot = int(recording_data.get("recording_slot", 0) or 0)
         self._start_position_recorded = bool(recording_data.get("start_position_recorded", False))
         self._block_mouse_movement = bool(recording_data.get("block_mouse_movement", False))
+        self._block_keyboard = bool(recording_data.get("block_keyboard", False))
         self._existing_macro_names: set[str] = set()
         self._later_btn: Gtk.Button | None = None
         self._save_edit_btn: Gtk.Button | None = None
@@ -129,6 +130,12 @@ class SaveMacroDialog(Adw.Dialog):
         )
         self._block_mouse_check.set_active(self._block_mouse_movement)
         content.append(self._block_mouse_check)
+
+        self._block_keyboard_check = Gtk.CheckButton(
+            label="Block physical keyboard during playback"
+        )
+        self._block_keyboard_check.set_active(self._block_keyboard)
+        content.append(self._block_keyboard_check)
 
         inner.append(content)
         inner.append(Gtk.Separator())
@@ -254,6 +261,7 @@ class SaveMacroDialog(Adw.Dialog):
             "command": "save_recording",
             "name": name,
             "block_mouse_movement": self._block_mouse_check.get_active(),
+            "block_keyboard": self._block_keyboard_check.get_active(),
         }
         if self._pending_save_token:
             payload["pending_save_token"] = self._pending_save_token
@@ -317,6 +325,7 @@ class SaveMacroDialog(Adw.Dialog):
             self._later_btn.set_sensitive(not inflight)
         self._name_entry.set_sensitive(not inflight)
         self._block_mouse_check.set_sensitive(not inflight)
+        self._block_keyboard_check.set_sensitive(not inflight)
         if not inflight:
             self._refresh_submit_state()
 

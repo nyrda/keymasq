@@ -81,6 +81,9 @@ def mapping_action_from_payload(value: object) -> MappingAction | None:
         macro_block_mouse_movement=bool_value(
             _first_value(action_data, "block_mouse_movement", "macro_block_mouse_movement")
         ),
+        macro_block_keyboard=bool_value(
+            _first_value(action_data, "block_keyboard", "macro_block_keyboard")
+        ),
         macro_recording_slot=normalize_macro_recording_slot(
             _first_value(action_data, "recording_slot", "slot")
         ),

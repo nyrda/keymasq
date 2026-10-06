@@ -521,23 +521,37 @@ async def test_release_during_initial_load_is_not_lost(manager, monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_pause_releases_mouse_inhibition_until_resume(manager) -> None:
+async def test_pause_releases_input_blocks_until_resume(manager) -> None:
     await trigger(
         manager,
         1,
         block_mouse_movement=True,
+        block_keyboard=True,
         loop_stop_behavior="pause_run",
         macro_events=[key(30, 1), key(30, 0, 80_000)],
     )
     await until(lambda: bool(writes(manager)))
     assert manager.macro_state.mouse_inhibit_count == 1
+    assert manager.macro_keyboard_blocked()
     await trigger(manager, 0)
     assert manager.macro_state.mouse_inhibit_count == 0
     assert not manager.macro_state.mouse_rel_suppressed
+    assert not manager.macro_keyboard_blocked()
     await trigger(manager, 1)
     assert manager.macro_state.mouse_inhibit_count == 1
+    assert manager.macro_keyboard_blocked()
     await until(lambda: not manager.macro_state.tasks)
     assert manager.macro_state.mouse_inhibit_count == 0
+    assert not manager.macro_keyboard_blocked()
+
+
+@pytest.mark.asyncio
+async def test_cancel_all_unblocks_the_keyboard_even_with_a_leftover_claim(manager) -> None:
+    manager.macro_state.keyboard_block_count = 1
+
+    await manager.cancel_macro_playback()
+
+    assert not manager.macro_keyboard_blocked()
 
 
 @pytest.mark.asyncio

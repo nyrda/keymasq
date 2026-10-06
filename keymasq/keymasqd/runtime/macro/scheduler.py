@@ -55,6 +55,7 @@ async def play_macro_task(
     block_mouse_movement: bool,
     *,
     deps: MacroRuntimeDeps,
+    block_keyboard: bool = False,
     macro_event_source: MacroEventSource | None = None,
     control_action_fn: ControlActionRunner | None = None,
     acquire_mouse_inhibit_fn: RuntimeAction | None = None,
@@ -98,25 +99,34 @@ async def play_macro_task(
         else None
     )
     owns_mouse_inhibit = False
+    owns_keyboard_block = False
 
-    def inhibit_mouse() -> None:
-        nonlocal owns_mouse_inhibit
+    def block_input() -> None:
+        nonlocal owns_mouse_inhibit, owns_keyboard_block
         if block_mouse_movement and not owns_mouse_inhibit:
             acquire_mouse_inhibit(manager, timeout_s=suppression_timeout_s, deps=deps)
             owns_mouse_inhibit = True
+        if block_keyboard and not owns_keyboard_block:
+            manager.macro_state.keyboard_block_count += 1
+            owns_keyboard_block = True
 
-    def uninhibit_mouse() -> None:
-        nonlocal owns_mouse_inhibit
+    def unblock_input() -> None:
+        nonlocal owns_mouse_inhibit, owns_keyboard_block
         if owns_mouse_inhibit:
             release_mouse_inhibit(manager)
             owns_mouse_inhibit = False
+        if owns_keyboard_block:
+            manager.macro_state.keyboard_block_count = max(
+                0, manager.macro_state.keyboard_block_count - 1
+            )
+            owns_keyboard_block = False
 
     if pause is not None:
-        pause.on_pause = uninhibit_mouse
-        pause.on_resume = inhibit_mouse
+        pause.on_pause = unblock_input
+        pause.on_resume = block_input
     try:
         if pause is None or not pause.paused:
-            inhibit_mouse()
+            block_input()
 
         while True:
             if instance_id in manager.macro_state.cancel_instance_ids:
@@ -266,7 +276,7 @@ async def play_macro_task(
         manager.macro_state.cancel_instance_ids.discard(instance_id)
         release_held(manager, instance_id, deps=deps)
         manager.macro_state.forget_instance(instance_id)
-        uninhibit_mouse()
+        unblock_input()
         if manager.verbosity >= 1:
             deps.log.debug("Macro playback finished: %s", macro_name or "<unnamed>")
 

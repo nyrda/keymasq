@@ -78,6 +78,7 @@ async def handle_recording_commands(
             manager,
             name,
             block_mouse_movement=bool(request.get("block_mouse_movement", False)),
+            block_keyboard=bool(request.get("block_keyboard", False)),
             recording_slot=coerce_int(request.get("recording_slot"), 0),
             pending_save_token=pending_save_token,
         )

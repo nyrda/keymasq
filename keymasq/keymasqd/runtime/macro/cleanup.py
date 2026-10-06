@@ -94,5 +94,6 @@ async def cancel_macro_playback(
     cancelled = await cancel_instances_fn(manager, running_ids, deps=deps)
     controls.complete_all_macro_exec_waiters(manager, -1)
     manager.macro_state.mouse_inhibit_count = 0
+    manager.macro_state.keyboard_block_count = 0
     end_suppression_fn(manager)
     return {"status": "ok", "cancelled": cancelled > 0}

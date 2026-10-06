@@ -264,6 +264,7 @@ def _start_macro_instance(
             loop_mode=normalized_loop,
             loop_count=loop_count,
             block_mouse_movement=playback_options.block_mouse_movement,
+            block_keyboard=playback_options.block_keyboard,
             deps=deps,
         )
     )

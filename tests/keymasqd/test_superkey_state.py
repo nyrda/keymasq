@@ -110,6 +110,35 @@ async def test_tap_timeout_bounds_single_tap(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("blocked", "expected_values"), [(False, [1, 0]), (True, [])])
+async def test_keyboard_block_withholds_superkey_key_output(
+    blocked: bool,
+    expected_values: list[int],
+) -> None:
+    keyboard_uinput = MagicMock()
+    machine = SuperkeyMachine(
+        config=SuperkeyConfig(
+            name="blocked_tap",
+            tap_actions=[SuperkeyActionData(action_type="keyboard", target="key_a")],
+        ),
+        event_name="btn_side",
+        keyboard_uinput=keyboard_uinput,
+        mouse_uinput=MagicMock(),
+        gamepad_uinput=MagicMock(),
+        keyboard_block_getter=lambda: blocked,
+    )
+
+    await machine.on_down()
+    await machine.on_up()
+
+    assert [
+        call.args[2]
+        for call in keyboard_uinput.write.call_args_list
+        if call.args[:2] == (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A)
+    ] == expected_values
+
+
+@pytest.mark.asyncio
 async def test_release_between_tap_timeout_and_hold_threshold_does_nothing() -> None:
     clock = _ManualClock()
     keyboard_uinput = MagicMock()
@@ -332,6 +361,7 @@ async def test_macro_action_broadcasts_full_playback_payload_on_press_and_releas
                     macro_loop_count=3,
                     macro_loop_stop_behavior="cancel_run",
                     macro_block_mouse_movement=True,
+                    macro_block_keyboard=True,
                 )
             ],
         ),
@@ -358,6 +388,7 @@ async def test_macro_action_broadcasts_full_playback_payload_on_press_and_releas
     assert press_payload["loop_count"] == 3
     assert press_payload["loop_stop_behavior"] == "cancel_run"
     assert press_payload["block_mouse_movement"] is True
+    assert press_payload["block_keyboard"] is True
     assert press_payload["source_device"] == "1234:5678"
     assert press_payload["source_button"] == "btn_side"
     assert press_payload["trigger_value"] == 1

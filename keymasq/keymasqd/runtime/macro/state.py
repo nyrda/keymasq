@@ -47,6 +47,7 @@ class MacroRuntimeState:
     held_abs_refcount: dict[tuple[str, int], int] = field(default_factory=dict)
     cancel_instance_ids: set[int] = field(default_factory=set)
     mouse_inhibit_count: int = 0
+    keyboard_block_count: int = 0
     exec_waiters: dict[str, asyncio.Future[int]] = field(default_factory=dict)
     mouse_rel_suppressed: bool = False
     mouse_rel_suppression_watchdog_task: asyncio.Task[None] | None = None

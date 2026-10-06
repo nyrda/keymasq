@@ -430,6 +430,7 @@ async def play_macro_slot_trigger(manager: "SessionManager", data: JsonObject) -
         "loop_stop_behavior": DEFAULT_MACRO_LOOP_STOP_BEHAVIOR,
         "pause_timeout_s": 0.0,
         "block_mouse_movement": coerce_bool(pending_data.get("block_mouse_movement"), False),
+        "block_keyboard": coerce_bool(pending_data.get("block_keyboard"), False),
         "source_device": str(data.get("source_device", "") or ""),
         "source_button": str(data.get("source_button", "") or ""),
         "trigger_value": coerce_int(data.get("trigger_value"), 1),
@@ -514,6 +515,16 @@ async def play_macro_trigger(manager: "SessionManager", data: JsonObject) -> Jso
                     data.get(
                         "block_mouse_movement",
                         (macro or {}).get("block_mouse_movement", False),
+                    ),
+                ),
+                False,
+            ),
+            "block_keyboard": coerce_bool(
+                data.get(
+                    "macro_block_keyboard",
+                    data.get(
+                        "block_keyboard",
+                        (macro or {}).get("block_keyboard", False),
                     ),
                 ),
                 False,
@@ -712,6 +723,7 @@ async def save_recording(
     manager: "SessionManager",
     name: str,
     block_mouse_movement: bool = False,
+    block_keyboard: bool = False,
     recording_slot: int = 0,
     pending_save_token: str = "",
 ) -> JsonObject:
@@ -742,6 +754,7 @@ async def save_recording(
         "created_at": datetime.now().isoformat(),
         "pending_recording_id": pending_recording_id,
         "block_mouse_movement": bool(block_mouse_movement),
+        "block_keyboard": bool(block_keyboard),
     }
     try:
         result = await manager.client.send_command(
@@ -761,6 +774,7 @@ async def save_recording(
             created_name = str(created.get("name", safe_name))
 
     data["block_mouse_movement"] = bool(block_mouse_movement)
+    data["block_keyboard"] = bool(block_keyboard)
     manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
     return {"status": "ok", "name": created_name}
 
@@ -789,6 +803,7 @@ def build_pending_macro_slot_meta(manager: "SessionManager") -> list[JsonObject]
             "device_types": device_types,
             "event_count": event_count,
             "block_mouse_movement": coerce_bool(data.get("block_mouse_movement"), False),
+            "block_keyboard": coerce_bool(data.get("block_keyboard"), False),
         }
         if coerce_bool(data.get("start_position_recorded"), False):
             item["start_position_recorded"] = True

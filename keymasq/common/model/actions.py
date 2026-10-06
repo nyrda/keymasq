@@ -360,6 +360,7 @@ class MappingAction:
     macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
     macro_pause_timeout_s: float = 0.0
     macro_block_mouse_movement: bool = False
+    macro_block_keyboard: bool = False
     macro_recording_slot: int = 0
     profile_name: str | None = None
     compositor_id: str | None = None

@@ -27,6 +27,7 @@ from . import (
     gamepad_output,
     held_output_profile_change,
     hotplug_replug,
+    macro_keyboard_block,
     macro_lifecycle,
     macro_pause,
     macro_playback,
@@ -72,6 +73,7 @@ SCENARIOS = [
     ScenarioCase("macro pause resume", macro_pause.run_resume),
     ScenarioCase("macro child pause expiry", macro_pause.run_child_expiry),
     ScenarioCase("macro paused parent child failure", macro_pause.run_child_failure),
+    ScenarioCase("macro keyboard block", macro_keyboard_block.run),
     ScenarioCase("superkey tap", superkey_tap.run),
     ScenarioCase(
         "superkey overload multi-action press/release",

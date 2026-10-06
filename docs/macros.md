@@ -134,6 +134,7 @@ reach them will be captured too, which is rarely what you want.
 |---|---|
 | Record initial mouse position | When enabled before recording starts, Keymasq records the cursor position automatically and stores it as an editable first cursor move event. The save dialog only reports whether a start position was recorded. |
 | Block mouse movement | Prevent accidental mouse movement during playback (requires a grabbed mouse device). |
+| Block keyboard | Ignore key presses from grabbed keyboards and remapped keys during playback. See [Blocking physical input](#blocking-physical-input). |
 
 **Recording sources:** the recording settings dialog separates Keymasq output
 devices from direct physical input sources.
@@ -483,6 +484,38 @@ responsible for the result.
 
 The GUI does not report playback failures during a sequence, such as a missing
 target device.
+
+### Blocking physical input
+
+Two macro settings keep your own input from mixing into playback. Both only
+affect devices that Keymasq has grabbed.
+
+- **Block physical mouse movement** stops pointer movement from grabbed mice
+  while the macro plays.
+- **Block physical keyboard** holds back keyboard key presses while the macro
+  plays. The rule applies to the key Keymasq would output, not the physical
+  input: a gamepad button mapped to a keyboard key is blocked, while a keyboard
+  key mapped to a mouse click is not. Passthrough keys, remaps, superkeys,
+  combos, and analog thresholds are all covered. Mouse button, wheel, and
+  gamepad output is never blocked.
+
+Keyboard blocking follows these rules:
+
+- Keys typed by macros are never blocked. This includes other macros that
+  start while the block is active.
+- Keys that were already held when playback started stay held, and releasing
+  them still works.
+- A key pressed during playback sends nothing, and its release is dropped too.
+  A plain key still held when playback ends needs to be pressed again.
+- Features that press keys on their own, such as rapidfire, rollover groups,
+  superkey taps and holds, and combos, work normally again once playback ends,
+  even for a key that was pressed during playback.
+- Actions that do not output keys still run, such as commands, profile
+  switches, and macro triggers. The macro's own trigger and the emergency
+  cancel combo keep working.
+- Every macro applies its own setting, including macros called from another
+  macro. The keyboard stays blocked while any running macro blocks it.
+  **Pause on release** lifts the block until playback resumes.
 
 ### Wait controls
 

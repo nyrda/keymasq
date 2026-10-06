@@ -144,6 +144,7 @@ def mapping_action_from_toml(
                 action_data.get("loop_stop_behavior")
             ),
             macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
+            macro_block_keyboard=bool(action_data.get("block_keyboard", False)),
         )
 
     if action_type in MACRO_CONTROL_ACTION_TYPES:
@@ -301,6 +302,7 @@ def mapping_action_to_toml(
         action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
         action_data["pause_timeout_s"] = action.macro_pause_timeout_s
         action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
+        action_data["block_keyboard"] = bool(action.macro_block_keyboard)
     if action.action_type in MACRO_RECORDING_SLOT_ACTION_TYPES and action.macro_recording_slot:
         action_data["recording_slot"] = int(action.macro_recording_slot)
     if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):

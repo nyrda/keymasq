@@ -1231,6 +1231,66 @@ class TestCombos:
         ] == [(evdev.ecodes.KEY_F5, 1), (evdev.ecodes.KEY_F5, 0)] * expected_presses
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("blocked_first", "expected_presses"), [(False, 1), (True, 0)])
+    async def test_sequence_combo_wheel_step_during_keyboard_block_stays_blocked(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        blocked_first: bool,
+        expected_presses: int,
+    ) -> None:
+        manager = DeviceManager()
+        manager.output_state.keyboard_uinput = FakeUInput()
+        await manager.set_combos(
+            [
+                {
+                    "id": "combo-wheel-sequence",
+                    "name": "Wheel Sequence",
+                    "steps": [
+                        {
+                            "events": [
+                                {"hardware_id": "1234:5678", "source": "mouse", "evdev": key}
+                                for key in keys
+                            ]
+                        }
+                        for keys in (("btn_extra", "wheel_up"), ("btn_side",))
+                    ],
+                    "action": {"action": "keyboard", "target": "key_f5"},
+                }
+            ]
+        )
+        monkeypatch.setattr(devices, "resolve_stable_path", lambda path: path)
+        monkeypatch.setattr(devices, "get_interface_id", lambda _path: "mouse")
+
+        async def send(event_type: int, code: int, value: int) -> None:
+            await events.on_device_event(
+                manager,
+                "1234:5678",
+                "/dev/input/by-id/test-mouse",
+                event_type,
+                code,
+                value,
+                None,
+                None,
+                **combo_event_runtime_kwargs(),
+            )
+
+        await send(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EXTRA, 1)
+        manager.macro_state.keyboard_block_count = int(blocked_first)
+        await send(evdev.ecodes.EV_REL, evdev.ecodes.REL_WHEEL, 1)
+        manager.macro_state.keyboard_block_count = 0
+        await send(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_EXTRA, 0)
+        await send(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 1)
+        await asyncio.sleep(0)
+        await send(evdev.ecodes.EV_KEY, evdev.ecodes.BTN_SIDE, 0)
+        await asyncio.sleep(0)
+
+        assert [
+            (code, value)
+            for event_type, code, value in manager.output_state.keyboard_uinput.writes
+            if event_type == evdev.ecodes.EV_KEY
+        ] == [(evdev.ecodes.KEY_F5, 1), (evdev.ecodes.KEY_F5, 0)] * expected_presses
+
+    @pytest.mark.asyncio
     async def test_runtime_combo_tap_key_releases_when_runtime_clears(self, monkeypatch):
         manager = DeviceManager()
         manager.output_state.keyboard_uinput = FakeUInput()

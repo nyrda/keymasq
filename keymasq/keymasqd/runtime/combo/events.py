@@ -250,6 +250,8 @@ async def process_runtime_combo_event(
                 value,
                 held_bindings=held_modifiers,
             )
+            if is_combo_pulse_evdev(binding.evdev):
+                manager.combo_state.progression.engine.set_keyboard_blocked(binding, False)
             if decision.recall_events:
                 emit_combo_recalls(manager, decision.recall_events)
         if decision.action_transition is not None:
@@ -279,7 +281,7 @@ def _track_keyboard_blocked_binding(
     binding: RuntimeComboBinding,
     value: int,
 ) -> None:
-    if is_combo_pulse_evdev(binding.evdev) or value == 2:
+    if value == 2:
         return
     manager.combo_state.progression.engine.set_keyboard_blocked(
         binding,

@@ -302,7 +302,7 @@ def action_key_blocked(
         return False
     withheld = device_runtime.state.blocked_action_keys
     key = (source, bucket, code)
-    blocked = value != 0 and keyboard_blocked(device_runtime, code)
+    blocked = value != 0 and action_keyboard_blocked(device_runtime, source, code)
     if key in withheld:
         if value == 1 and not blocked:
             withheld.discard(key)
@@ -313,6 +313,18 @@ def action_key_blocked(
     if blocked and value == 1:
         withheld.add(key)
     return blocked
+
+
+def action_keyboard_blocked(device_runtime: ActionRuntime, source: str, code: int) -> bool:
+    if keyboard_blocked(device_runtime, code):
+        return True
+    return int(code) in KEYBOARD_KEY_CODES and source_keyboard_blocked(device_runtime, source)
+
+
+def source_keyboard_blocked(device_runtime: ActionRuntime, source: str) -> bool:
+    # Overload children run as "<source>#overload#<index>".
+    root = source.split("#", 1)[0]
+    return root in device_runtime.state.keyboard_blocked_sources
 
 
 def keyboard_blocked(device_runtime: ActionRuntime, code: int) -> bool:

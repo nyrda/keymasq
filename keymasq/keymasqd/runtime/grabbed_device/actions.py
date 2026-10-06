@@ -20,6 +20,7 @@ from keymasq.keymasqd.runtime.action.triggers import (
 )
 from keymasq.keymasqd.runtime.adapters import WritableUInput
 from keymasq.keymasqd.runtime.grabbed_device.outputs import (
+    source_keyboard_blocked,
     track_superkey_abs_output,
     track_superkey_output,
 )
@@ -38,6 +39,13 @@ from keymasq.keymasqd.runtime.repeat import (
 from keymasq.keymasqd.superkey_state import SuperkeyConfig, SuperkeyMachine
 
 log = logging.getLogger("keymasqd.runtime.grabbed_device_actions")
+
+
+def _source_keyboard_blocked(device_runtime: GrabbedDeviceRuntime, event_name: str) -> bool:
+    block_getter = device_runtime.keyboard_block_getter
+    if block_getter is not None and block_getter():
+        return True
+    return source_keyboard_blocked(device_runtime, event_name)
 
 
 def _build_superkey_machine(
@@ -111,7 +119,7 @@ def _build_superkey_machine(
         cancel_macro_playback=cancel_macro_playback,
         action_deps=deps,
         repeat_path_recorder=repeat_path_recorder,
-        keyboard_block_getter=device_runtime.keyboard_block_getter,
+        keyboard_block_getter=lambda: _source_keyboard_blocked(device_runtime, event_name),
     )
     machine.source_action = action
     return machine

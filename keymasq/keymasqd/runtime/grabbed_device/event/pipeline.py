@@ -215,12 +215,18 @@ def _observe_source_key_transition(
 ) -> None:
     trigger_id = source_trigger_id(device_runtime.hardware_id, event_name)
     if int(event.value) == 1:
+        block_getter = device_runtime.keyboard_block_getter
+        if block_getter is not None and block_getter():
+            device_runtime.state.keyboard_blocked_sources.add(event_name)
+        else:
+            device_runtime.state.keyboard_blocked_sources.discard(event_name)
         device_runtime.state.held_source_keys.add(event_name)
         device_runtime.state.held_source_press_order[event_name] = next_press_sequence()
         observer = device_runtime.profile_activation_trigger_start_observer
         if observer is not None:
             observer(trigger_id)
     elif int(event.value) == 0:
+        device_runtime.state.keyboard_blocked_sources.discard(event_name)
         device_runtime.state.held_source_keys.discard(event_name)
         device_runtime.state.held_source_press_order.pop(event_name, None)
         observer = device_runtime.profile_activation_trigger_end_observer

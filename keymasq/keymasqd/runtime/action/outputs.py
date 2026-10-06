@@ -11,8 +11,8 @@ from keymasq.keymasqd.runtime.action.state import (
 )
 from keymasq.keymasqd.runtime.grabbed_device.outputs import (
     action_key_blocked,
+    action_keyboard_blocked,
     bucket_for_uinput,
-    keyboard_blocked,
     target_axis_release_value,
     write_abs_axis,
     write_key,
@@ -210,7 +210,7 @@ async def execute_key_action(
     if (
         (action.rapidfire_enabled or action.tap_enabled)
         and int(event.value) == 1
-        and keyboard_blocked(device_runtime, code)
+        and action_keyboard_blocked(device_runtime, event_name, code)
     ):
         mark_action_started(execution_handle)
         return

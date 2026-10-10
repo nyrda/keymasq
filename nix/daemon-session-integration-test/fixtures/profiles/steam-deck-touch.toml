@@ -1,0 +1,26 @@
+[profile]
+name = "$DECK_TOUCH_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 140
+notify_on_activation = false
+created_at = "2026-10-10T00:00:00"
+
+[devices."$DECK_HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$DECK_HARDWARE_ID".mapping.btn_touch_ls]
+action = "keyboard"
+target = "key_1"
+
+[devices."$DECK_HARDWARE_ID".mapping.btn_touch_rs]
+action = "keyboard"
+target = "key_2"
+
+[devices."$DECK_HARDWARE_ID".mapping.btn_touch_lp]
+action = "keyboard"
+target = "key_3"
+
+[devices."$DECK_HARDWARE_ID".mapping.btn_touch_rp]
+action = "keyboard"
+target = "key_4"

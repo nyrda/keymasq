@@ -33,6 +33,7 @@ and the full listener matrix. Run all VM suites on a Linux host with KVM acceler
 | Change category | Typical paths | Required manual gate |
 | --------------- | ------------- | -------------------- |
 | Daemon / remap runtime | `keymasq/keymasqd/**` | `daemon-session` |
+| HID-BPF native input and root handoff | `keymasq/keymasqd/input_sources/bpf.py`, `keymasq/keymasqd/input_sources/hid_bpf_attach.py`, `keymasq/keymasqd/input_sources/transports/hid_bpf.py`, `keymasq/keymasqd/input_sources/drivers/steam_deck_touch.py`, `keymasq/keymasqd/fd_handoff.py`, `keymasq/masking/operations.py`, `systemd/keymasq-hardware@.service` | `daemon-session`. Its `hid-bpf-steam-deck-touch` scenario is the only VM coverage of this path; run it alone with `--scenario hid-bpf-steam-deck-touch` while iterating, then the full suite |
 | Session broker, profiles, recording | `keymasq/session/manager/**`, `keymasq/session/*.py` | `daemon-session` |
 | Hardware masking and recovery | `keymasq/masking/**`, `keymasq/keymasqd/hardware_masking.py`, `keymasq/keymasqd/masking_registry.py`, `keymasq/session/manager/command/hardware_masking.py` | `daemon-session`, `masking-behavior`, and `masking-recovery` |
 | Masking VM fixtures and assertions | `nix/masking-*` | `masking-behavior` and `masking-recovery`, in addition to the Nix/VM infrastructure gates below |
@@ -74,6 +75,10 @@ changed since the last tag:
 ./scripts/integration.sh listeners
 scripts/check-doc-screenshots
 ```
+
+The full `daemon-session` run includes the HID-BPF Steam Deck touch scenario,
+which emulates a Deck bound by the kernel's `hid-steam` driver. Do not replace
+it with a `--scenario` selection for a release.
 
 Prereleases built through the `Package` workflow's manual dispatch should pass
 the same gates unless the prerelease exists specifically to test packaging

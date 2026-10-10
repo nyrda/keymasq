@@ -25,6 +25,11 @@ let
     }
   );
 
+  hidBpfProbe = pkgs.writeShellScript "keymasq-hid-bpf-probe" ''
+    exec ${testPython}/bin/python ${testSource}/hid_bpf_probe.py ${pkgs.systemd}/bin/systemctl "$@"
+  '';
+  bpftool = "${pkgs.bpftools}/bin/bpftool";
+
   integrationRunner = pkgs.writeShellApplication {
     name = "keymasq-daemon-session-integration-test";
     runtimeInputs = [
@@ -35,6 +40,8 @@ let
       export PYTHONPATH="${testSource}"
       export KEYMASQ_INTEGRATION_SYSTEMCTL="${pkgs.systemd}/bin/systemctl"
       export KEYMASQ_INTEGRATION_SUDO="/run/wrappers/bin/sudo"
+      export KEYMASQ_INTEGRATION_BPFTOOL="${bpftool}"
+      export KEYMASQ_INTEGRATION_HID_BPF_PROBE="${hidBpfProbe}"
       exec ${testPython}/bin/python ${testSource}/runner.py "$@"
     '';
   };
@@ -104,7 +111,9 @@ let
           time.timeZone = "UTC";
           i18n.defaultLocale = "en_US.UTF-8";
 
-          boot.kernelModules = [ "uinput" "uhid" "fuse" ];
+          boot.kernelModules = [ "uinput" "uhid" "fuse" "hid_steam" ];
+          # Without Steam running, hid-steam only reports gamepad input outside lizard mode.
+          boot.extraModprobeConfig = "options hid_steam lizard_mode=0";
           programs.fuse.enable = true;
           # Only the test client creates emulated physical HID devices. The
           # daemon keeps the production ACLs and device cgroup restrictions.
@@ -126,7 +135,7 @@ let
             description = "Daemon/session integration test VM user";
             createHome = true;
             home = "/home/${vmUser}";
-            extraGroups = [ "input" ];
+            extraGroups = [ "input" "systemd-journal" ];
           };
 
           services.dbus.enable = true;
@@ -140,6 +149,20 @@ let
                   commands = [
                     {
                       command = "${pkgs.systemd}/bin/systemctl restart keymasqd.service";
+                      options = [ "NOPASSWD" ];
+                    }
+                    {
+                      command = "${bpftool} --json struct_ops show";
+                      options = [ "NOPASSWD" ];
+                    }
+                  ];
+                }
+                {
+                  users = [ vmUser ];
+                  runAs = "keymasq";
+                  commands = [
+                    {
+                      command = "${hidBpfProbe}";
                       options = [ "NOPASSWD" ];
                     }
                   ];
@@ -185,6 +208,15 @@ let
                 as_user("journalctl --user -u keymasq-session.service --no-pager -n 240 || true"),
             )
             log_command_output("input devices", "cat /proc/bus/input/devices || true")
+            log_command_output(
+                "hardware jobs journal",
+                "journalctl -b -u 'keymasq-hardware@*' --no-pager -n 120 || true",
+            )
+            log_command_output(
+                "HID devices and struct_ops maps",
+                "dmesg | grep -i -e hid -e steam -e uhid | tail -60; "
+                + "${bpftool} struct_ops show || true",
+            )
             log_command_output(
                 "udev rule simulation for the newest event node",
                 "n=$(ls /sys/class/input | grep '^event' | sort -V | tail -1); "

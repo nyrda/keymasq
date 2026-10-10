@@ -26,6 +26,15 @@ that the core runtime classes still work together:
 - macro keyboard blocking: passthrough and remapped presses are held back while
   another macro still types, a key held before playback can be released, and a
   key pressed during playback needs a fresh press afterwards
+- macro keyboard blocking with rollover groups and emergency reset: a member
+  pressed during the block stays silent, then is restored normally after
+  playback ends, and an emergency reset during the block stops the macro and
+  lifts the block before the macro would have ended
+- `<macro:NAME>` calls in type macros, from a profile mapping and from
+  `keymasq type`: the called macro finishes before the following text, the
+  prefix is case-insensitive and spaces around the name are ignored, `\<macro:`
+  types the literal text (checked by decoding the US-layout keys), a missing or recursive call stops typing at the call and
+  later macros still play, and `--print-json` shows the `macro_sync` event
 - superkey tap
 - overloaded superkey with multiple press and release actions
 - chord, multi-step, prefix-shadowing, overlapping, negative, and multi-source combos
@@ -63,6 +72,11 @@ that the core runtime classes still work together:
 - existing macro files and the mutation lock reopened after a daemon restart
 - native motion capture through real UHID/hidraw reports, after initial connection,
   with the controller attached across a restart, and after reconnection
+- Steam Deck LS/RS/LP/RP Touch through the bundled HID-BPF program on an emulated
+  Deck bound by the kernel's `hid-steam` driver: attachment by the root job,
+  descriptor handoff, unchanged `hid-steam` gamepad output, detach on removal,
+  re-attach on reconnection and daemon restart, and refusal of a non-root handoff
+  client and of non-matching attach requests
 - a private user FUSE mount that denies root's descriptor inspection, and refusal
   to skip that descriptor after the mount disappears from the holder's namespace
 
@@ -108,6 +122,8 @@ scenarios when chasing flakes:
 ./scripts/integration.sh daemon-session --scenario profile-lifetime-direct-actions,hotplug-replug --repeat 10
 ./scripts/integration.sh daemon-session --scenario macro-pause-resume,macro-child-pause-expiry --repeat 3
 ./scripts/integration.sh daemon-session --scenario macro-paused-parent-child-failure --repeat 3
+./scripts/integration.sh daemon-session --scenario macro-call-from-mapped-type-macro,macro-call-from-keymasq-type
+./scripts/integration.sh daemon-session --scenario macro-keyboard-block-rollover,macro-keyboard-block-emergency-reset
 ```
 
 This is equivalent to running the Nix check directly:
@@ -147,6 +163,17 @@ and device policy. The test client alone receives access to `/dev/uhid` to emula
 the controller. These checks cover the emulated devices and existing daemon-owned
 state. They do not replace physical controller tests or an upgrade test of every
 distribution package.
+
+## Macro call scenarios
+
+The two `macro-call-*` scenarios save a child macro that presses `1` and, 300 ms
+later, `2`, plus type macros that call it, a missing macro, themselves, or each
+other in a loop. The mapped scenario triggers the saved type macros from a
+profile. The CLI scenario runs the installed `keymasq type --wait --json` as the
+VM user, so the request goes through the real session socket. Each case checks
+the exact keyboard output: the child's keys come before the typed text, nothing
+after a failed call is typed, and a later call still plays. The CLI case also
+checks the failure message for the missing name or the recursion.
 
 ## Pointer movement scenarios
 
@@ -219,6 +246,52 @@ This scenario does not emulate the Steam Controller firmware or force an evdev
 queue overflow. The focused daemon tests still cover `SYN_DROPPED` recovery and
 failed device-state reads. Physical touch feel still needs hardware testing.
 
+## HID-BPF Steam Deck touch scenario
+
+```bash
+./scripts/integration.sh daemon-session --scenario hid-bpf-steam-deck-touch
+```
+
+`steam_deck.py` creates a UHID device with the Deck's gamepad interface: USB bus,
+`28de:1205`, and the interface's report descriptor (one vendor 64-byte input and
+feature report). The kernel's own `hid-steam` driver binds to it. The emulator
+answers the feature reports `hid-steam` sends during probe (serial number,
+attributes, lizard mode settings), so `hid-steam` creates its `Steam Deck`
+gamepad, `Steam Deck Motion Sensors`, and hidraw client devices as on hardware.
+It then streams `0x09` Deck state reports every 10 ms, because the daemon treats
+a report counter that stops advancing as a disconnect. The VM loads `hid_steam`
+with `lizard_mode=0`, so `hid-steam` reports gamepad input without Steam.
+
+The hardware fixture configures the touch source as a companion of the
+`keymasq:28de:1205` gamepad interface, and a profile maps each touch input to a
+key. Only the touch source is grabbed, so the scenario can read the `hid-steam`
+gamepad node directly while the program is attached.
+
+| Step | Required result |
+| --- | --- |
+| Enable the profile with the Deck connected | Exactly one `hid_bpf_ops` struct_ops map named `steam_deck_touc` (`bpftool struct_ops show`), and `keymasqd` still has empty capability sets |
+| Set and clear byte 13 bits 6/7 and byte 10 bits 3/4, one at a time | Exact press and release of the mapped key for LS, RS, LP, and RP Touch |
+| Two touches in one report, then release them in two reports | Both presses, then each release on its own |
+| A, left stick X, and LP Touch with left pad X in one report | `hid-steam` reports `BTN_SOUTH`, `ABS_X`, and `ABS_HAT0X` with the injected values, and the LP Touch key is pressed. Clearing them returns all to zero |
+| Connect to `/run/keymasq/handoff` as the session user | Permission denied |
+| Connect as the `keymasq` account | The daemon closes the connection and logs `Rejected fd handoff from uid <keymasq>` |
+| Attach request for the `hid-steam` client device (HID group `0x0103`) | Job result `The HID device does not match this driver`, attachments unchanged |
+| Attach request naming the hidraw `8bitdo-ultimate2` driver | Job result `Unknown HID-BPF driver`, attachments unchanged |
+| Restart `keymasqd` with the Deck connected | A new attachment replaces the old one, and touches work |
+| Remove the Deck | The attachment disappears |
+| Reconnect the Deck | The session re-grabs it, a new attachment appears, touches and `hid-steam` output work |
+
+The refusal probes run through narrow sudo rules: `bpftool --json struct_ops
+show` as root, and `hid_bpf_probe.py` as the `keymasq` account, which may start
+`keymasq-hardware@` jobs through the polkit rule. The test user reads the daemon
+journal through the `systemd-journal` group. The probes do not cover a handoff
+socket owned by another account; the unit tests cover that refusal.
+
+The emulator reproduces the Deck's report format and the probe handshake that
+`hid-steam` needs, not the controller firmware. Physical Deck touch behavior,
+the real USB topology, and hardware masking of the Deck still need hardware
+testing.
+
 ## Debugging failures
 
 On failure, Nix prints the failed derivation path and suggests a `nix log`
@@ -228,6 +301,7 @@ command. Run that command to see:
 - `keymasq-session` status and user journal
 - `/dev/uinput` permissions
 - `/proc/bus/input/devices`
+- `keymasq-hardware@` job journal, HID kernel messages, and struct_ops maps
 - generated Keymasq config from inside the VM
 - scenario runner output
 

@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import os
 import select
 import sys
 import time
@@ -21,6 +22,16 @@ def setup():
         "both USB attachments",
         lambda: control.devices(require_all=False),
         lambda found: set(found) == set(control.NAMES),
+    )
+    wait_for(
+        "udev access to both USB attachments",
+        lambda: [
+            node
+            for attachment in found.values()
+            for node in control.INVENTORY.nodes(attachment)
+            if not os.access(node, os.R_OK | (os.W_OK if "/bus/usb/" in str(node) else 0))
+        ],
+        lambda denied: not denied,
     )
     control.baseline()
     identities = [found[name].identity for name in control.NAMES]

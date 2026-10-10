@@ -25,6 +25,7 @@ pkgs.testers.runNixOSTest {
             "runuser -u masktest -- env "
             "XDG_RUNTIME_DIR=/run/user/1000 "
             "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus "
+            "KEYMASQ_CLI=${keymasqPackage}/bin/keymasq "
             "PYTHONPATH=${pythonPath}:${./masking-behavior-test} " + command
         )
 
@@ -33,6 +34,23 @@ pkgs.testers.runNixOSTest {
 
     def check(command):
         return machine.succeed(user("${testPython}/bin/python ${behavior} " + command), timeout=120)
+
+    def cli(command):
+        return machine.succeed(
+            user("${testPython}/bin/python ${./masking-behavior-test/cli.py} " + command),
+            timeout=180,
+        )
+
+    def hold_operations_lock():
+        machine.succeed(
+            "systemd-run --unit=keymasq-test-cli-lock "
+            "${pkgs.util-linux}/bin/flock -x /run/keymasq-masking/operations.lock "
+            "${pkgs.coreutils}/bin/sleep infinity"
+        )
+        machine.wait_until_fails(
+            "${pkgs.util-linux}/bin/flock -n -s /run/keymasq-masking/operations.lock true",
+            timeout=15,
+        )
 
     def ready():
         machine.wait_for_unit("keymasq-test-devices.service")
@@ -65,6 +83,24 @@ pkgs.testers.runNixOSTest {
             restart_and_check_off()
         with subtest("closing the GUI does not cancel trial expiry"):
             check("trial-close")
+            restart_and_check_off()
+        with subtest("keymasq masking list and show select devices by ID, prefix, name, and connection"):
+            cli("selectors")
+        with subtest("answering no at the keymasq masking enable prompt undoes the mask"):
+            cli("prompt-no")
+        with subtest("keymasq masking enable and confirm fail when the mask cannot start"):
+            hold_operations_lock()
+            try:
+                cli("failed")
+            finally:
+                machine.succeed("systemctl stop keymasq-test-cli-lock.service")
+            cli("failure-recovered")
+        with subtest("keymasq masking enable --no-prompt stops at confirmation until confirm"):
+            cli("no-prompt")
+        with subtest("answering yes at the keymasq masking enable prompt keeps the mask"):
+            cli("prompt-yes")
+        with subtest("keymasq masking disable and resume after a recovery pause"):
+            cli("pause-resume")
             restart_and_check_off()
         with subtest("two masks restore independently and unmask all preserves ordinary remapping"):
             check("multiple")

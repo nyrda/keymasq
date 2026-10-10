@@ -320,6 +320,17 @@ against Arch. Keymasq consumes its minimal release archive, verifies the pinned
 SHA-256, and keeps its `libgtk-4` under `lib/gtk4-brotway`. Stock GTK remains
 the default for every other AppImage command.
 
+Brotway mode puts that overlay ahead of the bundled stock GTK, so the stock
+libadwaita and the GTK, GDK, and GSK typelibs resolve their `libgtk-4.so.1`
+symbols from the overlay. After dependency collection, `make-appimage.sh` runs
+`packaging/appimage/check-brotway-gtk-abi.sh`, which fails the build and lists
+every stock GTK symbol a bundled library or typelib imports that the overlay
+does not export. `verify-appimage.sh` additionally loads libadwaita with
+`RTLD_NOW` and imports `Adw` against the overlay. When either check fails, the
+Arch container has moved to a newer GTK than the pinned overlay: publish a
+gtk-brotway release built against that GTK and update `BROTWAY_BUNDLE_VERSION`
+and its SHA-256 in `make-appimage.sh`.
+
 The AppImage also contains a private rasterized `Keymasq` icon theme covering
 every GTK icon name in `packaging/appimage/assets/gui-icon-names.txt`, plus PNG
 input-picker artwork. AppImage GUI startup selects it from `$APPDIR`, while

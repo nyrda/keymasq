@@ -21,6 +21,7 @@ BROTWAY_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-run.sh"
 BROTWAY_DEBUGMENU_LAUNCHER = ROOT / "packaging/appimage/runtime/gtk4-brotway-debugmenu.sh"
 BROTWAY_TEST_RUNNER = ROOT / "scripts/test-appimage-brotway"
 GLIBC_COMPATIBILITY_CHECK = ROOT / "packaging/appimage/check-glibc-compatibility.sh"
+BROTWAY_GTK_ABI_CHECK = ROOT / "packaging/appimage/check-brotway-gtk-abi.sh"
 PYTHON_RUNTIME_PACKAGE_MANIFEST = APPIMAGE_ASSETS / "python-runtime-site-packages.txt"
 
 
@@ -216,6 +217,103 @@ def test_glibc_compatibility_check_accepts_and_rejects_symbol_version_sets(
     assert incompatible.returncode == 1
     assert "Brotway GTK is incompatible with the AppImage libc" in incompatible.stderr
     assert "missing GLIBC symbol versions:\n  GLIBC_2.38\n" in incompatible.stderr
+
+
+def test_appimage_checks_brotway_gtk_abi_after_bundling_dependencies() -> None:
+    builder = APPIMAGE_BUILDER.read_text(encoding="utf-8")
+
+    dependency_scan = 'bundle_elf_dependencies "$python_lib_dir"'
+    abi_check = "verify_brotway_gtk_abi\n"
+    packaging = '"$quick_sharun" --make-appimage'
+    assert builder.index(dependency_scan) < builder.rindex(abi_check)
+    assert builder.rindex(abi_check) < builder.index(packaging)
+    assert 'check-brotway-gtk-abi.sh" "$APPDIR"' in builder
+
+
+def _compile_shared_library(path: Path, source: str, *link: Path) -> None:
+    source_path = path.with_name(f"{path.name}.c")
+    source_path.write_text(source, encoding="utf-8")
+    subprocess.run(
+        [
+            "cc",
+            "-shared",
+            "-fPIC",
+            f"-Wl,-soname,{path.name}",
+            "-o",
+            str(path),
+            str(source_path),
+            *map(str, link),
+        ],
+        check=True,
+    )
+    source_path.unlink()
+
+
+def _run_brotway_gtk_abi_check(appdir: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(BROTWAY_GTK_ABI_CHECK), str(appdir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_brotway_gtk_abi_check_requires_overlay_exports_for_bundled_consumers(
+    tmp_path: Path,
+) -> None:
+    appdir = tmp_path / "AppDir"
+    lib = appdir / "lib"
+    (lib / "gtk4-brotway").mkdir(parents=True)
+    (lib / "girepository-1.0").mkdir()
+    stock_source = (
+        "void gtk_widget_show(void) {}\n"
+        "int gtk_enum_list_item_get_value(void) { return 1; }\n"
+        "int gtk_svg_widget_get_type(void) { return 2; }\n"
+        "int gtk_private_helper(void) { return 3; }\n"
+    )
+    _compile_shared_library(lib / "libgtk-4.so.1", stock_source)
+    _compile_shared_library(
+        lib / "libadwaita-1.so.0",
+        "int gtk_enum_list_item_get_value(void);\n"
+        "void gtk_widget_show(void);\n"
+        "int adw_init(void) { gtk_widget_show(); return gtk_enum_list_item_get_value(); }\n",
+        lib / "libgtk-4.so.1",
+    )
+    _compile_shared_library(
+        lib / "libunrelated.so.1",
+        "int gtk_private_helper(void);\nint unrelated(void) { return gtk_private_helper(); }\n",
+    )
+    (lib / "girepository-1.0/Gtk-4.0.typelib").write_bytes(
+        b"GOBJ\nMETADATA\x00libgtk-4.so.1\x00gtk_svg_widget_get_type\x00gtk_widget_show\x00"
+    )
+    (lib / "girepository-1.0/Gtk-3.0.typelib").write_bytes(
+        b"GOBJ\nMETADATA\x00libgtk-3.so.0\x00gtk_private_helper\x00"
+    )
+
+    _compile_shared_library(lib / "gtk4-brotway/libgtk-4.so.1", stock_source)
+    compatible = _run_brotway_gtk_abi_check(appdir)
+    assert compatible.returncode == 0, compatible.stderr
+    assert "2 consumers make 4 libgtk-4 symbol imports" in compatible.stdout
+
+    _compile_shared_library(
+        lib / "gtk4-brotway/libgtk-4.so.1", "void gtk_widget_show(void) {}\n"
+    )
+    incompatible = _run_brotway_gtk_abi_check(appdir)
+    assert incompatible.returncode == 1
+    assert (
+        "unresolved symbols per consumer:\n"
+        "  lib/libadwaita-1.so.0:\n"
+        "    gtk_enum_list_item_get_value\n"
+        "  lib/girepository-1.0/Gtk-4.0.typelib:\n"
+        "    gtk_svg_widget_get_type\n"
+    ) in incompatible.stderr
+    assert "gtk_private_helper" not in incompatible.stderr
+
+    (lib / "libadwaita-1.so.0").unlink()
+    (lib / "girepository-1.0/Gtk-4.0.typelib").unlink()
+    no_consumers = _run_brotway_gtk_abi_check(appdir)
+    assert no_consumers.returncode == 1
+    assert "no bundled consumer of libgtk-4.so.1" in no_consumers.stderr
 
 
 def test_appimage_builder_copies_only_the_python_runtime_closure() -> None:

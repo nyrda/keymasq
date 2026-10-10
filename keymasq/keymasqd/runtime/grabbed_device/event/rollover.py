@@ -649,6 +649,7 @@ async def _settle(
         else:
             await _dispatch(held, event_type, 0, trigger_runtime, deps=deps)
             held.tracked.clear()
+            held.withheld.clear()
             if chosen is not None:
                 await _end_tap(held)
         held.pressed = False
@@ -705,8 +706,7 @@ async def _press(
         # physical press and holds nothing, so taking over again skips it.
         await _dispatch(chosen, event_type, 1, trigger_runtime, deps=deps)
     chosen.fired = True
-    if donors:
-        _take_over_blocked_keys(chosen, donors, blocked_before)
+    _take_over_blocked_keys(chosen, donors, blocked_before)
     chosen.tracked |= _tracked_outputs(chosen.runtime) - tracked_before
     _take_over_outputs(chosen, donors)
     chosen.output = rollover_output(
@@ -773,54 +773,46 @@ def _take_over_blocked_keys(
     donors: list[HeldMember],
     blocked_before: dict[str, dict[int, int]],
 ) -> None:
-    """Undo a keyboard block's hold-back of a press that took over a donor's key.
+    """Record the presses a keyboard block withheld, taking over the donors' ones.
 
     The donors' releases never run, so the chosen press stands in for their
-    presses instead of adding one. A key already down stays down and the chosen
-    member's release lets it go. A key whose donor press the block withheld
-    keeps that one count, which the chosen member's release consumes.
+    presses instead of adding one. A donor press the block withheld passes its
+    count on, which the chosen member's release consumes. A key a donor holds
+    down stays down, and the chosen member's release lets it go. Counts of other
+    sources on the same key stay with them.
     """
-    state = chosen.runtime.state
-    down = _tracked_outputs(chosen.runtime).union(
-        *(_tracked_outputs(donor.runtime) for donor in donors)
-    )
-    for bucket, counts in state.blocked_output_keys.items():
+    runtime = chosen.runtime
+    down = _tracked_outputs(runtime).union(*(_tracked_outputs(donor.runtime) for donor in donors))
+    withheld: set[tuple[str, int]] = set()
+    for bucket, counts in runtime.state.blocked_output_keys.items():
         before = blocked_before.get(bucket, {})
         for code, count in list(counts.items()):
             previous = before.get(code, 0)
-            if count <= previous or _move_blocked_count(chosen, donors, bucket, code):
+            if count <= previous:
                 continue
-            key_down = ("key", bucket, code) in down
-            if not key_down and not previous:
-                continue
-            if previous:
-                counts[code] = previous
+            donor = next((donor for donor in donors if (bucket, code) in donor.withheld), None)
+            if donor is not None:
+                withheld.add((bucket, code))
+                if donor.runtime is runtime:
+                    _set_blocked_count(counts, code, previous)
+                else:
+                    donor_counts = donor.runtime.state.blocked_output_keys.get(bucket, {})
+                    _set_blocked_count(donor_counts, code, donor_counts.get(code, 0) - 1)
+            elif donors and ("key", bucket, code) in down:
+                _set_blocked_count(counts, code, previous)
+                outputs.track_key_state(runtime, None, code, 1, bucket=bucket)
             else:
-                del counts[code]
-            if key_down:
-                outputs.track_key_state(chosen.runtime, None, code, 1, bucket=bucket)
-
-
-def _move_blocked_count(
-    chosen: HeldMember,
-    donors: list[HeldMember],
-    bucket: str,
-    code: int,
-) -> bool:
-    """Drop a withheld donor press on another device, which the chosen press replaces."""
+                withheld.add((bucket, code))
     for donor in donors:
-        if donor.runtime is chosen.runtime:
-            continue
-        counts = donor.runtime.state.blocked_output_keys.get(bucket, {})
-        count = counts.get(code, 0)
-        if not count:
-            continue
-        if count > 1:
-            counts[code] = count - 1
-        else:
-            del counts[code]
-        return True
-    return False
+        donor.withheld.clear()
+    chosen.withheld = withheld
+
+
+def _set_blocked_count(counts: dict[int, int], code: int, count: int) -> None:
+    if count > 0:
+        counts[code] = count
+    else:
+        counts.pop(code, None)
 
 
 async def _end_tap(held: HeldMember) -> None:

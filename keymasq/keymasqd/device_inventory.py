@@ -11,6 +11,7 @@ from typing import Any, Protocol, cast
 from keymasq.common.coercion import coerce_str
 from keymasq.common.model.core import DeviceType
 from keymasq.common.types import JsonObject
+from keymasq.common.virtual_devices import is_keymasq_output_phys
 from keymasq.keymasqd.runtime.virtual_gamepads import (
     physical_gamepad_output_device,
     resolved_hardware_analog_inputs,
@@ -67,8 +68,7 @@ def uinput_device_path(uinput_dev: object | None) -> str | None:
 
 def is_virtual_input(device: object) -> bool:
     phys = str(getattr(device, "phys", "") or "").lower()
-    name = str(getattr(device, "name", "") or "").lower()
-    return phys == "py-evdev-uinput" or name.startswith("keymasq-")
+    return phys == "py-evdev-uinput" or is_keymasq_output_phys(phys)
 
 
 def _analog_calibration_metadata(device: object) -> JsonObject:

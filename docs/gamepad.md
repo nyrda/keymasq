@@ -13,10 +13,18 @@ profile automatically. Keymasq adds standard buttons (face, shoulders,
 start/select/guide, stick clicks, digital D-pad) when the controller reports
 them. The picker shows third-party uinput controllers and wheels when they
 report gamepad capabilities. Keymasq's own virtual output devices stay hidden.
+Keymasq recognizes them by their `phys` value, which starts with `keymasq/`
+(for example `keymasq/keyboard`, `keymasq/virtual-gamepad-1`, or
+`keymasq/passthrough/<hardware ID>/<interface>`). Devices created by other
+python-evdev tools, such as input-remapper, are ordinary devices to Keymasq: you
+can set them up, remap them, and Keymasq notices when they disappear and return.
 
 By default, when Keymasq grabs a physical gamepad, it creates a passthrough
 uinput clone for unmapped events. That clone reuses the source controller name
 and input IDs, so Steam and other tools see it as the same controller model.
+SDL and Steam identify a controller model by bus, vendor, product, version, and
+name, not by `phys`, so the `keymasq/` marker does not affect controller
+mappings.
 
 If the physical controller reports force feedback, the passthrough clone
 advertises the same force-feedback capability set and Keymasq proxies effect

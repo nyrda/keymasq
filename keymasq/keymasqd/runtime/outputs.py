@@ -18,6 +18,7 @@ from keymasq.common.virtual_devices import (
     DEFAULT_VIRTUAL_GAMEPADS,
     clamp_virtual_gamepad_count,
     is_virtual_gamepad_output_id,
+    keymasq_output_phys,
 )
 from keymasq.keymasqd.permission_hints import (
     is_uinput_permission_error,
@@ -312,6 +313,7 @@ def _create_synthetic_uinput(
     *,
     events: Mapping[int, Sequence[object]],
     name: str,
+    phys: str,
     vendor: int | None = None,
     product: int | None = None,
     version: int | None = None,
@@ -320,6 +322,7 @@ def _create_synthetic_uinput(
     kwargs: dict[str, object] = {
         "events": dict(events),
         "name": name,
+        "phys": phys,
     }
     if vendor is not None and product is not None:
         kwargs["vendor"] = vendor
@@ -354,6 +357,7 @@ def create_virtual_device(
         evdev_mod,
         events=virtual_device_caps(device, evdev_mod),
         name=gamepad_name,
+        phys=keymasq_output_phys(device.output_id),
         vendor=device.vendor_id if gamepad_vendor is None else gamepad_vendor,
         product=device.product_id if gamepad_product is None else gamepad_product,
         version=device.version,
@@ -444,6 +448,7 @@ def _initialize_global_uinputs(
         evdev_mod,
         events=keyboard_caps(evdev_mod),
         name=keyboard_name,
+        phys=keymasq_output_phys("keyboard"),
         vendor=keyboard_vendor,
         product=keyboard_product,
     )
@@ -484,6 +489,7 @@ def _initialize_global_uinputs(
         evdev_mod,
         events=mouse_caps,
         name=mouse_name,
+        phys=keymasq_output_phys("mouse"),
         vendor=mouse_vendor,
         product=mouse_product,
     )

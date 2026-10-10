@@ -26,3 +26,14 @@ def is_virtual_gamepad_output_id(output_id: str) -> bool:
     except ValueError:
         return False
     return 1 <= index <= MAX_VIRTUAL_GAMEPADS and output_id == virtual_gamepad_output_id(index)
+
+
+KEYMASQ_OUTPUT_PHYS_PREFIX = "keymasq/"
+
+
+def keymasq_output_phys(role: str) -> str:
+    return f"{KEYMASQ_OUTPUT_PHYS_PREFIX}{role}"
+
+
+def is_keymasq_output_phys(phys: object) -> bool:
+    return str(phys or "").strip().lower().startswith(KEYMASQ_OUTPUT_PHYS_PREFIX)

@@ -22,6 +22,7 @@ from keymasq.common.devices import (
 from keymasq.common.model.core import DeviceType
 from keymasq.common.native_sources import is_native_backend
 from keymasq.common.types import JsonObject
+from keymasq.common.virtual_devices import is_keymasq_output_phys
 from keymasq.keymasqd.input_sources import discovery as native_discovery
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.input_sources.types import Binding
@@ -81,7 +82,7 @@ class CachedDeviceInfo:
     phys: str
     device_type: DeviceType
     capabilities: set[str]
-    is_virtual: bool
+    is_keymasq_output: bool
 
 
 @dataclass
@@ -180,7 +181,7 @@ def _probe_cached_device_info(
             phys=str(getattr(device, "phys", "") or "").strip(),
             device_type=primary_input_class_fn(detect_input_classes_fn(device)),
             capabilities=_normalize_capability_names(capability_names_from_capabilities(caps)),
-            is_virtual=_is_keymasq_virtual_device(device),
+            is_keymasq_output=is_keymasq_output_phys(getattr(device, "phys", "")),
         )
     except OSError as exc:
         if is_permission_error(exc):
@@ -452,7 +453,7 @@ def _resolve_keymasq_paths(
         cached = cached_devices.get(path)
         if cached is None and not cached_devices:
             cached = _probe_cached_device(path, deps)
-        if cached is None or cached.is_virtual:
+        if cached is None or cached.is_keymasq_output:
             continue
         if cached.vendor_id != vendor_id or cached.product_id != product_id:
             continue
@@ -592,12 +593,6 @@ def _candidate_order_path(path: str, deps: DevicePathResolverDeps) -> str:
     except Exception:
         log.exception("Unexpected failure resolving stable path for candidate %s", path)
         return path
-
-
-def _is_keymasq_virtual_device(device: object) -> bool:
-    phys = str(getattr(device, "phys", "") or "").lower()
-    name = str(getattr(device, "name", "") or "").lower()
-    return phys == "py-evdev-uinput" or name.startswith("keymasq-")
 
 
 def _device_type(value: object) -> DeviceType:

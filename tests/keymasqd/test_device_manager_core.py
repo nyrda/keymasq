@@ -1998,11 +1998,6 @@ class TestDeviceManager:
         info = virtual_mouse.device.info
         logical_path = f"keymasq:{info.vendor:04x}:{info.product:04x}"
         monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [device_path])
-        monkeypatch.setattr(
-            device_path_resolver,
-            "_is_keymasq_virtual_device",
-            lambda _d: False,
-        )
         device_path_resolver.refresh_cached_devices_sync(
             device_paths_fn=device_manager._device_paths,
             device_input_fn=device_manager._device_input,
@@ -2044,11 +2039,6 @@ class TestDeviceManager:
         hardware_id = f"{info.vendor:04x}:{info.product:04x}"
         logical_path = f"keymasq:{hardware_id}"
         monkeypatch.setattr(device_manager.evdev, "list_devices", lambda: [device_path])
-        monkeypatch.setattr(
-            device_path_resolver,
-            "_is_keymasq_virtual_device",
-            lambda _d: False,
-        )
         device_path_resolver.refresh_cached_devices_sync(
             device_paths_fn=device_manager._device_paths,
             device_input_fn=device_manager._device_input,
@@ -2597,7 +2587,11 @@ class TestListDevices:
                     "/dev/input/event10": "keymasq-keyboard",
                     "/dev/input/event20": "keymasq-1234:5678",
                 }[path]
-                self.phys = "py-evdev-uinput" if path != "/dev/input/event0" else "usb-test"
+                self.phys = {
+                    "/dev/input/event0": "usb-test",
+                    "/dev/input/event10": "keymasq/keyboard",
+                    "/dev/input/event20": "keymasq/passthrough/1234:5678/kbd",
+                }[path]
                 self.uniq = ""
                 self.info = SimpleNamespace(vendor=0x1234, product=0x5678)
 
@@ -2984,45 +2978,6 @@ class TestListDevices:
         assert "stable path disappeared" in caplog.text
         assert "Unexpected failure reading live topology device /dev/input/event1" in caplog.text
         assert "RuntimeError: stable resolver invalid" in caplog.text
-
-    def test_scan_live_interfaces_skips_keymasq_virtual_outputs(self) -> None:
-        class _FakeDevice:
-            path = ""
-            info = SimpleNamespace(vendor=0x1234, product=0x5678)
-
-            def __init__(self, *, name: str, phys: str) -> None:
-                self.name = name
-                self.phys = phys
-
-            def capabilities(self) -> dict[int, list[int]]:
-                return {}
-
-        devices = {
-            "/dev/input/event0": _FakeDevice(name="Physical Pad", phys="usb-1"),
-            "/dev/input/event1": _FakeDevice(
-                name="Physical Pad",
-                phys="py-evdev-uinput",
-            ),
-        }
-        resolved_paths: list[str] = []
-
-        def resolve_stable_path(path: str) -> str:
-            resolved_paths.append(path)
-            return f"/dev/input/by-id/{path.rsplit('/', 1)[-1]}"
-
-        snapshot = topology.scan_live_interfaces_sync(
-            clear_device_path_cache_fn=lambda: None,
-            device_paths_fn=lambda: list(devices),
-            device_input_fn=lambda path: devices[path],
-            detect_input_classes_fn=lambda _device: ["gamepad"],
-            primary_input_class_fn=lambda _classes: DeviceType.GAMEPAD,
-            resolve_stable_path_fn=resolve_stable_path,
-            get_interface_id_fn=lambda _stable_path: "joystick",
-            log=device_manager.log,
-        )
-
-        assert list(snapshot) == ["/dev/input/by-id/event0"]
-        assert resolved_paths == ["/dev/input/event0"]
 
     def test_scan_live_interfaces_keeps_existing_node_the_daemon_cannot_open(self) -> None:
         # A udev change on a hidden source briefly resets the node to root:root

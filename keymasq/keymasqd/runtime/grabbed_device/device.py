@@ -21,6 +21,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType
+from keymasq.common.virtual_devices import keymasq_output_phys
 from keymasq.keymasqd.evdev_clock import set_evdev_clock_monotonic
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
@@ -86,6 +87,7 @@ DEFAULT_UINPUT_BUSTYPE = 0x0003
 class _PassthroughUInputKwargs(TypedDict):
     events: dict[int, Sequence[int]]
     name: str
+    phys: str
     vendor: NotRequired[int]
     product: NotRequired[int]
     version: NotRequired[int]
@@ -124,6 +126,11 @@ def _passthrough_name(
     if suffix:
         return f"Keymasq Gamepad Passthrough ({suffix})"
     return "Keymasq Gamepad Passthrough"
+
+
+def _passthrough_phys(hardware_id: str, interface_id: str) -> str:
+    parts = [part for part in (hardware_id.strip(), interface_id.strip()) if part]
+    return keymasq_output_phys("/".join(["passthrough", *parts]))
 
 
 def _int_u16(value: object) -> int | None:
@@ -209,6 +216,7 @@ def _passthrough_uinput_kwargs(
     *,
     caps: dict[int, Sequence[object]],
     passthrough_name: str,
+    passthrough_phys: str,
     passthrough_vendor: int | None,
     passthrough_product: int | None,
     passthrough_version: int | None,
@@ -221,6 +229,7 @@ def _passthrough_uinput_kwargs(
     kwargs: _PassthroughUInputKwargs = {
         "events": cast(dict[int, Sequence[int]], events),
         "name": passthrough_name,
+        "phys": passthrough_phys,
     }
     if passthrough_vendor is not None and passthrough_product is not None:
         kwargs["vendor"] = passthrough_vendor
@@ -725,6 +734,7 @@ class GrabbedDevice:
                 "passthrough",
                 test_name=f"passthrough-{self.hardware_id}",
             )
+            passthrough_phys = _passthrough_phys(self.hardware_id, self.interface_id)
             passthrough_vendor = _int_u16(passthrough_vendor)
             passthrough_product = _int_u16(passthrough_product)
             passthrough_version: int | None = None
@@ -761,6 +771,7 @@ class GrabbedDevice:
                         **_passthrough_uinput_kwargs(
                             caps=caps,
                             passthrough_name=passthrough_name,
+                            passthrough_phys=passthrough_phys,
                             passthrough_vendor=passthrough_vendor,
                             passthrough_product=passthrough_product,
                             passthrough_version=passthrough_version,

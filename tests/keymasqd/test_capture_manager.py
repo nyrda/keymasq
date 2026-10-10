@@ -30,6 +30,7 @@ class _FakeDevice:
     ) -> None:
         self.path = path
         self.name = "Fake Device"
+        self.phys = "usb-fake/input0"
         self.info = _FakeInfo(vendor, product)
         self._events = list(events)
         self.grabbed = False
@@ -741,7 +742,7 @@ def test_capture_manager_find_combo_devices_filters_inputs(monkeypatch) -> None:
 
     excluded = _FakeDevice("/dev/input/event1", 0x1234, 0x5678, [])
     virtual = _FakeDevice("/dev/input/event2", 0x1234, 0x5678, [])
-    virtual.name = "keymasq-virtual"
+    virtual.phys = "keymasq/passthrough/1234:5678/kbd"
     wrong_hwid = _FakeDevice("/dev/input/event3", 0x0001, 0x0002, [])
     no_keys = _FakeDevice("/dev/input/event4", 0x1234, 0x5678, [])
     no_keys.capabilities = lambda: {evdev.ecodes.EV_KEY: [999999]}

@@ -24,6 +24,7 @@ from keymasq.common.devices import (
 )
 from keymasq.common.native_sources import native_button_name
 from keymasq.common.types import JsonObject
+from keymasq.common.virtual_devices import is_keymasq_output_phys
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX, binding_for_path
 from keymasq.keymasqd.input_sources.types import Binding
 from keymasq.keymasqd.permission_hints import (
@@ -875,7 +876,7 @@ class CaptureManager:
                 continue
 
             try:
-                if device.name.startswith("keymasq-"):
+                if is_keymasq_output_phys(getattr(device, "phys", "")):
                     continue
                 if path_hardware_ids:
                     if not _hardware_id_for_path(device.path, path_hardware_ids):

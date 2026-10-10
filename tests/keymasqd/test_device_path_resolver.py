@@ -248,9 +248,9 @@ def test_cache_is_complete_only_while_every_device_probe_succeeded() -> None:
     assert not cache.is_complete()
 
 
-def test_keymasq_path_skips_virtual_devices() -> None:
+def test_keymasq_path_skips_keymasq_outputs() -> None:
     devices = {
-        "/dev/input/event1": _FakeDevice("/dev/input/event1", phys="py-evdev-uinput"),
+        "/dev/input/event1": _FakeDevice("/dev/input/event1", phys="keymasq/virtual-gamepad-1"),
         "/dev/input/event2": _FakeDevice("/dev/input/event2"),
     }
 
@@ -260,6 +260,17 @@ def test_keymasq_path_skips_virtual_devices() -> None:
     )
 
     assert [interface.path for interface in resolved] == ["/dev/input/event2"]
+
+
+def test_keymasq_path_resolves_foreign_python_evdev_device() -> None:
+    devices = {"/dev/input/event1": _FakeDevice("/dev/input/event1", phys="py-evdev-uinput")}
+
+    resolved = _resolve(
+        [{"id": "gamepad", "path": "keymasq:2dc8:3106", "type": "gamepad"}],
+        devices,
+    )
+
+    assert [interface.path for interface in resolved] == ["/dev/input/event1"]
 
 
 def test_type_and_capability_scores_choose_best_candidate() -> None:

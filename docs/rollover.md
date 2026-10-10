@@ -122,8 +122,9 @@ just as if the key went down or up. For example:
   it is active.
 - A member with tap mode, or a macro that runs once, starts again every time it
   takes over. That includes returning to it with **Return to held keys**. When
-  another member takes over during a tap, the tap ends right away, so its
-  release can't cut off the new member's output.
+  a member that sends the same key, button, or axis takes over during a tap,
+  or one whose mapping is not such a plain output, the tap ends right away, so
+  its release can't cut off the new member's output.
 - A toggle macro flips every time its member takes over, and keeps running when
   the member loses, because toggle macros ignore releases. With **Return to
   held keys**, a toggle macro that a held member started stops when that

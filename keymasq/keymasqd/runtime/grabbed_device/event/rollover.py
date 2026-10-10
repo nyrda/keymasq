@@ -10,6 +10,7 @@ an axis moves straight from one value to the next.
 import asyncio
 import bisect
 from collections.abc import Coroutine
+from dataclasses import replace
 
 from keymasq.common.model.profiles import RolloverMember
 from keymasq.common.rollover import ONE_SHOT_ACTION_TYPES
@@ -642,30 +643,35 @@ async def _settle(
     # chosen press overwrites it, so skipping the release avoids passing
     # through rest, for example on an axis.
     donors: list[HeldMember] = []
-    tap_ended = False
+    tap_released_output = False
     for held in losers:
         if chosen_output is not None and held.output == chosen_output:
             held.runtime.state.held_source_actions.pop(held.event_name, None)
             donors.append(held)
         else:
+            tap_output = _tap_output(held)
             await _dispatch(held, event_type, 0, trigger_runtime, deps=deps)
             held.tracked.clear()
             held.withheld.clear()
-            if chosen is not None and await _end_tap(held):
-                tap_ended = True
+            # A tap that could write the chosen output ends before that output
+            # is pressed, or is pressed again. An unknown output counts as shared.
+            shared = tap_output is not None and tap_output == chosen_output
+            unknown = chosen is not None and not chosen.pressed and chosen_output is None
+            if (shared or (unknown and tap_output is not None)) and await _end_tap(held):
+                tap_released_output |= shared
         held.pressed = False
 
     group_state.active = chosen
     if chosen is None:
         return
     if chosen.pressed:
-        if donors or tap_ended:
+        if donors or tap_released_output:
             await _reassert(
                 chosen,
                 donors,
                 event_type,
                 trigger_runtime,
-                rewrite=tap_ended,
+                rewrite=tap_released_output,
                 deps=deps,
             )
         return
@@ -714,7 +720,7 @@ async def _press(
         # physical press and holds nothing, so taking over again skips it.
         await _dispatch(chosen, event_type, 1, trigger_runtime, deps=deps)
     chosen.fired = True
-    _take_over_blocked_keys(chosen, donors, blocked_before)
+    _hand_over_withheld(chosen, donors, _new_blocked_presses(chosen.runtime, blocked_before))
     chosen.tracked |= _tracked_outputs(chosen.runtime) - tracked_before
     _take_over_outputs(chosen, donors)
     chosen.output = rollover_output(
@@ -740,7 +746,7 @@ async def _reassert(
     down unless ``rewrite`` says a losing tap may have released it, and pulse
     outputs must not fire again.
     """
-    _reassert_blocked_keys(chosen, donors)
+    _hand_over_withheld(chosen, donors, set(chosen.withheld))
     _take_over_outputs(chosen, donors)
     if chosen.output is None or (chosen.output[0] != "axis" and not rewrite):
         return
@@ -760,33 +766,6 @@ async def _reassert(
     _undo_blocked_presses(runtime, blocked_before)
     if runtime is not trigger_runtime:
         _flush_frame(runtime)
-
-
-def _reassert_blocked_keys(chosen: HeldMember, donors: list[HeldMember]) -> None:
-    """Settle the keyboard block's counts of an already pressed winner's donors.
-
-    A donor's withheld press loses its count, as its release never runs. A
-    winner whose own press was withheld takes over a key a donor holds down,
-    so its release lets the key go.
-    """
-    for donor in donors:
-        for bucket, code in donor.withheld:
-            counts = donor.runtime.state.blocked_output_keys.get(bucket, {})
-            _set_blocked_count(counts, code, counts.get(code, 0) - 1)
-    down = _tracked_outputs(chosen.runtime).union(
-        *(_tracked_outputs(donor.runtime) for donor in donors)
-    )
-    for bucket, code in list(chosen.withheld):
-        if ("key", bucket, code) not in down or not any(
-            (bucket, code) not in donor.withheld for donor in donors
-        ):
-            continue
-        counts = chosen.runtime.state.blocked_output_keys.get(bucket, {})
-        _set_blocked_count(counts, code, counts.get(code, 0) - 1)
-        chosen.withheld.discard((bucket, code))
-        outputs.track_key_state(chosen.runtime, None, code, 1, bucket=bucket)
-    for donor in donors:
-        donor.withheld.clear()
 
 
 def _take_over_outputs(chosen: HeldMember, donors: list[HeldMember]) -> None:
@@ -810,44 +789,62 @@ def _blocked_key_counts(runtime: GrabbedDeviceRuntime) -> dict[str, dict[int, in
     }
 
 
-def _take_over_blocked_keys(
+def _new_blocked_presses(
+    runtime: GrabbedDeviceRuntime, blocked_before: dict[str, dict[int, int]]
+) -> set[tuple[str, int]]:
+    return {
+        (bucket, code)
+        for bucket, counts in runtime.state.blocked_output_keys.items()
+        for code, count in counts.items()
+        if count > blocked_before.get(bucket, {}).get(code, 0)
+    }
+
+
+def _hand_over_withheld(
     chosen: HeldMember,
     donors: list[HeldMember],
-    blocked_before: dict[str, dict[int, int]],
+    chosen_withheld: set[tuple[str, int]],
 ) -> None:
-    """Record the presses a keyboard block withheld, taking over the donors' ones.
+    """Keep one keyboard block count per handed-over key, owned by the chosen member.
 
-    The donors' releases never run, so the chosen press stands in for their
-    presses instead of adding one. A donor press the block withheld passes its
-    count on, which the chosen member's release consumes. A key a donor holds
-    down stays down, and the chosen member's release lets it go. Counts of other
-    sources on the same key stay with them.
+    ``chosen_withheld`` are the chosen member's presses that a macro's keyboard
+    block withheld. The donors' releases never run, so each withheld donor press
+    loses its count. A chosen press that was withheld while a donor's press went
+    out takes over the key that is down, so the chosen release lets it go.
+    Counts of other sources on the same key stay with them.
     """
-    runtime = chosen.runtime
-    down = _tracked_outputs(runtime).union(*(_tracked_outputs(donor.runtime) for donor in donors))
-    withheld: set[tuple[str, int]] = set()
-    for bucket, counts in runtime.state.blocked_output_keys.items():
-        before = blocked_before.get(bucket, {})
-        for code, count in list(counts.items()):
-            previous = before.get(code, 0)
-            if count <= previous:
-                continue
-            donor = next((donor for donor in donors if (bucket, code) in donor.withheld), None)
-            if donor is not None:
-                withheld.add((bucket, code))
-                if donor.runtime is runtime:
-                    _set_blocked_count(counts, code, previous)
-                else:
-                    donor_counts = donor.runtime.state.blocked_output_keys.get(bucket, {})
-                    _set_blocked_count(donor_counts, code, donor_counts.get(code, 0) - 1)
-            elif donors and ("key", bucket, code) in down:
-                _set_blocked_count(counts, code, previous)
-                outputs.track_key_state(runtime, None, code, 1, bucket=bucket)
-            else:
-                withheld.add((bucket, code))
+    down = _tracked_outputs(chosen.runtime).union(
+        *(_tracked_outputs(donor.runtime) for donor in donors)
+    )
+    went_out = {
+        entry
+        for entry in chosen_withheld
+        if any(entry not in donor.withheld for donor in donors) and ("key", *entry) in down
+    }
     for donor in donors:
+        for bucket, code in donor.withheld:
+            _drop_blocked_count(donor.runtime, bucket, code)
         donor.withheld.clear()
-    chosen.withheld = withheld
+    for bucket, code in went_out:
+        _drop_blocked_count(chosen.runtime, bucket, code)
+        outputs.track_key_state(chosen.runtime, None, code, 1, bucket=bucket)
+    chosen.withheld = chosen_withheld - went_out
+
+
+def _drop_blocked_count(runtime: GrabbedDeviceRuntime, bucket: str, code: int) -> None:
+    counts = runtime.state.blocked_output_keys.get(bucket, {})
+    _set_blocked_count(counts, code, counts.get(code, 0) - 1)
+
+
+def _tap_output(held: HeldMember) -> RolloverOutput | None:
+    """The plain output a member's tap writes, or None when it has no tap."""
+    action = held.runtime.state.held_source_actions.get(held.event_name)
+    if action is None or not action.tap_enabled:
+        return None
+    return rollover_output(
+        replace(action, tap_enabled=False),
+        passthrough=passthrough_output(held.runtime, held.event_code),
+    )
 
 
 def _undo_blocked_presses(

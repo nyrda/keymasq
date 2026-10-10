@@ -89,6 +89,12 @@ def test_install_hooks_do_not_replay_add_rules(path: str) -> None:
     assert not [line for line in triggers if "--action=add" in line]
 
 
+def test_source_install_removes_the_pre_rename_helper_wrapper() -> None:
+    lines = (ROOT / "scripts/install-systemd.sh").read_text().splitlines()
+    assert "rm -f /usr/local/bin/keymasq-record-wrapper" in lines
+    assert not [line for line in lines if "keymasq.record" in line]
+
+
 def test_hardware_hotplug_udev_rule_only_hides_joystick_event_nodes() -> None:
     rule_path = Path(__file__).parents[2] / "udev" / "99-keymasq-hide-grabbed.rules"
     lines = rule_path.read_text(encoding="utf-8").splitlines()

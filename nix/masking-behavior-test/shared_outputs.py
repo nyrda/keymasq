@@ -23,7 +23,6 @@ def setup():
         lambda: control.devices(require_all=False),
         lambda found: set(found) == set(control.NAMES),
     )
-    # devtmpfs creates the nodes root-only before udev applies the fixture's group rule.
     wait_for(
         "udev access to both USB attachments",
         lambda: [

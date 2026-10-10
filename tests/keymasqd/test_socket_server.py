@@ -938,6 +938,31 @@ class TestSocketServer:
         assert response.request_id == "late"
         assert handler_calls == []
 
+    @pytest.mark.parametrize(
+        ("error", "traceback"),
+        [(ValueError("Select an existing hardware mask"), False), (RuntimeError("boom"), True)],
+    )
+    async def test_command_errors_log_tracebacks_only_for_unexpected_failures(
+        self, temp_socket_dir, caplog, error, traceback
+    ):
+        async def handler(_command, _data, _client):
+            raise error
+
+        server = SocketServer(str(paths.SOCKET_PATH), handler)
+        with caplog.at_level(logging.WARNING, logger="keymasqd.socket"):
+            response = await server._process_command(
+                Command(command=CommandType.RESUME_HARDWARE, data={}, request_id="r"),
+                ClientContext(connection_id=1, pid=2, uid=3, gid=4),
+            )
+
+        assert response.status == "error"
+        assert response.error == str(error)
+        [record] = caplog.records
+        assert (record.exc_info is not None) == traceback
+        if not traceback:
+            assert record.levelno == logging.WARNING
+            assert str(error) in record.getMessage()
+
     async def test_server_stop_clears_single_owner_state_for_restart(self, temp_socket_dir):
         server = SocketServer(
             str(paths.SOCKET_PATH),

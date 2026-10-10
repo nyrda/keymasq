@@ -432,7 +432,10 @@ class SocketServer:
                 request_id=cmd.request_id,
             )
         except Exception as e:
-            log.exception("Command error")
+            if isinstance(e, ValueError):
+                log.warning("Command %s rejected: %s", cmd.command.value, e)
+            else:
+                log.exception("Command error")
             return Response(
                 status="error",
                 error=str(e),

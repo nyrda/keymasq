@@ -196,6 +196,10 @@ the pending hardware changes. The daemon continues normally when logind or the
 system bus is unavailable at startup. After a successful connection, it
 reconnects if logind or the system bus restarts.
 
+A suspend that bypasses logind, such as `rtcwake -m mem`, skips that cleanup.
+Readers then carry on after wake, and a reader that failed across the suspend
+is grabbed again once its device reports, without a profile change.
+
 Shared virtual output devices live until daemon shutdown. Suspending, restoring
 hardware masks, or disconnecting the session can release physical readers and
 held input state without closing those shared outputs. After wake, the topology

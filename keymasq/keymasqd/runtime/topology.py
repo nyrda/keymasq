@@ -3,6 +3,7 @@ import contextlib
 import logging
 import os
 import stat
+import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -23,6 +24,8 @@ type DetectInputClassesFn = Callable[[Any], list[str]]
 type PrimaryInputClassFn = Callable[[Any], Any]
 
 log = logging.getLogger("keymasqd.devices")
+REGRAB_RETRY_S = 1.0
+REGRAB_RETRY_MAX_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,14 @@ class LiveInterfaceInfo:
     phys: str = ""
     device_type: str = ""
     capabilities: tuple[str, ...] = field(default_factory=tuple)
+    instance: str = ""
+
+
+@dataclass
+class ReaderRegrab:
+    due: float | None
+    delay: float
+    announced: float | None = None
 
 
 @dataclass
@@ -48,6 +59,7 @@ class TopologyRuntimeState:
     reconciled_snapshot: dict[str, LiveInterfaceInfo] = field(default_factory=dict)
     wake_reconcile_pending: bool = False
     scanned_fingerprint: object = None
+    reader_regrabs: dict[str, ReaderRegrab] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -192,7 +204,28 @@ async def topology_watch_loop(
                     continue
                 manager.topology_state.wake_reconcile_pending = False
                 manager.topology_state.live_snapshot = dict(snapshot)
+                mark_reader_regrabs_announced(state, list(state.reader_regrabs))
                 log.info("Reconciled physical input devices after wake")
+                continue
+
+            regrab_ids = due_reader_regrabs(state)
+            if regrab_ids:
+                task = manager.topology_state.reconcile_task
+                if task is not None and not task.done():
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                try:
+                    await reconcile_topology(
+                        manager, snapshot, log=log, deps=deps, reannounce=regrab_ids
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Reconnecting inputs after a reader failure failed; retrying")
+                    continue
+                mark_reader_regrabs_announced(state, regrab_ids)
+                manager.topology_state.live_snapshot = dict(snapshot)
                 continue
 
             if snapshot != manager.topology_state.live_snapshot:
@@ -217,6 +250,44 @@ async def topology_watch_loop(
                 )
     except asyncio.CancelledError:
         raise
+
+
+def request_reader_regrab(state: TopologyRuntimeState, hardware_id: str) -> None:
+    """Announce hardware again after a reader failure that discovery may not see."""
+    now = time.monotonic()
+    regrab = state.reader_regrabs.get(hardware_id)
+    if regrab is not None and regrab.due is not None:
+        return
+    if regrab is None or regrab.announced is None or now - regrab.announced >= REGRAB_RETRY_MAX_S:
+        state.reader_regrabs[hardware_id] = ReaderRegrab(due=now, delay=REGRAB_RETRY_S)
+        return
+    regrab.due = regrab.announced + regrab.delay
+    regrab.delay = min(regrab.delay * 2, REGRAB_RETRY_MAX_S)
+
+
+def due_reader_regrabs(state: TopologyRuntimeState) -> list[str]:
+    now = time.monotonic()
+    for hardware_id, regrab in list(state.reader_regrabs.items()):
+        if (
+            regrab.due is None
+            and regrab.announced is not None
+            and now - regrab.announced >= REGRAB_RETRY_MAX_S
+        ):
+            del state.reader_regrabs[hardware_id]
+    return sorted(
+        hardware_id
+        for hardware_id, regrab in state.reader_regrabs.items()
+        if regrab.due is not None and regrab.due <= now
+    )
+
+
+def mark_reader_regrabs_announced(state: TopologyRuntimeState, hardware_ids: list[str]) -> None:
+    now = time.monotonic()
+    for hardware_id in hardware_ids:
+        regrab = state.reader_regrabs.get(hardware_id)
+        if regrab is not None and regrab.due is not None:
+            regrab.due = None
+            regrab.announced = now
 
 
 def schedule_topology_reconcile(
@@ -254,6 +325,7 @@ async def reconcile_topology(
     log: logging.Logger,
     deps: TopologyRuntimeDeps,
     validate_readers: bool = False,
+    reannounce: Iterable[str] = (),
 ) -> None:
     async with manager._op_lock:
         previous = dict(manager.topology_state.reconciled_snapshot)
@@ -269,13 +341,16 @@ async def reconcile_topology(
         await reconcile_topology_unlocked(
             manager, snapshot, deps=deps, validate_readers=validate_readers
         )
-        if validate_readers:
-            # A device can return at the same path while its old fd is dead.
-            # Reapply desired ordinary hardware even if discovery is unchanged.
-            # Masked hardware is reapplied by its restoration coordinator.
+        # A device can return at the same path while its old fd is dead.
+        # Reapply desired ordinary hardware even if discovery is unchanged.
+        # Masked hardware is reapplied by its restoration coordinator.
+        reapplied = (
+            desired_hardware_ids if validate_readers else desired_hardware_ids & set(reannounce)
+        )
+        if reapplied:
             masked = manager.mask_registry.hardware_paths
             for info in snapshot.values():
-                if live_interface_matches_desired(info, desired_hardware_ids - masked.keys()):
+                if live_interface_matches_desired(info, reapplied - masked.keys()):
                     event = (manager._command_type.DEVICE_CONNECTED, live_interface_payload(info))
                     if event not in events:
                         events.append(event)
@@ -537,11 +612,14 @@ def live_interface_is_hidden_source_churn(
 
 
 def live_interface_changed(previous_info: Any, current_info: Any) -> bool:
+    previous_instance = str(getattr(previous_info, "instance", "") or "")
+    current_instance = str(getattr(current_info, "instance", "") or "")
     return (
         normalize_hardware_id(previous_info.hardware_id)
         != normalize_hardware_id(current_info.hardware_id)
         or str(previous_info.path) != str(current_info.path)
         or str(previous_info.interface_id) != str(current_info.interface_id)
+        or bool(previous_instance and current_instance and previous_instance != current_instance)
     )
 
 
@@ -656,6 +734,7 @@ def scan_live_interfaces_sync(
                 phys=device_info.phys,
                 device_type=device_info.device_type.value,
                 capabilities=tuple(sorted(device_info.capabilities)),
+                instance=input_instance(path),
             )
         except OSError as exc:
             log.debug("Could not read live topology device %s: %s", path, exc)
@@ -710,6 +789,17 @@ def input_topology_fingerprint(dev_root: str = "/dev", sys_root: str = "/sys") -
         except OSError as exc:
             entries.append((directory, exc.errno))
     return tuple(sorted(entries, key=lambda entry: str(entry[0])))
+
+
+def input_instance(path: str, sys_root: str = "/sys") -> str:
+    """Name the kernel registration behind an event node, which a fast replug renews."""
+    if not path.startswith("/dev/input/"):
+        return ""
+    try:
+        link = os.readlink(f"{sys_root}/class/input/{os.path.basename(path)}/device")
+        return os.path.basename(link)
+    except OSError:
+        return ""
 
 
 def input_node_exists(path: str) -> bool:

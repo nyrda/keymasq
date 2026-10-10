@@ -14,7 +14,7 @@ from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.input_sources.discovery import SOURCE_PREFIX
 from keymasq.keymasqd.masking_registry import MaskRegistry
-from keymasq.keymasqd.runtime import adapters, device_path_resolver
+from keymasq.keymasqd.runtime import adapters, device_path_resolver, topology
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.combo.state import ComboRuntimeDeps
 from keymasq.keymasqd.runtime.grab.outputs import ensure_global_outputs
@@ -172,6 +172,8 @@ def build_runtime_callbacks(
             disconnected_hardware_id,
             disconnected_path,
         )
+        if disconnected_hardware_id in manager.grab_state.desired_grabs:
+            topology.request_reader_regrab(manager.topology_state, disconnected_hardware_id)
 
     return RuntimeCallbacks(
         combo_deps=combo_deps,

@@ -64,7 +64,8 @@ that the core runtime classes still work together:
 - emergency reset
 - capture, combo capture, recording save, and playback
 - macro recording refused when `/etc/keymasq/security.toml` disables it
-- session restart, daemon restart, and secondary device hotplug/replug
+- session restart, daemon restart, secondary device hotplug/replug, and a fast
+  replug that reuses the same `/dev/input/eventN` node with no reload
 - empty effective, permitted, inheritable, bounding, and ambient capability sets
   before and after every scenario
 - source hiding, forwarding, and force-feedback upload/play/stop/erase through

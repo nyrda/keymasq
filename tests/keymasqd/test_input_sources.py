@@ -2,6 +2,7 @@ import asyncio
 import math
 import os
 import struct
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +13,7 @@ import pytest
 
 from keymasq.common.model.core import DeviceType
 from keymasq.keymasqd.input_sources import discovery
+from keymasq.keymasqd.input_sources import manager as manager_module
 from keymasq.keymasqd.input_sources.drivers.eightbitdo_ultimate2 import Ultimate2Driver
 from keymasq.keymasqd.input_sources.evdev_adapter import (
     NativeInputDevice,
@@ -556,6 +558,41 @@ async def test_valid_sample_timeout_wakes_existing_and_new_subscribers():
         async with manager.subscribe(binding()) as late:
             with pytest.raises(OSError, match="Native input unavailable"):
                 await asyncio.wait_for(late.read(), 0.1)
+
+
+@pytest.mark.parametrize(
+    ("blocked_s", "slept_ns"),
+    [(0.0, 0), (0.1, 30_000_000_000), (0.4, 0)],
+    ids=["silent", "suspend", "stall"],
+)
+async def test_valid_sample_timeout_ignores_time_the_daemon_could_not_observe(
+    monkeypatch, blocked_s, slept_ns
+):
+    packets: asyncio.Queue[bytes] = asyncio.Queue()
+    suspended = [0]
+
+    async def reader(_path: str) -> AsyncGenerator[bytes]:
+        while True:
+            yield await packets.get()
+
+    monkeypatch.setattr(manager_module, "VALID_SAMPLE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(manager_module.clock, "suspended_ns", lambda: suspended[0])
+    async with SourceManager(reader).subscribe(binding()) as subscriber:
+        await packets.put(CAPTURED_REPORT)
+        await asyncio.wait_for(subscriber.read(), 1)
+        time.sleep(blocked_s)
+        suspended[0] += slept_ns
+        if blocked_s:
+            packets.put_nowait(CAPTURED_REPORT[:12])
+        await asyncio.sleep(0.02 if blocked_s else 0.1)
+        await packets.put(CAPTURED_REPORT)
+        if blocked_s:
+            assert (await asyncio.wait_for(subscriber.read(), 1)).values
+        else:
+            with pytest.raises(
+                OSError, match="Native input unavailable: no valid input report for 0.05 s"
+            ):
+                await asyncio.wait_for(subscriber.read(), 1)
 
 
 @pytest.mark.parametrize("selection", ["event", "by-id", "by-path"])

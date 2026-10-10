@@ -117,7 +117,7 @@ from runner import _scenario_key, selected_scenarios
 from scenarios import SCENARIOS
 
 keys = [_scenario_key(scenario.name) for scenario in SCENARIOS]
-assert len(SCENARIOS) == 66
+assert len(SCENARIOS) == 67
 assert len(keys) == len(set(keys))
 assert all(key and key.replace('-', '').isalnum() for key in keys)
 assert _scenario_key('simple 1->1 remap') == 'simple-1-1-remap'
@@ -164,7 +164,7 @@ def test_runner_lists_all_registered_scenarios_without_starting_context() -> Non
 
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 66
+    assert len(lines) == 67
     assert "superkey-profile-handoff\tsuperkey profile handoff" in lines
     assert "source-hiding\tsource hiding" in lines
     assert "rollover-groups\trollover groups" in lines

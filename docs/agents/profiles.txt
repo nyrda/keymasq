@@ -126,17 +126,15 @@ jitter = 0.3
 tolerance = 2
 max_duration_ms = 3000
 
-# play saved macro by name
+# play saved macro by name; only these playback fields are per mapping.
+# loop_mode, loop_count, loop_stop_behavior, pause_timeout_s,
+# block_mouse_movement, and block_keyboard belong to the saved macro and are
+# ignored on mappings (see agents/macros.txt)
 action = "macro"
 target = "macro_name"
 replay_mouse_movement = true
 replay_mouse_clicks = true
 speed = 1.0
-loop_mode = "none" # none, count, hold, toggle
-loop_count = 1
-loop_stop_behavior = "finish_run" # finish_run or cancel_run
-block_mouse_movement = false
-block_keyboard = false
 
 # control profiles
 action = "profile_toggle" # or profile_enable, profile_disable
@@ -419,9 +417,10 @@ Bind a saved macro:
 [devices."1234:5678".mapping.btn_extra]
 action = "macro"
 target = "double_click_10ms"
-loop_mode = "none"
 speed = 1.0
 ```
+
+Loop, release, pause, and input-blocking settings come from the saved macro.
 
 Bind a saved superkey:
 

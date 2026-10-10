@@ -129,7 +129,6 @@ events = [
 [combos.action]
 action = "macro"
 target = "double_click_10ms"
-loop_mode = "none"
 ```
 
 Two-step sequence example: Alt+R, then 1 within 600 ms, moves the cursor.

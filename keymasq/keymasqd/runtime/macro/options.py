@@ -128,6 +128,13 @@ class MacroPlaybackOptions:
     load_stored_macro: bool = True
 
 
+MACRO_DEFINITION_OPTION_NAMES: tuple[str, ...] = tuple(
+    option_field.name
+    for option_field in fields(MacroPlaybackOptions)
+    if option_field.metadata.get(_RUNTIME_DEFAULT_METADATA, False)
+)
+
+
 def macro_runtime_options(
     payload: Mapping[str, object],
     *,

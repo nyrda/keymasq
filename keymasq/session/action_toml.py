@@ -8,7 +8,6 @@ from keymasq.common.model.actions import (
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
     MappingAction,
-    normalize_macro_loop_stop_behavior,
     normalize_macro_recording_slot,
     normalize_mpris_command,
     normalize_natural_mouse_move_curve,
@@ -37,6 +36,14 @@ PROFILE_REF_ACTION_TYPES: tuple[ActionType, ...] = (
     ActionType.PROFILE_ENABLE,
     ActionType.PROFILE_DISABLE,
     ActionType.PROFILE_TOGGLE,
+)
+_SAVED_MACRO_PLAYBACK_KEYS: tuple[str, ...] = (
+    "loop_mode",
+    "loop_count",
+    "loop_stop_behavior",
+    "pause_timeout_s",
+    "block_mouse_movement",
+    "block_keyboard",
 )
 
 
@@ -130,21 +137,23 @@ def mapping_action_from_toml(
         )
 
     if action_type == ActionType.MACRO:
+        macro_name = str(action_data.get("target", "") or "") or str(
+            action_data.get("macro_name", "") or ""
+        )
+        ignored_keys = [key for key in _SAVED_MACRO_PLAYBACK_KEYS if key in action_data]
+        if ignored_keys and logger is not None:
+            logger.debug(
+                "Ignoring %s on macro action '%s' in %s; the saved macro owns these settings",
+                ", ".join(ignored_keys),
+                macro_name,
+                rapidfire_warning_context,
+            )
         return MappingAction(
             action_type=ActionType.MACRO,
-            macro_name=str(action_data.get("target", "") or "")
-            or str(action_data.get("macro_name", "") or ""),
+            macro_name=macro_name,
             macro_replay_mouse_movement=bool(action_data.get("replay_mouse_movement", True)),
             macro_replay_mouse_clicks=bool(action_data.get("replay_mouse_clicks", True)),
             macro_speed=coerce_float(action_data.get("speed"), 1.0),
-            macro_pause_timeout_s=max(0.0, coerce_float(action_data.get("pause_timeout_s"), 0.0)),
-            macro_loop_mode=str(action_data.get("loop_mode", "none") or "none"),
-            macro_loop_count=coerce_int(action_data.get("loop_count"), 1),
-            macro_loop_stop_behavior=normalize_macro_loop_stop_behavior(
-                action_data.get("loop_stop_behavior")
-            ),
-            macro_block_mouse_movement=bool(action_data.get("block_mouse_movement", False)),
-            macro_block_keyboard=bool(action_data.get("block_keyboard", False)),
         )
 
     if action_type in MACRO_CONTROL_ACTION_TYPES:
@@ -297,12 +306,6 @@ def mapping_action_to_toml(
         action_data["replay_mouse_movement"] = action.macro_replay_mouse_movement
         action_data["replay_mouse_clicks"] = action.macro_replay_mouse_clicks
         action_data["speed"] = action.macro_speed
-        action_data["loop_mode"] = action.macro_loop_mode
-        action_data["loop_count"] = int(action.macro_loop_count)
-        action_data["loop_stop_behavior"] = action.macro_loop_stop_behavior
-        action_data["pause_timeout_s"] = action.macro_pause_timeout_s
-        action_data["block_mouse_movement"] = bool(action.macro_block_mouse_movement)
-        action_data["block_keyboard"] = bool(action.macro_block_keyboard)
     if action.action_type in MACRO_RECORDING_SLOT_ACTION_TYPES and action.macro_recording_slot:
         action_data["recording_slot"] = int(action.macro_recording_slot)
     if action.action_type in (ActionType.MOUSE_MOVE_REL, ActionType.MOUSE_MOVE_ABS):

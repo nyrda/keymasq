@@ -197,7 +197,7 @@ def test_mapping_action_toml_round_trips_profile_ref_actions(
     assert emitted["profile_name"] == "Gaming"
 
 
-def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
+def test_macro_action_toml_keeps_only_per_mapping_playback_fields() -> None:
     macro_data = mapping_action_to_toml(
         MappingAction(
             action_type=ActionType.MACRO,
@@ -214,16 +214,42 @@ def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
         ),
         rapidfire_warning_context="test config",
     )
-    macro = _parse_mapping_action_toml(macro_data)
 
-    assert macro.macro_name == "launch"
-    assert macro.macro_speed == 1.5
-    assert macro.macro_loop_count == 3
-    assert macro.macro_loop_stop_behavior == "cancel_run"
-    assert macro.macro_pause_timeout_s == 120
-    assert macro.macro_block_mouse_movement is True
-    assert macro.macro_block_keyboard is True
+    assert macro_data == {
+        "action": "macro",
+        "target": "launch",
+        "macro_name": "launch",
+        "replay_mouse_movement": False,
+        "replay_mouse_clicks": True,
+        "speed": 1.5,
+    }
 
+
+def test_macro_action_toml_ignores_legacy_saved_macro_settings() -> None:
+    macro = _parse_mapping_action_toml(
+        {
+            "action": "macro",
+            "target": "launch",
+            "replay_mouse_movement": False,
+            "speed": 1.5,
+            "loop_mode": "count",
+            "loop_count": 3,
+            "loop_stop_behavior": "cancel_run",
+            "pause_timeout_s": 120,
+            "block_mouse_movement": True,
+            "block_keyboard": True,
+        }
+    )
+
+    assert macro == MappingAction(
+        action_type=ActionType.MACRO,
+        macro_name="launch",
+        macro_replay_mouse_movement=False,
+        macro_speed=1.5,
+    )
+
+
+def test_mapping_action_toml_helper_round_trips_shared_fields() -> None:
     axis_data = mapping_action_to_toml(
         MappingAction(
             action_type=ActionType.GAMEPAD_AXIS,

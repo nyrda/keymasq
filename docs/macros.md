@@ -342,8 +342,20 @@ these playback options in the mapping dialog:
 - **Speed multiplier** — make the macro faster or slower than it was recorded.
 - **Replay mouse movement** — on or off.
 - **Replay mouse clicks** — on or off.
-- **Block mouse movement** — temporarily prevent mouse movement during
-  playback (requires a grabbed mouse device).
+
+These three options belong to the mapping, so two keys can play the same macro
+at different speeds. Everything else is a setting of the saved macro and is
+edited in the macro editor: loop mode and count, **Finish current run before
+stopping**, **Pause on release** and its discard timeout, **Block physical
+mouse movement**, and **Block physical keyboard**. Every key, superkey slot, combo, and
+analog threshold that plays the macro uses these saved settings, and saving the
+macro updates all of them. Mappings cannot override them.
+
+If Keymasq cannot read the saved macro's settings when a profile is applied,
+the mapping uses the default settings (play once, no input blocking) instead,
+until the macro is saved again or the profile is reapplied. Settings from older
+profile files are never used. The mapping still plays the macro's events only
+if the macro can be read when it is triggered.
 
 ![Mapping dialog for picking a macro and setting speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
 
@@ -360,9 +372,9 @@ One straightforward setup:
 3. Select the click and set its hold duration. The editor creates the press and
    release together.
 4. If needed, [adjust the timing](macro-editor.md#adjust-timing) between clicks.
-5. Save the macro with a clear name such as `auto_left_click`.
-6. Go to the **Device** tab and bind a key or mouse button to **Play Macro**.
-7. Set the loop mode to **While Held** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
+5. Set **Loop** to **While Held** if you want clicking only while the trigger is held, or **Toggle** if you want one press to start and another to stop.
+6. Save the macro with a clear name such as `auto_left_click`.
+7. Go to the **Device** tab and bind a key or mouse button to **Play Macro**.
 
 Use this approach when you want:
 
@@ -377,7 +389,8 @@ For a simpler autoclicker, map a mouse button action and enable
 ### Loop modes
 
 By default a macro plays once and stops. Loop modes let you repeat it
-automatically.
+automatically. The loop mode and the release options below are saved with the
+macro and apply to every trigger that plays it.
 
 | Mode | Behavior |
 |---|---|

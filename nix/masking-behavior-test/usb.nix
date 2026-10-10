@@ -43,7 +43,19 @@
         )
 
     def usb_check(command):
-        return machine.succeed(usb_command(command), timeout=120)
+        output = machine.succeed(usb_command(command), timeout=120)
+        if output:
+            print(output)
+        return output
+
+    def usb_cli(command, names="mask-usb-target,mask-usb-bystander"):
+        return machine.succeed(
+            user(
+                f"env KEYMASQ_MASK_TEST_NAMES={names} "
+                "${testPython}/bin/python ${./cli.py} " + command
+            ),
+            timeout=180,
+        )
 
     def usb_import(index):
         exporter.wait_until_succeeds(
@@ -53,7 +65,9 @@
         # USB/IP imports can race exporter teardown. Retry transport setup;
         # enumeration and masking assertions below must then pass independently.
         machine.wait_until_succeeds(
-            f"usbip attach --remote exporter --busid usbip-vudc.{index}", timeout=15
+            "date +%s.%N > /tmp/keymasq-usb-hotplug-at && "
+            f"usbip attach --remote exporter --busid usbip-vudc.{index}",
+            timeout=15,
         )
         machine.succeed("udevadm settle")
 
@@ -66,7 +80,9 @@
         rows = (line.split() for line in status.splitlines()[1:])
         busid = next(row[-1] for row in rows if int(row[1]) == port)
         assert re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", busid), status
-        machine.succeed(f"usbip detach --port {port}")
+        machine.succeed(
+            f"date +%s.%N > /tmp/keymasq-usb-hotplug-at && usbip detach --port {port}"
+        )
         # detach only queues a kernel disconnect. Reusing the port before the
         # USB device disappears can send old URBs into the next attachment.
         machine.wait_until_succeeds(f"test ! -e /sys/bus/usb/devices/{busid}", timeout=15)
@@ -79,6 +95,8 @@
         usb_attach(0)
         usb_attach(1)
         usb_check("baseline")
+        with subtest("keymasq masking enable --yes masks a USB device selected by its port"):
+            usb_cli("usb-yes")
         with subtest("USB disconnect revokes evdev, hidraw, and raw USB handles"):
             machine.succeed(usb_command("hold-physical") + " > /tmp/usb-physical-holder.log 2>&1 &")
             machine.wait_until_succeeds("test -e /tmp/keymasq-usb-physical-held")
@@ -124,6 +142,7 @@
                     "${testPython}/bin/python ${./shared_outputs.py} " + command
                 )
             usb_import(3)
+            usb_cli("model", "mask-usb-composite,mask-usb-bystander")
             machine.succeed(shared("setup"), timeout=120)
             machine.succeed(shared("hold") + " > /tmp/usb-shared-output.log 2>&1 &")
             machine.wait_until_succeeds("test -e /tmp/keymasq-shared-held", timeout=45)
@@ -134,5 +153,11 @@
             machine.succeed(shared("cleanup"), timeout=120)
             usb_detach()
             usb_detach(1)
+        with subtest("a newly plugged unmasked USB device is discovered and remapped promptly"):
+            usb_check("discovery-setup")
+            usb_import(2)
+            usb_check("discovered")
+            usb_check("discovery-cleanup")
+            usb_detach()
   '';
 }

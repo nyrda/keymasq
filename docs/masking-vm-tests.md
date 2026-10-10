@@ -51,6 +51,30 @@ to another port, and disabling a saved mask while disconnected. The single-input
 fixtures also verify physical-node access and forwarding through one virtual
 device.
 
+Hotplug must be noticed without waiting for the one-minute safety rescan. A
+masked USB device must be reported as waiting for its device, and masked again
+after reconnecting, within 10 seconds of the USB/IP detach or attach. An
+unmasked USB device plugged in while a profile waits for it must reach the
+remapped output within 10 seconds. The log prints each measured latency.
+
+The `keymasq masking` CLI runs against the same services:
+
+- `list` and `show`, with and without `--json`, select devices by ID, by ID
+  prefix, by name in any case, by connection, and by VID:PID. An ambiguous
+  VID:PID or an unknown selector exits with status 2 and changes nothing.
+- Through a terminal, `enable` asks for confirmation while the device is already
+  masked. Answering `n` exits with status 1 and restores access. Answering `y`
+  keeps and saves the mask.
+- `enable --no-prompt` stops at the confirmation step. `confirm` then keeps the
+  mask, and a second `confirm` fails. `enable --yes` masks a USB device selected
+  by its port without asking.
+- With the hardware operations lock held, `enable` exits with status 1 and
+  `confirm` fails. Access is restored once the lock is released.
+- `enable` masks a previously confirmed device without asking. During a recovery
+  pause, `enable` fails and `disable` clears the saved mask. `resume` then
+  restarts only the masks that are still saved. `disable --all` turns every
+  mask off.
+
 The USB/IP controller used here does not re-enumerate after a software port power
 cycle, so takeover with an existing raw USB handle needs a separate hardware test.
 These suites also exclude electrical hub power switching, device firmware quirks,

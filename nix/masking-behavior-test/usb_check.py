@@ -2,14 +2,27 @@
 
 import contextlib
 import json
+import select
 import sys
+import time
 from pathlib import Path
 
 import control
-from behavior import gui_client, off, virtual_paths, wait_for, wait_state
+import evdev
+from behavior import gui_client, off, virtual_paths, wait_for, wait_state, write_mapping
 from support import ScenarioContext
 
 STATE = Path.home() / "masking-usb-state.json"
+HOTPLUG_AT = Path("/tmp/keymasq-usb-hotplug-at")
+HOTPLUG_LIMIT_S = 10
+DISCOVERY_PROFILE = "USB hotplug discovery"
+DISCOVERY_HARDWARE = "cafe:0005"
+
+
+def hotplug_latency(label):
+    elapsed = time.time() - float(HOTPLUG_AT.read_text())
+    print(f"{label} {elapsed:.2f}s after the USB/IP transport change")
+    assert elapsed < HOTPLUG_LIMIT_S, (label, elapsed)
 
 
 def remember():
@@ -27,6 +40,7 @@ def masked():
     assert target.transport == "usb" and target.identity == old["id"], (old, target)
     assert target.generation != old["generation"], (old, target)
     state = wait_state(ScenarioContext(), target.identity, "masked")
+    hotplug_latency("USB saved mask reapplied")
     assert state["automatic"] and state["persist"], state
     control.assert_masked(forwarding=True)
     ScenarioContext().assert_daemon_has_no_capabilities()
@@ -45,6 +59,7 @@ def disconnected():
         lambda: control.mask_state(ScenarioContext(), old["id"]),
         lambda state: state.get("lifecycle") == "waiting_for_device",
     )
+    hotplug_latency("USB masked disconnect detected")
     assert not virtual_paths(control.NAMES[0])
     # The other USB device stays accessible with unchanged permissions.
     bystander = control.devices(require_all=False)[control.NAMES[1]]
@@ -131,6 +146,62 @@ def hold_physical():
     Path("/tmp/keymasq-usb-physical-revoked").touch()
 
 
+def discovery_setup():
+    ctx = ScenarioContext()
+    write_mapping(
+        ctx,
+        hardware_id=DISCOVERY_HARDWARE,
+        path="/dev/input/by-id/usb-mask-usb-replacement-event-joystick",
+        source="btn_south",
+        kind="gamepad",
+        profile=DISCOVERY_PROFILE,
+        target="key_q",
+    )
+    ctx.request({"command": "enable_profile", "profile_name": DISCOVERY_PROFILE})
+    wait_for(
+        "absent USB mapping waits for its device",
+        lambda: ctx.request({"command": "get_active_profiles"})["devices"],
+        lambda found: found.get(DISCOVERY_HARDWARE, {}).get("waiting_for_device"),
+    )
+
+
+def keyboard_output():
+    for path in evdev.list_devices():
+        with contextlib.suppress(OSError):
+            device = evdev.InputDevice(path)
+            if device.name == "keymasq-keyboard":
+                return device
+            device.close()
+    return None
+
+
+def discovered():
+    output = wait_for("remapped keyboard output", keyboard_output, bool)
+    with contextlib.closing(output):
+        deadline = time.monotonic() + 35
+        while True:
+            assert time.monotonic() < deadline, "plugged USB device was not remapped"
+            if select.select([output.fd], [], [], 0.1)[0] and any(
+                event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.KEY_Q
+                for event in output.read()
+            ):
+                break
+    hotplug_latency("Unmasked USB device discovered and remapped")
+    replacement = next(
+        item for item in control.INVENTORY.scan() if item.name == "mask-usb-replacement"
+    )
+    assert not control.mask_state(ScenarioContext(), replacement.identity).get("enabled", False)
+
+
+def discovery_cleanup():
+    ctx = ScenarioContext()
+    ctx.set_profile_enabled(DISCOVERY_PROFILE, enabled=False)
+    vendor, product = DISCOVERY_HARDWARE.split(":")
+    (ctx.config_dir / "hardware" / f"{vendor}_{product}.toml").unlink()
+    (ctx.config_dir / "profiles" / f"{DISCOVERY_PROFILE}.toml").unlink()
+    ctx.request({"command": "reload"})
+
+
 def run(command):
     if command.startswith("connected-"):
         name = (*control.NAMES, "mask-usb-replacement")[int(command.rsplit("-", 1)[1])]
@@ -173,6 +244,12 @@ def run(command):
             hold_output()
         case "hold-physical":
             hold_physical()
+        case "discovery-setup":
+            discovery_setup()
+        case "discovered":
+            discovered()
+        case "discovery-cleanup":
+            discovery_cleanup()
         case "off":
             with gui_client() as ctx:
                 off(ctx)

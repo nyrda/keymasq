@@ -637,6 +637,9 @@ def release_all_keys(
         if not task.done():
             task.cancel()
     device_runtime.state.rapidfire_tasks.clear()
+    for task in list(device_runtime.state.cursor_move_tasks):
+        task.cancel()
+    device_runtime.state.cursor_move_tasks.clear()
     device_runtime.state.rapidfire_outputs.clear()
     device_runtime.state.rapidfire_active.clear()
     device_runtime.state.tap_active.clear()

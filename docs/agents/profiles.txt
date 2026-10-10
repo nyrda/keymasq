@@ -125,6 +125,10 @@ curve = "natural" # linear or natural
 jitter = 0.3
 tolerance = 2
 max_duration_ms = 3000
+# a plain mapping or combo runs the move in the background: other keys keep
+# working, key release does not stop it, emergency reset does; later natural
+# moves wait for it. In superkeys and analog thresholds the following actions
+# wait until it ends, and other input can be held back until then.
 
 # play saved macro by name
 action = "macro"

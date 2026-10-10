@@ -283,6 +283,13 @@ tolerance = 2
 max_duration_ms = 3000
 ```
 
+A Natural move runs in the background. Other keys on the same device keep
+working while the cursor moves, releasing the key does not stop the move, and an
+emergency reset stops it right away. A Natural move started while another one is
+still running starts once the first one ends. Inside a Super Key or an analog
+threshold, the actions after a Natural move wait until it ends, and other input
+can be held back until then.
+
 The GUI shows natural movement speed as `kpx/s` (thousands of pixels per
 second), so `12 kpx/s` is stored as `speed = 12000.0` in TOML and macro
 payloads.

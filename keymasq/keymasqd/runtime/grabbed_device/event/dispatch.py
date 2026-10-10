@@ -148,6 +148,7 @@ async def apply_mapped_action_or_passthrough(
             event,
             event_name,
             deps=deps.action_deps,
+            detach_cursor_move=True,
         )
         diag_label = action_diagnostic_label(action, combo_consumed=combo_consumed)
     else:
@@ -401,6 +402,7 @@ async def _process_wheel_pulse_event(
             event,
             pulse_event_name,
             deps=deps.action_deps,
+            detach_cursor_move=True,
         )
     return f"action_{action.action_type.value}"
 

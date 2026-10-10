@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from keymasq.common.model.actions import MappingAction
+from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.output_helpers import resolve_gamepad_axis_code, resolve_output_code
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
@@ -396,6 +397,7 @@ async def execute_move_action(
     *,
     deps: ActionExecutionDeps,
     execution_handle: ActionExecutionHandle | None = None,
+    detach_cursor_move: bool = False,
 ) -> None:
     if action.rapidfire_enabled:
         if int(event.value) == 1:
@@ -439,7 +441,26 @@ async def execute_move_action(
         elif int(event.value) == 0:
             mark_action_started(execution_handle)
     elif int(event.value) == 1:
-        await emit_move_action(device_runtime, action)
+        if detach_cursor_move and action.action_type == ActionType.MOUSE_MOVE_NATURAL_ABS:
+            _start_cursor_move_task(device_runtime, action, event_name, deps=deps)
+        else:
+            await emit_move_action(device_runtime, action)
         mark_action_started(execution_handle)
     else:
         mark_action_started(execution_handle)
+
+
+def _start_cursor_move_task(
+    device_runtime: ActionRuntime,
+    action: MappingAction,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+) -> None:
+    tasks = device_runtime.state.cursor_move_tasks
+    task = deps.fire_and_observe_fn(
+        emit_move_action(device_runtime, action),
+        f"cursor move {event_name}",
+    )
+    tasks.add(task)
+    task.add_done_callback(tasks.discard)

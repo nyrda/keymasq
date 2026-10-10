@@ -226,6 +226,7 @@ async def start_combo_action(
         trigger_binding,
         trigger_name=trigger_name,
         deps=deps,
+        detach_cursor_move=True,
     )
     state = manager.combo_state.active_actions.get(combo_id)
     if state is not None:
@@ -414,6 +415,7 @@ async def _start_combo_action_instance(
     trigger_name: str,
     deps: ComboRuntimeDeps,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     if action is None or action.action_type == ActionType.SUPERKEY:
         return
@@ -486,6 +488,7 @@ async def _start_combo_action_instance(
             repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=deps.resolve_code_fn,
             record_repeat=record_repeat,
+            detach_cursor_move=detach_cursor_move,
         )
         await started.wait()
     except asyncio.CancelledError:

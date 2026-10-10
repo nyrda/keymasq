@@ -198,6 +198,7 @@ class GrabbedDeviceState:
     rapidfire_tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
     tap_active: dict[str, bool] = field(default_factory=dict)
+    cursor_move_tasks: set[asyncio.Task[object]] = field(default_factory=set)
     superkey_machines: dict[str, "SuperkeyMachine"] = field(default_factory=dict)
     repeat_active_actions: dict[str, MappingAction] = field(default_factory=dict)
     passthrough_frame_output: object | None = None

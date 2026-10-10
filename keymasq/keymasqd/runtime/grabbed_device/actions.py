@@ -130,6 +130,7 @@ async def execute_action(
     cancel_macro_playback: CancelMacroPlayback | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     await action_runner.execute_action(
         device_runtime,
@@ -145,6 +146,7 @@ async def execute_action(
         repeat_superkey_executor=_execute_repeated_superkey_path,
         resolve_code_fn=resolve_code_fn,
         record_repeat=record_repeat,
+        detach_cursor_move=detach_cursor_move,
     )
 
 
@@ -158,6 +160,7 @@ async def execute_action_pulse(
     shared_output_tracker: Callable[[str, int, int], bool] | None = None,
     shared_abs_output_tracker: Callable[[str, int, int], bool] | None = None,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     await execute_action(
         device_runtime,
@@ -168,6 +171,7 @@ async def execute_action_pulse(
         shared_output_tracker=shared_output_tracker,
         shared_abs_output_tracker=shared_abs_output_tracker,
         record_repeat=record_repeat,
+        detach_cursor_move=detach_cursor_move,
     )
     await execute_action(
         device_runtime,

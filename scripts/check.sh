@@ -82,12 +82,12 @@ resolve_auto_category() {
   mapfile -t changed_paths < <(
     git diff --name-only HEAD -- \
       keymasq tests nix/docshots nix/appimage-brotway-integration-test \
-      packaging/appimage
+      nix/appimage-upgrade-integration-test packaging/appimage
   )
   mapfile -t untracked_paths < <(
     git ls-files --others --exclude-standard -- \
       keymasq tests nix/docshots nix/appimage-brotway-integration-test \
-      packaging/appimage
+      nix/appimage-upgrade-integration-test packaging/appimage
   )
 
   for path in "${changed_paths[@]}" "${untracked_paths[@]}"; do
@@ -122,7 +122,7 @@ resolve_auto_category() {
           selected="full"
         fi
         ;;
-      nix/appimage-brotway-integration-test/*|packaging/appimage/*)
+      nix/appimage-brotway-integration-test/*|nix/appimage-upgrade-integration-test/*|packaging/appimage/*)
         selected="full"
         ;;
       keymasq/*|tests/*)
@@ -402,6 +402,7 @@ STATIC_PYTHON_TARGETS=(
   tests
   nix/docshots
   nix/appimage-brotway-integration-test
+  nix/appimage-upgrade-integration-test
   packaging/appimage/encode-symbolic-icon.py
 )
 
@@ -410,7 +411,8 @@ if ! run_compact_check "ruff" run_default_nix ruff check "${STATIC_PYTHON_TARGET
 fi
 
 if ! run_compact_check "ruff-format-appimage" run_default_nix ruff format --check \
-  nix/appimage-brotway-integration-test packaging/appimage/encode-symbolic-icon.py; then
+  nix/appimage-brotway-integration-test nix/appimage-upgrade-integration-test \
+  packaging/appimage/encode-symbolic-icon.py; then
   exit 1
 fi
 

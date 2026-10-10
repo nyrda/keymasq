@@ -1,0 +1,26 @@
+[hardware]
+name = "Keymasq Upgrade Gamepad"
+vendor_id = "cafe"
+product_id = "0003"
+
+[[hardware.evdev.devices]]
+path = "keymasq:cafe:0003"
+type = "gamepad"
+id = "pad"
+
+[hardware.layout]
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_south"
+label = "A"
+evdev = "btn_south"
+source = "pad"
+type = "key"
+
+[[hardware.layout.buttons]]
+id = "btn_east"
+label = "B"
+evdev = "btn_east"
+source = "pad"
+type = "key"

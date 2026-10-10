@@ -100,6 +100,7 @@ include = [
     "benchmarks",
     "nix/docshots",
     "nix/appimage-brotway-integration-test",
+    "nix/appimage-upgrade-integration-test",
     "packaging/appimage/encode-symbolic-icon.py",
 ]
 exclude = ["build", "pkg", "benchmarks/macro_replay_fidelity.py"]
@@ -121,6 +122,7 @@ executionEnvironments = [
     { root = "tests", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportUnknownLambdaType = "none" },
     { root = "nix/docshots", extraPaths = ["."], reportArgumentType = "none", reportAttributeAccessIssue = "none", reportOptionalMemberAccess = "none", reportPrivateUsage = "none" },
     { root = "nix/appimage-brotway-integration-test", extraPaths = [".", "nix/appimage-brotway-integration-test"], reportMissingImports = "none", reportUnknownLambdaType = "none" },
+    { root = "nix/appimage-upgrade-integration-test", extraPaths = ["."], reportArgumentType = "none" },
 ]
 
 [tool.pytest.ini_options]

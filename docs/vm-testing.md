@@ -20,6 +20,7 @@ when in doubt.
 | Masking behavior | `./scripts/integration.sh masking-behavior` | [masking-vm-tests.md](masking-vm-tests.md) |
 | Masking recovery | `./scripts/integration.sh masking-recovery` | [masking-vm-tests.md](masking-vm-tests.md) |
 | AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [AppImage/Brotway artifact gate](#appimagebrotway-artifact-gate) |
+| AppImage upgrade from v0.20.0 | `scripts/test-appimage-upgrade <Keymasq.AppImage>` | [AppImage upgrade gate](#appimage-upgrade-gate) |
 | Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|mango\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Documentation screenshots | `scripts/check-doc-screenshots` | [screenshots.md](screenshots.md) |
@@ -43,7 +44,8 @@ and the full listener matrix. Run all VM suites on a Linux host with KVM acceler
 | GNOME Shell extension | `gnome-extension/**` | `gnome-bridge` and `gnome` |
 | Nix/VM infrastructure | `flake.nix`, `flake.lock`, `nix/**` | `daemon-session` and the full `listeners` matrix |
 | Services, udev, packaging payload | `systemd/**`, `udev/**`, `sysusers.d/**`, `tmpfiles.d/**`, `polkit/**`, and packaged copies of these payloads (for example `packaging/appimage/assets/**`) | `daemon-session` |
-| AppImage Brotway payload, runtime, or test harness | `packaging/appimage/**` Brotway artifact, dependency collection, launcher, installer/runtime layout, or GUI startup integration. Also `nix/appimage-brotway-integration-test.nix`, `nix/appimage-brotway-integration-test/**`, and `scripts/test-appimage-brotway` | Build the candidate AppImage and run `scripts/test-appimage-brotway <artifact>` |
+| AppImage Brotway payload, runtime, or test harness | `packaging/appimage/**` Brotway artifact, dependency collection, launcher, installer/runtime layout, or GUI startup integration. Also `nix/appimage-brotway-integration-test.nix`, `nix/appimage-brotway-integration-test/**`, `nix/appimage-deck-node.nix`, and `scripts/test-appimage-brotway` | Build the candidate AppImage and run `scripts/test-appimage-brotway <artifact>` |
+| AppImage installer, updater, or integration payload | `packaging/appimage/runtime/keymasq-appimage-runtime.sh`, `packaging/appimage/assets/**` units, polkit and udev rules, `nix/appimage-upgrade-integration-test.nix`, `nix/appimage-upgrade-integration-test/**`, `nix/appimage-deck-node.nix`, and `scripts/test-appimage-upgrade` | Build the candidate AppImage and run `scripts/test-appimage-upgrade <artifact>` |
 | Gate harness scripts | `scripts/integration.sh`, `scripts/check-doc-screenshots`, `scripts/update-doc-screenshots` | Run the changed harness itself. For `integration.sh` that means `daemon-session`, `masking-behavior`, `masking-recovery`, and at least one listener suite. For the screenshot scripts it means `scripts/check-doc-screenshots` |
 | Docs, packaging metadata, unrelated tooling only | `docs/**`, `.github/**`, `scripts/**` not listed above, and `packaging/**` metadata that does not ship service/udev payloads | None |
 
@@ -84,12 +86,14 @@ Prereleases built through the `Package` workflow's manual dispatch should pass
 the same gates unless the prerelease exists specifically to test packaging
 changes.
 
-Every AppImage release candidate must also pass its artifact-specific gate
+Every AppImage release candidate must also pass its artifact-specific gates
 after the build:
 
 ```bash
 scripts/test-appimage-brotway \
-  "dist/appimage/Keymasq-0.19.0-x86_64.AppImage"
+  "dist/appimage/Keymasq-0.21.0-x86_64.AppImage"
+scripts/test-appimage-upgrade \
+  "dist/appimage/Keymasq-0.21.0-x86_64.AppImage"
 ```
 
 ## AppImage/Brotway artifact gate
@@ -103,10 +107,10 @@ package and does not import the Keymasq NixOS module. The assertions live in
 Always run it through the runner:
 
 ```bash
-scripts/test-appimage-brotway dist/appimage/Keymasq-0.19.0-x86_64.AppImage
+scripts/test-appimage-brotway dist/appimage/Keymasq-0.21.0-x86_64.AppImage
 ```
 
-The flake only adds the check when `KEYMASQ_APPIMAGE_TEST_ARTIFACT` is set
+The flake only adds the AppImage checks when `KEYMASQ_APPIMAGE_TEST_ARTIFACT` is set
 during impure evaluation, so plain `nix flake check` skips it. The runner sets
 the variable and passes `--impure`. `builtins.path` copies the AppImage into
 the Nix store and makes that store path a derivation input. A one-byte change
@@ -152,6 +156,60 @@ On failure, the test prints hashes, the runtime tree, process maps, service
 journals, and both browser JSON results into the Nix log, so they survive a
 failed derivation. Inside the browser VM, the screenshots and JSON results are
 under `/tmp/keymasq-brotway` and `/tmp/keymasq-icon-gallery`.
+
+## AppImage upgrade gate
+
+This gate upgrades a real v0.20.0 AppImage install to one exact local
+candidate AppImage, the way installed users update. It shares the impure
+`KEYMASQ_APPIMAGE_TEST_ARTIFACT` input and the `deck` VM
+(`nix/appimage-deck-node.nix`) with the Brotway gate. The assertions live in
+`nix/appimage-upgrade-integration-test.nix` and the input and session probe in
+`nix/appimage-upgrade-integration-test/`.
+
+```bash
+scripts/test-appimage-upgrade dist/appimage/Keymasq-0.21.0-x86_64.AppImage
+```
+
+The baseline is the released `Keymasq-0.20.0-x86_64.AppImage`, fetched from
+the GitHub release and pinned by hash. The test runs these phases:
+
+1. It installs v0.20.0 with `--install --user deck` and checks that the
+   pre-rename integration exists: the `keymasq-record` wrappers, the
+   `50-keymasq-record.rules` polkit rule, and the `com.keymasq.record-macro`
+   action.
+2. With v0.20.0 running, it creates user state through v0.20.0's own CLI and
+   session: a saved macro, a hardware config and profile for an emulated
+   gamepad, the enabled profile state, and global settings. It then sets the
+   removed `[recording_guard]` keys `unlock_required` and
+   `macro_edit_requires_unlock` to `true` in `/etc/keymasq/security.toml`.
+3. It publishes the candidate as a signed update manifest under a test key and
+   runs the installed `keymasq --self-update`. The v0.20.0 updater therefore
+   verifies, stages, and activates the candidate and hands off to the
+   candidate's `--refresh-integration`, as on a user's machine.
+
+After the update, the test requires the following:
+
+- The update reports success, and `keymasqd` and the user `keymasq-session`
+  restart into the candidate runtime, which `/proc/PID/maps` confirms.
+- The installed daemon, hardware job and session units, the hardware polkit
+  rule, and the ACL and hide udev rules match the candidate's assets.
+- The `keymasq-helper` wrappers call the candidate's launcher and run. The
+  `keymasq-record` wrappers, the
+  `/etc` copy of `50-keymasq-record.rules`, `50-keymasq-helper.rules`, and both
+  helper polkit actions are gone. The candidate runtime still ships an inert
+  `50-keymasq-record.rules` for the v0.19 updater.
+- `security.toml` is unchanged. Both `keymasqd` and the session log a warning
+  for each removed key and keep running, and macro editing works without an
+  unlock.
+- The profile is still enabled and remaps the gamepad end to end, the macro is
+  still listed and plays from its mapping, and the settings are unchanged.
+- Disabling and re-enabling the profile under the candidate unhides and hides
+  the grabbed gamepad again, and the `keymasq-hardware@` jobs for that
+  transition complete without failures.
+
+Hardware masks are not part of this gate. Creating one needs a USB device and
+the masking flow, which v0.20.0 does not expose on the CLI. The masking VM
+suites cover masks with their own USB fixtures.
 
 ## Optional: running the gates on GitHub
 

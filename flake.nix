@@ -309,21 +309,24 @@
           checkSuffix = "-evdev170";
           evdevPackage = evdevPackages.evdev170;
         };
-      appimageBrotwayArtifact = builtins.getEnv "KEYMASQ_APPIMAGE_TEST_ARTIFACT";
-      appimageBrotwayIntegrationChecks =
-        if appimageBrotwayArtifact == "" then
+      appimageTestArtifact = builtins.getEnv "KEYMASQ_APPIMAGE_TEST_ARTIFACT";
+      appimageIntegrationChecks =
+        if appimageTestArtifact == "" then
           { checks = { }; }
         else
           let
             pkgs = mkPkgs "x86_64-linux";
+            appimageArtifact = builtins.path {
+              path = appimageTestArtifact;
+              name = "Keymasq-under-test.AppImage";
+            };
           in
           {
             checks.appimage-brotway-integration-test = import ./nix/appimage-brotway-integration-test.nix {
-              inherit pkgs;
-              appimageArtifact = builtins.path {
-                path = appimageBrotwayArtifact;
-                name = "Keymasq-under-test.AppImage";
-              };
+              inherit pkgs appimageArtifact;
+            };
+            checks.appimage-upgrade-integration-test = import ./nix/appimage-upgrade-integration-test.nix {
+              inherit pkgs appimageArtifact;
             };
           };
       docshotVm =
@@ -370,7 +373,7 @@
             masking-recovery-test = maskingRecoveryTest;
             masking-behavior-test = maskingBehaviorTest;
           }
-          // appimageBrotwayIntegrationChecks.checks
+          // appimageIntegrationChecks.checks
           // docshotVm.checks;
       };
 

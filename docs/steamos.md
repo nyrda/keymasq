@@ -145,7 +145,12 @@ The updater runs these steps in order:
    `/opt/keymasq/share/keymasq/appimage-update.gpg.asc`.
 3. It checks that the manifest architecture matches the running system.
 4. It downloads the AppImage the manifest references and checks its SHA-256.
-5. It extracts the AppImage into `/opt/keymasq/runtime/<sha256>`.
+5. It extracts the AppImage into a staging directory, checks that the copy
+   finished and contains every launcher, the bundled Python runtime and the
+   integration files, then renames it to `/opt/keymasq/runtime/<sha256>`. A
+   failed copy, for example on a full disk, removes the staging directory.
+   An incomplete `/opt/keymasq/runtime/<sha256>` left by an earlier attempt is
+   replaced instead of reused.
 6. It atomically replaces `/opt/keymasq/Keymasq.AppImage` and repoints
    `/opt/keymasq/runtime/current`.
 7. It refreshes the installed host integration files and restarts the
@@ -154,6 +159,12 @@ The updater runs these steps in order:
 If the updater cannot restart either systemd service, it exits with an error.
 The error says that the files were installed but the services still need to be
 recovered. The updater does not report such an update as successful.
+
+The installed release runs the update, so updates started from v0.20.0 or
+older still reuse an incomplete runtime directory. If such an update keeps
+failing with `updated runtime missing AppImage integration assets` after the
+disk ran full, free some space and run `--install` from the new AppImage once.
+It replaces the incomplete runtime.
 
 The updater compares the manifest version with the installed Keymasq version
 and refuses older versions. An attacker who replays an old signed manifest

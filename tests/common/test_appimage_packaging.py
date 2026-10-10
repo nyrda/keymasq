@@ -743,6 +743,12 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
         "libgtk-4.so.1",
     ):
         _write_executable(brotway_dir / name, "#!/bin/sh\nexit 0\n")
+    (appdir / "shared/bin").mkdir(parents=True)
+    _write_executable(appdir / "shared/bin/python3", "#!/bin/sh\nexit 1\n")
+    _write_executable(appdir / "lib/ld-linux-x86-64.so.2", "#!/bin/sh\nexit 1\n")
+    package_dir = appdir / "lib/python3.14/site-packages/keymasq"
+    package_dir.mkdir(parents=True)
+    (package_dir / "__init__.py").write_text("", encoding="utf-8")
     shutil.copytree(assets, appdir / "share/keymasq/appimage")
     shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq")
     shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq-helper")
@@ -2318,3 +2324,77 @@ async def test_appimage_rejects_runtime_without_privileged_helper(tmp_path: Path
     assert result.returncode != 0
     assert b"missing keymasq-helper launcher" in stderr
     assert not (fake_root / "opt/keymasq/runtime/current").exists()
+
+
+def test_appimage_install_discards_runtime_when_copy_fails(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source = tmp_path / "source.AppImage"
+    source.write_text("appimage\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source)
+    real_cp = shutil.which("cp", path=env["PATH"].split(":", 1)[1])
+    _write_executable(
+        Path(env["PATH"].split(":", 1)[0]) / "cp",
+        f"""#!/bin/sh
+for last; do :; done
+case "$last" in
+  */.extract-*) {real_cp} "$@"; echo "cp: No space left on device" >&2; exit 1 ;;
+esac
+exec {real_cp} "$@"
+""",
+    )
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "failed to prepare extracted runtime" in result.stderr
+    runtime_root = fake_root / "opt/keymasq/runtime"
+    assert [path.name for path in runtime_root.iterdir()] == []
+
+
+def test_appimage_self_update_replaces_incomplete_incoming_runtime(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source = tmp_path / "source.AppImage"
+    source.write_text("source\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source)
+    install_root = fake_root / "opt/keymasq"
+    target = install_root / "Keymasq.AppImage"
+    target.parent.mkdir(parents=True)
+    target.write_text("old\n", encoding="utf-8")
+    target.chmod(0o755)
+
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    new_appimage = update_dir / "Keymasq-9.9.9-x86_64.AppImage"
+    new_appimage.write_text("new\n", encoding="utf-8")
+    sha256 = _write_update_manifest(update_dir, new_appimage, "9.9.9")
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+    incoming = install_root / "runtime" / sha256
+    extracted = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"])
+    for part in ("bin", "lib"):
+        shutil.copytree(extracted / part, incoming / part)
+
+    runtime_link = tmp_path / "keymasq"
+    runtime_link.symlink_to(RUNTIME_SCRIPT)
+    result = subprocess.run(
+        [str(runtime_link), "--self-update", "--allow-unsigned", "--user", "root"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert (install_root / "runtime/current").readlink() == Path(sha256)
+    assert (incoming / "share/keymasq/appimage/keymasqd.service").is_file()
+    assert (fake_root / "etc/udev/rules.d/91-keymasq-acl.rules").is_file()
+    assert {path.name for path in (install_root / "runtime").iterdir()} == {"current", sha256}

@@ -502,8 +502,9 @@ async def test_unmask_all_disables_saved_masks_without_pausing_remapping(supervi
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("started", [True, False])
 async def test_resume_without_a_pause_keeps_masks_and_unrecorded_stop_still_waits(
-    supervisor, monkeypatch
+    supervisor, monkeypatch, started
 ):
     from keymasq.common.ipc import CommandType
     from keymasq.keymasqd.device_manager import DeviceManager
@@ -518,10 +519,11 @@ async def test_resume_without_a_pause_keeps_masks_and_unrecorded_stop_still_wait
     monkeypatch.setattr(masking, "start_monitor", Mock())
     monkeypatch.setattr(manager, "_broadcast_runtime_event", Mock())
 
-    result = await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
-    assert result["resumed"] is False
-    assert not result["remapping_suspended"]
-    assert selected(result, first.identity)["state"] == "masked"
+    if started:
+        result = await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
+        assert result["resumed"] is False
+        assert not result["remapping_suspended"]
+        assert selected(result, first.identity)["state"] == "masked"
 
     async def unrecorded_stop(_reason):
         raise OSError("read-only state directory")
@@ -532,7 +534,8 @@ async def test_resume_without_a_pause_keeps_masks_and_unrecorded_stop_still_wait
             await masking.restore()
     with pytest.raises(ValueError, match="recovery is still in progress"):
         await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
-    assert manager.masking_suspended
+    if started:
+        assert manager.masking_suspended
 
 
 @pytest.mark.asyncio

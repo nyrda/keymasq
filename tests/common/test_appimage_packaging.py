@@ -270,8 +270,18 @@ def test_brotway_gtk_abi_check_requires_overlay_exports_for_bundled_consumers(
         "int gtk_enum_list_item_get_value(void) { return 1; }\n"
         "int gtk_svg_widget_get_type(void) { return 2; }\n"
         "int gtk_private_helper(void) { return 3; }\n"
+        "int gtk_media_file_get_type(void) { return 4; }\n"
     )
     _compile_shared_library(lib / "libgtk-4.so.1", stock_source)
+    plugin = appdir / "share/plugins/libplugin.so"
+    plugin.parent.mkdir(parents=True)
+    _compile_shared_library(
+        plugin,
+        "int gtk_media_file_get_type(void);\n"
+        "int plugin(void) { return gtk_media_file_get_type(); }\n",
+        lib / "libgtk-4.so.1",
+    )
+    (lib / "libc.so").write_text("GROUP ( libc.so.6 )\n", encoding="utf-8")
     _compile_shared_library(
         lib / "libadwaita-1.so.0",
         "int gtk_enum_list_item_get_value(void);\n"
@@ -293,27 +303,33 @@ def test_brotway_gtk_abi_check_requires_overlay_exports_for_bundled_consumers(
     _compile_shared_library(lib / "gtk4-brotway/libgtk-4.so.1", stock_source)
     compatible = _run_brotway_gtk_abi_check(appdir)
     assert compatible.returncode == 0, compatible.stderr
-    assert "2 consumers make 4 libgtk-4 symbol imports" in compatible.stdout
+    assert "3 consumers make 5 libgtk-4 symbol imports" in compatible.stdout
 
-    _compile_shared_library(
-        lib / "gtk4-brotway/libgtk-4.so.1", "void gtk_widget_show(void) {}\n"
-    )
+    _compile_shared_library(lib / "gtk4-brotway/libgtk-4.so.1", "void gtk_widget_show(void) {}\n")
     incompatible = _run_brotway_gtk_abi_check(appdir)
     assert incompatible.returncode == 1
     assert (
         "unresolved symbols per consumer:\n"
         "  lib/libadwaita-1.so.0:\n"
         "    gtk_enum_list_item_get_value\n"
+        "  share/plugins/libplugin.so:\n"
+        "    gtk_media_file_get_type\n"
         "  lib/girepository-1.0/Gtk-4.0.typelib:\n"
         "    gtk_svg_widget_get_type\n"
     ) in incompatible.stderr
     assert "gtk_private_helper" not in incompatible.stderr
 
     (lib / "libadwaita-1.so.0").unlink()
+    plugin.unlink()
     (lib / "girepository-1.0/Gtk-4.0.typelib").unlink()
     no_consumers = _run_brotway_gtk_abi_check(appdir)
     assert no_consumers.returncode == 1
     assert "no bundled consumer of libgtk-4.so.1" in no_consumers.stderr
+
+    (lib / "libtruncated.so.1").write_bytes(b"\x7fELFtruncated")
+    unreadable = _run_brotway_gtk_abi_check(appdir)
+    assert unreadable.returncode == 1
+    assert "failed to read the dynamic section of" in unreadable.stderr
 
 
 def test_appimage_builder_copies_only_the_python_runtime_closure() -> None:

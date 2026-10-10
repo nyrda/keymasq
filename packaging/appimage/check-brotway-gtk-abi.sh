@@ -71,20 +71,27 @@ check_consumer() {
   done <<< "$missing"
 }
 
+if ! find -H "$appdir" -path "$appdir/lib/gtk4-brotway" -prune -o -type f \
+  \( -name '*.so' -o -name '*.so.*' -o -perm /111 \) -print0 > "$work/candidates"; then
+  echo "failed to list ELF candidates in $appdir" >&2
+  exit 1
+fi
 while IFS= read -r -d '' elf; do
-  case "$elf" in
-    "$appdir/lib/gtk4-brotway/"*) continue ;;
-  esac
   [[ "$elf" -ef "$stock" ]] && continue
-  dynamic="$(LC_ALL=C readelf --wide --dynamic "$elf" 2>/dev/null)" || continue
-  grep -qF '(NEEDED)' <<< "$dynamic" || continue
+  magic=
+  LC_ALL=C read -r -n 4 magic < "$elf" || true
+  [[ "$magic" == $'\x7fELF' ]] || continue
+  if ! dynamic="$(LC_ALL=C readelf --wide --dynamic "$elf")"; then
+    echo "failed to read the dynamic section of $elf" >&2
+    exit 1
+  fi
   grep -qF 'Shared library: [libgtk-4.so.1]' <<< "$dynamic" || continue
   if ! imported_symbols "$elf" > "$work/imports"; then
     echo "failed to read imported symbols from $elf" >&2
     exit 1
   fi
   check_consumer "${elf#"$appdir"/}" "$work/imports"
-done < <(find "$appdir/lib" -type f \( -name '*.so' -o -name '*.so.*' \) -print0 | sort -z)
+done < <(sort -z "$work/candidates")
 
 # GObject introspection resolves typelib entry points from libgtk-4.so.1 with dlsym.
 for typelib in "$appdir"/lib/girepository-1.0/*.typelib; do

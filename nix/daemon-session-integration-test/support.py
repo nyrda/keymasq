@@ -849,6 +849,21 @@ type = "key"
         self.request({"command": "reevaluate_hardware"})
         self.reopen_outputs()
 
+    def replug_secondary_source_at_same_node(self) -> None:
+        if self.secondary_source is None:
+            raise AssertionError("secondary source keyboard is not available")
+        path = self.secondary_source.device.path
+        self.secondary_source.close()
+        self.secondary_source = self.create_source_keyboard(
+            SECOND_SOURCE_NAME,
+            vendor=0xCAFE,
+            product=0x0002,
+        )
+        if self.secondary_source.device.path != path:
+            raise AssertionError(
+                f"replugged source moved from {path} to {self.secondary_source.device.path}"
+            )
+
     def reopen_outputs(self) -> None:
         self.close_outputs()
         self.keyboard_output = self.wait_for_output_device(

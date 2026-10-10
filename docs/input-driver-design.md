@@ -176,7 +176,16 @@ reader delivers the current state, so the latest state always arrives. The
 reader also wakes every 100 ms. When the report count stops advancing for
 half a second, the source fails like a disconnected device: held buttons are
 released, including profile triggers held by a touch. The Deck reports at 250 Hz,
-so its count always advances while the program runs.
+so its count always advances while the program runs. Time the daemon could not
+observe does not count toward that half second or the one-second limit for a
+valid sample: a system suspend, which also covers user space frozen around it,
+or a reader wake-up that came late because the event loop stalled restarts the
+limit instead.
+
+When a reader of a still-configured device fails and its node stays in place,
+the daemon announces the device to the session again, which grabs it anew.
+A device that keeps failing is announced again after 1 s, then with doubling
+delays up to one minute.
 
 A USB reconnect creates a new HID device, and the old program stops. Hotplug
 discovery then builds a new binding and the next grab attaches again. A driver

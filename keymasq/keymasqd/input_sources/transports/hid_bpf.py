@@ -18,6 +18,7 @@ from pathlib import Path
 
 from keymasq.keymasqd import fd_handoff
 
+from .. import clock
 from ..bpf import (
     DRIVER_STATE_OFFSET,
     DRIVER_STATE_SIZE,
@@ -96,18 +97,21 @@ async def reports(
         loop.add_reader(ring_fd, ready.set)
         try:
             seen = struct.unpack_from("<Q", state, REPORTS_OFFSET)[0]
-            progress_at = time.monotonic()
+            progress_ns = time.monotonic_ns()
+            suspended_at_ns = clock.suspended_ns()
             delivered = 0
             while True:
+                due_ns = time.monotonic_ns() + int(HEARTBEAT_S * 1_000_000_000)
                 with contextlib.suppress(TimeoutError):
                     async with asyncio.timeout(HEARTBEAT_S):
                         await ready.wait()
                 ready.clear()
                 count = struct.unpack_from("<Q", state, REPORTS_OFFSET)[0]
-                now = time.monotonic()
-                if count != seen:
-                    seen, progress_at = count, now
-                elif now - progress_at > STALL_S:
+                now_ns = time.monotonic_ns()
+                if count != seen or clock.unobserved(due_ns, suspended_at_ns):
+                    seen, progress_ns = count, now_ns
+                    suspended_at_ns = clock.suspended_ns()
+                elif now_ns - progress_ns > STALL_S * 1_000_000_000:
                     raise OSError(errno.ENODEV, "HID-BPF source stopped receiving reports")
                 # The program stores the state before submitting its record, so read it first.
                 sequence = struct.unpack_from("<Q", state, SEQUENCE_OFFSET)[0]

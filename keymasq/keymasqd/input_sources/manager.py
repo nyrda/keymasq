@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, replace
 
 from keymasq.common.masking import HARDWARE_JOB_TIMEOUT
 
+from . import clock
 from .transports import hid_bpf
 from .transports.hidraw import reports
 from .types import Binding, InputFrame
@@ -132,30 +133,59 @@ class SourceManager:
             stream = reports(endpoint.path, hid_parent=endpoint.hid_parent)
         timeout_s = STARTUP_TIMEOUT_S.get(binding.driver.transport, VALID_SAMPLE_TIMEOUT_S)
         last_valid_ns = time.monotonic_ns()
+        suspended_at_ns = clock.suspended_ns()
+        pending: asyncio.Task[bytes] | None = None
         try:
             async with contextlib.aclosing(stream):
-                while True:
-                    elapsed_s = (time.monotonic_ns() - last_valid_ns) / 1_000_000_000
-                    report = await asyncio.wait_for(anext(stream), max(0.0, timeout_s - elapsed_s))
-                    now = time.monotonic_ns()
-                    values = binding.driver.decode(report)
-                    if values is None:
-                        if (now - last_valid_ns) / 1_000_000_000 > timeout_s:
-                            raise OSError(
-                                errno.ENOTSUP, "Input reports do not support this driver's channels"
+                try:
+                    while True:
+                        if pending is None:
+                            pending = asyncio.create_task(_next_report(stream))
+                        due_ns = last_valid_ns + int(timeout_s * 1_000_000_000)
+                        # A timeout must not cancel the read, which would close the stream.
+                        await asyncio.wait(
+                            (pending,),
+                            timeout=max(0.0, (due_ns - time.monotonic_ns()) / 1_000_000_000),
+                        )
+                        if not pending.done():
+                            if not clock.unobserved(due_ns, suspended_at_ns):
+                                raise TimeoutError(f"no valid input report for {timeout_s:g} s")
+                            log.info(
+                                "Restarting the input timeout of %s after a suspend or stall",
+                                binding.path,
                             )
-                        continue
-                    last_valid_ns = now
-                    timeout_s = VALID_SAMPLE_TIMEOUT_S
-                    gap = (
-                        binding.driver.transport not in SNAPSHOT_TRANSPORTS
-                        and session.latest is not None
-                        and now - session.latest.arrival_ns > GAP_NS
-                    )
-                    frame = InputFrame(values, now, now, discontinuity=gap)
-                    session.latest = frame
-                    for subscriber in session.subscribers:
-                        subscriber.offer(frame)
+                            last_valid_ns = time.monotonic_ns()
+                            suspended_at_ns = clock.suspended_ns()
+                            continue
+                        task, pending = pending, None
+                        report = task.result()
+                        now = time.monotonic_ns()
+                        values = binding.driver.decode(report)
+                        if values is None:
+                            if (now - last_valid_ns) / 1_000_000_000 > timeout_s:
+                                raise OSError(
+                                    errno.ENOTSUP,
+                                    "Input reports do not support this driver's channels",
+                                )
+                            continue
+                        last_valid_ns = now
+                        suspended_at_ns = clock.suspended_ns()
+                        timeout_s = VALID_SAMPLE_TIMEOUT_S
+                        gap = (
+                            binding.driver.transport not in SNAPSHOT_TRANSPORTS
+                            and session.latest is not None
+                            and now - session.latest.arrival_ns > GAP_NS
+                        )
+                        frame = InputFrame(values, now, now, discontinuity=gap)
+                        session.latest = frame
+                        for subscriber in session.subscribers:
+                            subscriber.offer(frame)
+                finally:
+                    if pending is not None:
+                        pending.cancel()
+                        await asyncio.wait((pending,))
+                        if not pending.cancelled():
+                            pending.exception()
         except asyncio.CancelledError:
             raise
         except (OSError, TimeoutError, StopAsyncIteration) as exc:
@@ -174,6 +204,10 @@ class SourceManager:
             session.linger = None
             if self._sessions.get(session.binding.path) is session:
                 del self._sessions[session.binding.path]
+
+
+async def _next_report(stream: AsyncGenerator[bytes]) -> bytes:
+    return await anext(stream)
 
 
 _managers: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, SourceManager] = (

@@ -4,6 +4,7 @@ import errno
 import mmap
 import os
 import struct
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -355,6 +356,26 @@ async def test_hid_bpf_reports_recover_the_state_of_lost_records(monkeypatch):
     }
     maps.report(4, 0x89, (4, 0x89))
     assert right_stick(await anext(stream)) == 1
+    await stream.aclose()
+    maps.close()
+
+
+async def test_hid_bpf_reports_survive_a_suspend_without_reports(monkeypatch):
+    maps = HidBpfMaps(monkeypatch)
+    suspended = [0]
+    monkeypatch.setattr(hid_bpf.clock, "suspended_ns", lambda: suspended[0])
+    maps.report(1, 0x01, (1, 0x01))
+    stream = hid_bpf.reports(deck_binding(), attach=maps.attach)
+    assert right_stick(await anext(stream)) == 0
+    reading = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    time.sleep(0.1)
+    suspended[0] += 30_000_000_000
+    assert right_stick(await reading) == 0
+    maps.report(2, 0x81, (2, 0x81))
+    async with asyncio.timeout(1):
+        while right_stick(await anext(stream)) != 1:
+            pass
     await stream.aclose()
     maps.close()
 

@@ -186,8 +186,8 @@ After the update, the test requires the following:
 
 - The update reports success, and `keymasqd` and the user `keymasq-session`
   restart into the candidate runtime, which `/proc/PID/maps` confirms.
-- The installed daemon, hardware job and session units and the hardware polkit
-  rule match the candidate's assets.
+- The installed daemon, hardware job and session units, the hardware polkit
+  rule, and the ACL and hide udev rules match the candidate's assets.
 - The `keymasq-helper` wrappers call the candidate's launcher and run. The
   `keymasq-record` wrappers, the
   `/etc` copy of `50-keymasq-record.rules`, `50-keymasq-helper.rules`, and both

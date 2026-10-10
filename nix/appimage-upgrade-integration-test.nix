@@ -252,6 +252,8 @@ pkgs.testers.runNixOSTest {
                 ("keymasqd.service", "/etc/systemd/system/keymasqd.service"),
                 ("keymasq-hardware@.service", "/etc/systemd/system/keymasq-hardware@.service"),
                 ("49-keymasq-hardware.rules", "/etc/polkit-1/rules.d/49-keymasq-hardware.rules"),
+                ("91-keymasq-acl.rules", "/etc/udev/rules.d/91-keymasq-acl.rules"),
+                ("99-keymasq-hide-grabbed.rules", "/etc/udev/rules.d/99-keymasq-hide-grabbed.rules"),
                 ("keymasq-session.service", f"{home}/.config/systemd/user/keymasq-session.service"),
             ):
                 deck.succeed(f"cmp {current_assets}/{asset} {installed}")

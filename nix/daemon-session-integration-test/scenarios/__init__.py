@@ -80,6 +80,10 @@ SCENARIOS = [
     ScenarioCase("macro keyboard block", macro_keyboard_block.run),
     ScenarioCase("macro keyboard block rollover", macro_keyboard_block_interactions.run_rollover),
     ScenarioCase(
+        "macro keyboard block shared key handover",
+        macro_keyboard_block_interactions.run_shared_key_handover,
+    ),
+    ScenarioCase(
         "macro keyboard block emergency reset",
         macro_keyboard_block_interactions.run_emergency_reset,
     ),

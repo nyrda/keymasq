@@ -28,8 +28,10 @@ that the core runtime classes still work together:
   key pressed during playback needs a fresh press afterwards
 - macro keyboard blocking with rollover groups and emergency reset: a member
   pressed during the block stays silent, then is restored normally after
-  playback ends, and an emergency reset during the block stops the macro and
-  lifts the block before the macro would have ended
+  playback ends, a key held before the block and handed between two members
+  that send it is released with the last member, and an emergency reset during
+  the block stops the macro and lifts the block before the macro would have
+  ended
 - `<macro:NAME>` calls in type macros, from a profile mapping and from
   `keymasq type`: the called macro finishes before the following text, the
   prefix is case-insensitive and spaces around the name are ignored, `\<macro:`

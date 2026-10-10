@@ -41,6 +41,7 @@ from tests.keymasqd.device_manager_support import (
 
 KEY_A = evdev.ecodes.KEY_A
 KEY_D = evdev.ecodes.KEY_D
+KEY_E = evdev.ecodes.KEY_E
 KEY_W = evdev.ecodes.KEY_W
 ABS_X = evdev.ecodes.ABS_X
 EV_ABS = evdev.ecodes.EV_ABS
@@ -51,7 +52,7 @@ RIGHT = 32767
 BTN_SIDE = evdev.ecodes.BTN_SIDE
 KEYBOARD = "1234:5678"
 MOUSE = "046d:c52b"
-BUTTON_MAP = {"key_a": "key_a", "key_d": "key_d", "key_w": "key_w"}
+BUTTON_MAP = {"key_a": "key_a", "key_d": "key_d", "key_e": "key_e", "key_w": "key_w"}
 MOUSE_BUTTON_MAP = {"btn_side": "btn_side"}
 
 
@@ -1720,3 +1721,346 @@ async def test_a_recording_control_release_is_not_recorded_after_a_mapping_chang
     await rig.send((KEY_A, 0))
 
     assert recorded == []
+
+
+KEY_X = evdev.ecodes.KEY_X
+
+
+def side() -> RolloverMember:
+    return RolloverMember(hardware_id=MOUSE, button="btn_side")
+
+
+@pytest.mark.parametrize("restore", [True, False])
+@pytest.mark.asyncio
+async def test_a_key_handed_over_during_a_keyboard_block_is_released_with_the_new_member(
+    monkeypatch, restore: bool
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_d": key("key_x")},
+        [group("key_a", "key_d", restore=restore)],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_A, 1))
+    blocked = True
+
+    await rig.send((KEY_D, 1), (KEY_D, 0), (KEY_A, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_key_handed_over_to_another_device_during_a_keyboard_block_is_released(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x")},
+        [group("key_a", side(), restore=False)],
+        mouse_mapping={"btn_side": key("key_x")},
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    rig.mouse.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_A, 1))
+    blocked = True
+    await rig.click_side(1)
+    await rig.send((KEY_A, 0))
+
+    outputs.release_all_keys(rig.mouse, evdev_mod=evdev, uinput_writer=lambda uinput: uinput)
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_handovers_of_presses_withheld_by_a_keyboard_block_keep_a_held_key_paired(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_d": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", "key_d")],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_W, 1))
+    blocked = True
+    await rig.send((KEY_A, 1), (KEY_D, 1), (KEY_D, 0), (KEY_A, 0))
+    blocked = False
+
+    await rig.send((KEY_W, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_withheld_press_handed_to_another_device_leaves_a_held_key_to_its_source(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", side(), restore=False)],
+        mouse_mapping={"btn_side": key("key_x")},
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    rig.mouse.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_W, 1))
+    blocked = True
+    await rig.send((KEY_A, 1))
+    await rig.click_side(1)
+    await rig.click_side(0)
+    await rig.send((KEY_A, 0))
+    blocked = False
+    assert rig.key_writes() == [(KEY_X, 1)]
+
+    await rig.send((KEY_W, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_held_key_handed_to_another_device_keeps_other_withheld_presses_apart(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", side(), restore=False)],
+        mouse_mapping={"btn_side": key("key_x")},
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    rig.mouse.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_A, 1))
+    blocked = True
+    await rig.send((KEY_W, 1))
+    await rig.click_side(1)
+
+    await rig.click_side(0)
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+    await rig.send((KEY_W, 0), (KEY_A, 0))
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+def tap(target: str) -> MappingAction:
+    action = key(target)
+    action.tap_enabled = True
+    action.tap_hold_ms = 20
+    return action
+
+
+@pytest.mark.asyncio
+async def test_a_losing_tap_member_does_not_release_the_winners_key(monkeypatch) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": tap("key_x"), "key_d": key("key_x")},
+        [group("key_a", "key_d", restore=False)],
+    )
+    await rig.send((KEY_A, 1))
+    await settle_tasks()
+
+    await rig.send((KEY_D, 1))
+    await asyncio.sleep(0.05)
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0), (KEY_X, 1)]
+    await rig.send((KEY_D, 0), (KEY_A, 0))
+    assert held_keys(rig.keyboard) == set()
+
+
+@pytest.mark.asyncio
+async def test_a_tap_member_that_lost_before_its_tap_started_taps_again(monkeypatch) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": tap("key_x"), "key_d": key("key_x")},
+        [group("key_a", "key_d", restore=False)],
+    )
+    await rig.send((KEY_A, 1), (KEY_D, 1), (KEY_D, 0), (KEY_A, 0))
+    await asyncio.sleep(0.05)
+    rig.keyboard.writes.clear()
+
+    await rig.send((KEY_A, 1))
+    await asyncio.sleep(0.05)
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+def merge_a_and_w(rig: Rig) -> None:
+    replace_rollover_groups(
+        rig.owner,
+        [group("key_a", "key_w", winner=RolloverWinner.PRIORITY, restore=False)],
+        resettle=rig.owner.resettle,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_merged_winner_keeps_its_key_when_a_losing_tap_ends(monkeypatch) -> None:
+    slow_tap = tap("key_x")
+    slow_tap.tap_hold_ms = 200
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": slow_tap},
+        [group("key_a", "key_d"), group("key_w", "key_s")],
+    )
+    await rig.send((KEY_A, 1), (KEY_W, 1))
+    await settle_tasks()
+
+    merge_a_and_w(rig)
+    await rig.run_resettles()
+    await asyncio.sleep(0.25)
+
+    assert held_keys(rig.keyboard) == {KEY_X}
+    await rig.send((KEY_A, 0), (KEY_W, 0))
+    assert held_keys(rig.keyboard) == set()
+
+
+@pytest.mark.asyncio
+async def test_a_merged_winner_is_not_pressed_again_for_a_tap_on_another_key(
+    monkeypatch,
+) -> None:
+    slow_tap = tap("key_y")
+    slow_tap.tap_hold_ms = 200
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": slow_tap},
+        [group("key_a", "key_d"), group("key_w", "key_s")],
+    )
+    await rig.send((KEY_A, 1), (KEY_W, 1))
+    await settle_tasks()
+
+    merge_a_and_w(rig)
+    await rig.run_resettles()
+    await asyncio.sleep(0.25)
+
+    assert [write for write in rig.key_writes() if write[0] == KEY_X] == [(KEY_X, 1)]
+    assert held_keys(rig.keyboard) == {KEY_X}
+
+
+@pytest.mark.asyncio
+async def test_a_new_member_leaves_a_losing_tap_on_another_key_running(monkeypatch) -> None:
+    slow_tap = tap("key_y")
+    slow_tap.tap_hold_ms = 100
+    rig = Rig(
+        monkeypatch,
+        {"key_a": slow_tap, "key_d": key("key_x")},
+        [group("key_a", "key_d", restore=False)],
+    )
+    await rig.send((KEY_A, 1))
+    await settle_tasks()
+
+    await rig.send((KEY_D, 1))
+
+    assert held_keys(rig.keyboard) == {evdev.ecodes.KEY_Y, KEY_X}
+    await asyncio.sleep(0.15)
+    assert held_keys(rig.keyboard) == {KEY_X}
+
+
+@pytest.mark.asyncio
+async def test_merging_three_withheld_members_of_one_key_keeps_a_single_count(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_d": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", "key_s"), group("key_d", "key_q"), group("key_w", "key_z")],
+    )
+    blocked = True
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_A, 1), (KEY_D, 1), (KEY_W, 1))
+
+    replace_rollover_groups(
+        rig.owner,
+        [group("key_a", "key_d", "key_w", winner=RolloverWinner.PRIORITY, restore=False)],
+        resettle=rig.owner.resettle,
+    )
+    await rig.run_resettles()
+    await rig.send((KEY_A, 0), (KEY_D, 0), (KEY_W, 0))
+    blocked = False
+    assert rig.key_writes() == []
+
+    await rig.send((KEY_A, 1), (KEY_A, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_handover_with_two_withheld_donors_keeps_a_single_count(monkeypatch) -> None:
+    rig = Rig(
+        monkeypatch,
+        {
+            "key_a": key("key_x"),
+            "key_d": key("key_x"),
+            "key_e": key("key_x"),
+            "key_w": key("key_x"),
+        },
+        [group("key_a", "key_d", restore=False), group("key_w", "key_s")],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_E, 1))
+    blocked = True
+    await rig.send((KEY_D, 1), (KEY_A, 1), (KEY_W, 1))
+
+    replace_rollover_groups(
+        rig.owner,
+        [group("key_d", "key_a", "key_w", winner=RolloverWinner.PRIORITY)],
+        resettle=rig.owner.resettle,
+    )
+    await rig.run_resettles()
+    await rig.send((KEY_D, 0), (KEY_A, 0), (KEY_W, 0))
+    blocked = False
+
+    await rig.send((KEY_E, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_merged_winner_withheld_by_a_block_owns_the_key_its_donor_held(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", "key_d"), group("key_w", "key_s")],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_W, 1))
+    blocked = True
+    await rig.send((KEY_A, 1))
+
+    merge_a_and_w(rig)
+    await rig.run_resettles()
+    await rig.send((KEY_A, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+    await rig.send((KEY_W, 0))
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
+@pytest.mark.asyncio
+async def test_a_merged_donor_withheld_by_a_block_leaves_the_winners_release_alone(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", "key_d"), group("key_w", "key_s")],
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_A, 1))
+    blocked = True
+    await rig.send((KEY_W, 1))
+
+    merge_a_and_w(rig)
+    await rig.run_resettles()
+    await rig.send((KEY_A, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+    await rig.send((KEY_W, 0))
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Coroutine
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
@@ -40,6 +41,31 @@ from keymasq.keymasqd.runtime.mouse_actions import (
     resolve_mouse_output_target,
     write_relative_pulse,
 )
+
+
+def start_tap(
+    device_runtime: ActionRuntime,
+    event_name: str,
+    tap: Coroutine[object, object, None],
+    label: str,
+    *,
+    deps: ActionExecutionDeps,
+    execution_handle: ActionExecutionHandle | None,
+) -> None:
+    """Run a tap for a source event, findable until it ends."""
+    state = device_runtime.state
+    state.tap_active[event_name] = True
+    task = deps.fire_and_observe_fn(tap, label)
+    state.tap_tasks[event_name] = task
+
+    def finished(done: asyncio.Task[object]) -> None:
+        # A tap cancelled before it started never clears its own flag.
+        if state.tap_tasks.get(event_name) is done:
+            del state.tap_tasks[event_name]
+            state.tap_active.pop(event_name, None)
+
+    task.add_done_callback(finished)
+    register_action_task(execution_handle, task)
 
 
 async def execute_gamepad_axis_action(
@@ -145,8 +171,9 @@ async def execute_abs_axis_output(
 
     if action.tap_enabled:
         if int(event.value) == 1 and not device_runtime.state.tap_active.get(event_name, False):
-            device_runtime.state.tap_active[event_name] = True
-            task = deps.fire_and_observe_fn(
+            start_tap(
+                device_runtime,
+                event_name,
                 tap_abs_axis(
                     device_runtime,
                     axis_code,
@@ -162,8 +189,9 @@ async def execute_abs_axis_output(
                     started=execution_handle.started if execution_handle else None,
                 ),
                 tap_label,
+                deps=deps,
+                execution_handle=execution_handle,
             )
-            register_action_task(execution_handle, task)
         elif int(event.value) == 0:
             mark_action_started(execution_handle)
         return
@@ -242,8 +270,9 @@ async def execute_key_action(
 
     if action.tap_enabled:
         if int(event.value) == 1 and not device_runtime.state.tap_active.get(event_name, False):
-            device_runtime.state.tap_active[event_name] = True
-            task = deps.fire_and_observe_fn(
+            start_tap(
+                device_runtime,
+                event_name,
                 tap_key(
                     device_runtime,
                     code,
@@ -255,8 +284,9 @@ async def execute_key_action(
                     started=execution_handle.started if execution_handle else None,
                 ),
                 f"tap action {event_name}",
+                deps=deps,
+                execution_handle=execution_handle,
             )
-            register_action_task(execution_handle, task)
         elif int(event.value) == 0:
             mark_action_started(execution_handle)
         return
@@ -361,8 +391,9 @@ async def execute_relative_mouse_action(
 
     if action.tap_enabled:
         if int(event.value) == 1 and not device_runtime.state.tap_active.get(event_name, False):
-            device_runtime.state.tap_active[event_name] = True
-            task = deps.fire_and_observe_fn(
+            start_tap(
+                device_runtime,
+                event_name,
                 tap_relative(
                     device_runtime,
                     code,
@@ -374,8 +405,9 @@ async def execute_relative_mouse_action(
                     started=execution_handle.started if execution_handle else None,
                 ),
                 f"tap action {event_name}",
+                deps=deps,
+                execution_handle=execution_handle,
             )
-            register_action_task(execution_handle, task)
         elif int(event.value) == 0:
             mark_action_started(execution_handle)
         return
@@ -427,8 +459,9 @@ async def execute_move_action(
             mark_action_started(execution_handle)
     elif action.tap_enabled:
         if int(event.value) == 1 and not device_runtime.state.tap_active.get(event_name, False):
-            device_runtime.state.tap_active[event_name] = True
-            task = deps.fire_and_observe_fn(
+            start_tap(
+                device_runtime,
+                event_name,
                 tap_move(
                     device_runtime,
                     action,
@@ -438,8 +471,9 @@ async def execute_move_action(
                     started=execution_handle.started if execution_handle else None,
                 ),
                 f"tap move {event_name}",
+                deps=deps,
+                execution_handle=execution_handle,
             )
-            register_action_task(execution_handle, task)
         elif int(event.value) == 0:
             mark_action_started(execution_handle)
     elif int(event.value) == 1:

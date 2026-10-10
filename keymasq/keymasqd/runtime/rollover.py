@@ -125,6 +125,9 @@ class HeldMember:
     # Outputs this member's presses added to its runtime's tracking. A handover
     # to a member on another device moves exactly these.
     tracked: set[TrackedOutput] = field(default_factory=set)
+    # Keyboard presses (bucket, code) of this member that a macro's keyboard
+    # block withheld. A handover passes them on, as the donor's release never runs.
+    withheld: set[tuple[str, int]] = field(default_factory=set)
     # A combo recalled this member's output. It stays out of the running
     # until the combo restores it or the key is released.
     recalled: bool = False

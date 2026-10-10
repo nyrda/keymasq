@@ -40,15 +40,11 @@ def detected_identity_key(
 
 
 def should_skip_detected_device_info(device_info: dict[str, Any]) -> bool:
-    name = str(device_info.get("name", "") or "").strip().lower()
     recording_kind = str(device_info.get("recording_kind", "") or "").strip().lower()
-
-    if "keymasq" in name or is_keymasq_output_phys(device_info.get("phys")):
-        return True
-    if recording_kind in {"keymasq_output", "keymasq_passthrough"}:
-        return True
-
-    return False
+    return is_keymasq_output_phys(device_info.get("phys")) or recording_kind in {
+        "keymasq_output",
+        "keymasq_passthrough",
+    }
 
 
 def should_include_detected_interface(

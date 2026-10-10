@@ -569,8 +569,10 @@ pressed, the selected macro plays back.
 | **Replay mouse clicks** | Whether to replay recorded mouse clicks. |
 | **Speed** | Playback speed multiplier (0.1× to 10×). |
 
-See [Macros](macros.md) for details on creating macros, loop modes, and
-editing.
+Loop mode, release behavior, pause on release, and input blocking are settings
+of the saved macro. Change them in the macro editor; they apply to every
+mapping that plays the macro. See [Macros](macros.md#playback-triggers) for
+details on creating macros, loop modes, and editing.
 
 ![Macro tab with recording slot controls, macro list, and playback options](assets/screenshots/key_selector_macro.png)
 

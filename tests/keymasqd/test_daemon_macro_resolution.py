@@ -245,31 +245,85 @@ async def test_resolve_macros_deduplicates_macro_store_reads(
 
 
 @pytest.mark.parametrize("resolver_kind", ["mapping", "combo"])
+@pytest.mark.parametrize(
+    "stored_macro",
+    [
+        pytest.param(
+            {
+                "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
+                "loop_mode": "count",
+                "loop_count": "abc",
+                "block_mouse_movement": False,
+            },
+            id="malformed",
+        ),
+        pytest.param(FileNotFoundError("broken"), id="missing"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_resolve_macros_ignores_malformed_stored_macro_values(
+async def test_unresolvable_macro_drops_mapping_level_saved_macro_settings(
     daemon_testbed,
     resolver_kind,
+    stored_macro,
 ):
     daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
 
-    macro_store.get_meta.return_value = {
-        "events": [{"type": 1, "code": 30, "value": 1, "t_us": 0}],
-        "loop_mode": "count",
-        "loop_count": "abc",
-        "block_mouse_movement": False,
-    }
+    if isinstance(stored_macro, Exception):
+        macro_store.get_meta.side_effect = stored_macro
+    else:
+        macro_store.get_meta.return_value = stored_macro
 
     resolved_actions = await _resolve_macro_actions(
         daemon.macro_store,
         resolver_kind,
         [
-            {"action": "macro", "macro_name": "broken"},
+            {
+                "action": "macro",
+                "macro_name": "broken",
+                "macro_speed": 2.0,
+                "macro_replay_mouse_clicks": False,
+                "macro_loop_mode": "toggle",
+                "macro_loop_count": 4,
+                "macro_loop_stop_behavior": "cancel_run",
+                "macro_pause_timeout_s": 30.0,
+                "macro_block_mouse_movement": True,
+                "macro_block_keyboard": True,
+            },
             {"action": "keyboard", "target": "key_a"},
         ],
     )
 
-    assert resolved_actions[0] == {"action": "macro", "macro_name": "broken"}
+    assert resolved_actions[0] == {
+        "action": "macro",
+        "macro_name": "broken",
+        "macro_speed": 2.0,
+        "macro_replay_mouse_clicks": False,
+    }
     assert resolved_actions[1] == {"action": "keyboard", "target": "key_a"}
+
+
+@pytest.mark.asyncio
+async def test_saved_macro_settings_override_mapping_level_values(daemon_testbed):
+    daemon, _device_manager, _recording_manager, macro_store, _capture_manager = daemon_testbed
+    macro_store.get_meta.return_value = macro_meta(loop_mode="none", block_keyboard=False)
+
+    resolved = await daemon_macro_commands.resolve_mapping_macros(
+        daemon.macro_store,
+        {
+            "btn_side": {
+                "action": "macro",
+                "macro_name": "combo",
+                "macro_speed": 2.0,
+                "macro_loop_mode": "toggle",
+                "macro_block_keyboard": True,
+            }
+        },
+    )
+
+    action = cast(dict[str, object], resolved["btn_side"])
+    assert action["macro_speed"] == 2.0
+    assert action["macro_loop_mode"] == "none"
+    assert action["macro_block_keyboard"] is False
 
 
 @pytest.mark.asyncio

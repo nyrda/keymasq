@@ -9,6 +9,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import normalize_macro_recording_slot
 from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.keymasqd.runtime.macro.options import (
+    MACRO_DEFINITION_OPTION_NAMES,
     MacroPlaybackOptions,
     macro_playback_options_from_mapping,
     macro_runtime_options,
@@ -26,6 +27,7 @@ SUPERKEY_ACTION_KEYS = (
     "overload_down_actions",
     "overload_up_actions",
 )
+_MACRO_DEFINITION_ACTION_KEYS = frozenset(f"macro_{name}" for name in MACRO_DEFINITION_OPTION_NAMES)
 log = logging.getLogger("keymasqd.macros")
 
 
@@ -414,15 +416,27 @@ def _collect_macro_names_from_action(action_data: JsonObject, macro_names: set[s
     _transform_action_tree(action_data, collect)
 
 
+def _without_macro_definition_options(action_data: JsonObject) -> JsonObject:
+    return {
+        key: value
+        for key, value in action_data.items()
+        if key not in _MACRO_DEFINITION_ACTION_KEYS
+    }
+
+
 def _resolve_action_macros(action_data: JsonObject, macros: dict[str, JsonObject]) -> JsonObject:
     def resolve(action: JsonObject) -> JsonObject:
         macro_name = _unresolved_macro_name(action)
-        if macro_name not in macros:
+        if not macro_name:
             return action
+        macro = macros.get(macro_name)
+        if macro is None:
+            return _without_macro_definition_options(action)
         try:
-            return apply_macro_definition(action, macros[macro_name])
-        except (TypeError, ValueError):
-            return action
+            return apply_macro_definition(action, macro)
+        except (TypeError, ValueError) as exc:
+            log.warning("Macro definition %s has invalid playback settings: %s", macro_name, exc)
+            return _without_macro_definition_options(action)
 
     return _transform_action_tree(action_data, resolve)
 

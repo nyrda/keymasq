@@ -415,12 +415,15 @@ prepare_runtime_from_appimage() {
 	fi
 	if ! mv -T "$keymasq_prepare_staging" "$keymasq_prepare_runtime_dir"; then
 		rm -rf "$keymasq_prepare_staging"
-		if [ -e "$keymasq_prepare_stale" ] && [ ! -e "$keymasq_prepare_runtime_dir" ] &&
-			[ ! -L "$keymasq_prepare_runtime_dir" ]; then
-			mv -T "$keymasq_prepare_stale" "$keymasq_prepare_runtime_dir" ||
-				warn "could not restore previous runtime directory from $keymasq_prepare_stale"
+		if [ ! -e "$keymasq_prepare_runtime_dir" ] && [ ! -L "$keymasq_prepare_runtime_dir" ]; then
+			if [ -e "$keymasq_prepare_stale" ] || [ -L "$keymasq_prepare_stale" ]; then
+				mv -T "$keymasq_prepare_stale" "$keymasq_prepare_runtime_dir" ||
+					warn "could not restore previous runtime directory from $keymasq_prepare_stale"
+			fi
+			die "failed to install extracted runtime"
 		fi
-		validate_runtime_dir "$keymasq_prepare_runtime_dir"
+		rm -rf "$keymasq_prepare_stale"
+		validate_runtime_dir "$keymasq_prepare_runtime_dir" 1
 	fi
 	rm -rf "$keymasq_prepare_stale"
 }

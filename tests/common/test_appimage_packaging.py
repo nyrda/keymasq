@@ -2438,7 +2438,11 @@ def test_appimage_self_update_replaces_incomplete_incoming_runtime(
     assert {path.name for path in (install_root / "runtime").iterdir()} == {"current", sha256}
 
 
-def test_appimage_install_keeps_active_runtime_when_promotion_fails(tmp_path: Path) -> None:
+@pytest.mark.parametrize("damage", ["launchers-only", "missing-file-list"])
+def test_appimage_install_keeps_active_runtime_when_promotion_fails(
+    tmp_path: Path,
+    damage: str,
+) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     source = tmp_path / "source.AppImage"
@@ -2447,8 +2451,13 @@ def test_appimage_install_keeps_active_runtime_when_promotion_fails(tmp_path: Pa
     sha256 = subprocess.check_output(["sha256sum", str(source)], text=True).split()[0]
     runtime_root = fake_root / "opt/keymasq/runtime"
     active = runtime_root / sha256
-    (active / "bin").mkdir(parents=True)
-    _write_executable(active / "bin/keymasq", "#!/bin/sh\nexit 0\n")
+    if damage == "launchers-only":
+        (active / "bin").mkdir(parents=True)
+        _write_executable(active / "bin/keymasq", "#!/bin/sh\nexit 0\n")
+    else:
+        shutil.copytree(Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]), active, symlinks=True)
+        (active / "share/keymasq/appimage/runtime-files.txt").unlink()
+    launcher = (active / "bin/keymasq").read_bytes()
     (runtime_root / "current").symlink_to(sha256)
     real_mv = shutil.which("mv", path=env["PATH"].split(":", 1)[1])
     _write_executable(
@@ -2470,6 +2479,7 @@ exec {real_mv} "$@"
     )
 
     assert result.returncode != 0
-    assert (active / "bin/keymasq").read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    assert "failed to install extracted runtime" in result.stderr
+    assert (active / "bin/keymasq").read_bytes() == launcher
     assert (runtime_root / "current").readlink() == Path(sha256)
     assert {path.name for path in runtime_root.iterdir()} == {"current", sha256}

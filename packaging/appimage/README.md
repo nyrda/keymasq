@@ -62,6 +62,15 @@ the Brotway `libgtk-4.so.1` with the versions defined by the AppImage's bundled
 `libc.so.6`. The build fails and lists missing versions before dependency
 collection if the overlay was built against a newer incompatible glibc.
 
+After dependency collection, `check-brotway-gtk-abi.sh` requires the Brotway
+`libgtk-4.so.1` to export every stock GTK symbol imported by a bundled library
+that links `libgtk-4.so.1` (such as libadwaita) or by a typelib that loads it.
+It lists the unresolved symbols per consumer and fails the build. The fix is a
+gtk-brotway release built against the GTK in the build container, followed by
+an updated pin. `verify-appimage.sh` backs this up at runtime by loading
+libadwaita with `RTLD_NOW` and importing `Adw` with the overlay first on the
+library path.
+
 For a local end-to-end build using an artifact produced by a neighboring
 gtk-brotway checkout:
 

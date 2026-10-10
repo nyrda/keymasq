@@ -402,6 +402,10 @@ verify_brotway_glibc_compatibility() {
     "$brotway_gtk" "$appimage_libc"
 }
 
+verify_brotway_gtk_abi() {
+  bash "$REPO_ROOT/packaging/appimage/check-brotway-gtk-abi.sh" "$APPDIR"
+}
+
 ensure_bundled_python_command() {
   local versioned
   versioned="$("$PYTHON_EXE" - <<'PY'
@@ -742,6 +746,7 @@ install_appimage_icons "$python_lib_dir"
 bundle_typelib_libraries
 bundle_elf_dependencies "$python_lib_dir" "$APPDIR/lib" "$APPDIR/bin"
 remove_bundled_graphics_drivers
+verify_brotway_gtk_abi
 
 # The installed runtime is executed by unprivileged services even though the
 # AppImage is assembled as root in CI. Preserve executable files and make the

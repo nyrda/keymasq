@@ -189,17 +189,31 @@ PY
 (
   export LD_LIBRARY_PATH="$appdir/lib/gtk4-brotway:$appdir/lib"
   "$loader" --library-path "$appdir/lib/gtk4-brotway:$appdir/lib" "$python_bin" -P - <<'PY'
+import ctypes
 import os
 from importlib import resources
 from pathlib import Path
 
 import gi
 
+appdir = Path(os.environ["APPDIR"])
+# PyGObject only warns when a typelib's library fails to load.
+ctypes.CDLL("libadwaita-1.so.0", mode=os.RTLD_NOW)
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gtk  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gtk  # noqa: E402
 
-appdir = Path(os.environ["APPDIR"])
+assert Adw.get_major_version() == 1
+overlay_dir = (appdir / "lib/gtk4-brotway").resolve()
+gtk_mappings = {
+    Path(line.split()[-1])
+    for line in Path("/proc/self/maps").read_text(encoding="utf-8").splitlines()
+    if "/libgtk-4.so" in line
+}
+assert gtk_mappings and all(path.parent == overlay_dir for path in gtk_mappings), gtk_mappings
+
 manifest = appdir / "share/keymasq/appimage/gui-icon-names.txt"
 icon_names = manifest.read_text(encoding="utf-8").splitlines()
 theme = Gtk.IconTheme.new()

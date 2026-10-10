@@ -231,12 +231,17 @@ A device you confirmed before is masked again without asking.
 | `--no-wait` | `disable <device>`: return without waiting until access is restored |
 | `--json` | Print the masking state as JSON |
 
+`resume` succeeds when remapping is not paused, changes nothing, prints
+`Remapping is not paused`, and exits with status 0. It fails while a paused
+device still waits for recovery.
+
 `list --json` prints `available`, `remapping_suspended`, `message`, and a
-`devices` array. The other subcommands print a single `device` object. Each
-device has its `id`, `name`, `vendor`, `product`, `transport`, `connection`,
-`supported`, `scope`, `warning`, the displayed `summary`, and a `mask` object
-with `state`, `lifecycle`, `enabled`, `persist`, `failure`, and retry and
-confirmation countdowns.
+`devices` array. `resume --json` prints `status` and `resumed`, which is
+`false` when remapping was not paused. The other subcommands print a single
+`device` object. Each device has its `id`, `name`, `vendor`, `product`,
+`transport`, `connection`, `supported`, `scope`, `warning`, the displayed
+`summary`, and a `mask` object with `state`, `lifecycle`, `enabled`,
+`persist`, `failure`, and retry and confirmation countdowns.
 
 ### diagnostics
 

@@ -461,6 +461,9 @@ class HardwareMasking:
         try:
             await self.startup()
             generation = self.stop_generation
+            if operation == "resume" and not data.get("id"):
+                # An emergency stop that could not record its marker is still a pause.
+                data = {**data, "suspended": self.emergency_latched}
             result = await self.request(operation, data)
         except OSError:
             if operation != "inventory":

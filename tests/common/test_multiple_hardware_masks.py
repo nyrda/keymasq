@@ -502,6 +502,62 @@ async def test_unmask_all_disables_saved_masks_without_pausing_remapping(supervi
 
 
 @pytest.mark.asyncio
+async def test_resume_without_a_pause_keeps_masks_and_unrecorded_stop_still_waits(
+    supervisor, monkeypatch
+):
+    from keymasq.common.ipc import CommandType
+    from keymasq.keymasqd.device_manager import DeviceManager
+    from keymasq.keymasqd.hardware_masking import HardwareMasking
+
+    first = supervisor.backend.inventory.scan()[0]
+    await start(supervisor, first)
+    manager = DeviceManager()
+    masking = HardwareMasking(manager)
+    masking.coordinator = supervisor
+    masking.initialized = True
+    monkeypatch.setattr(masking, "start_monitor", Mock())
+    monkeypatch.setattr(manager, "_broadcast_runtime_event", Mock())
+
+    result = await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
+    assert result["resumed"] is False
+    assert not result["remapping_suspended"]
+    assert selected(result, first.identity)["state"] == "masked"
+
+    async def unrecorded_stop(_reason):
+        raise OSError("read-only state directory")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(supervisor, "restore", unrecorded_stop)
+        with pytest.raises(OSError, match="read-only"):
+            await masking.restore()
+    with pytest.raises(ValueError, match="recovery is still in progress"):
+        await masking.handle(CommandType.RESUME_HARDWARE, {}, uid=1000)
+    assert manager.masking_suspended
+
+
+@pytest.mark.asyncio
+async def test_resume_during_a_pause_waits_for_failed_recovery(supervisor, monkeypatch):
+    first = supervisor.backend.inventory.scan()[0]
+    await start(supervisor, first)
+    item = supervisor.reservations[first.identity]
+    original = item.backend.recover
+
+    async def fail(**_kwargs):
+        raise OSError("udev recovery failed")
+
+    monkeypatch.setattr(item.backend, "recover", fail)
+    with pytest.raises(OSError, match="udev recovery failed"):
+        await supervisor.restore("user_restore")
+    with pytest.raises(ValueError, match="recovery is still in progress"):
+        await supervisor.request({"command": "resume"})
+    monkeypatch.setattr(item.backend, "recover", original)
+    await item.restore("user_restore")
+    result = await supervisor.request({"command": "resume"})
+    assert result["resumed"] is True
+    assert not result["remapping_suspended"]
+
+
+@pytest.mark.asyncio
 async def test_offline_enable_requires_prior_confirmation_for_the_authenticated_user(supervisor):
     first, second, _ = supervisor.backend.inventory.scan()
     with pytest.raises(ValueError, match="first time"):

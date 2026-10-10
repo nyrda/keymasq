@@ -435,10 +435,11 @@ def disable_cli(selector: str | None, *, wait: bool = True, json_output: bool = 
 
 def resume_cli(*, json_output: bool = False) -> None:
     try:
-        _request({"command": "resume_hardware"})
+        result = _request({"command": "resume_hardware"})
     except MaskingError as error:
         _fail(error, json_output=json_output)
+    resumed = result.get("resumed") is not False
     if json_output:
-        _print_json({"status": "ok"})
+        _print_json({"status": "ok", "resumed": resumed})
     else:
-        print("Remapping resumed")
+        print("Remapping resumed" if resumed else "Remapping is not paused")

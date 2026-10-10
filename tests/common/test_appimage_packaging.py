@@ -752,7 +752,19 @@ def _fake_extracted_appdir(tmp_path: Path, assets: Path) -> Path:
     shutil.copytree(assets, appdir / "share/keymasq/appimage")
     shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq")
     shutil.copy2(RUNTIME_SCRIPT, bin_dir / "keymasq-helper")
+    _write_runtime_file_list(appdir)
     return appdir
+
+
+def _write_runtime_file_list(appdir: Path) -> None:
+    file_list = appdir / "share/keymasq/appimage/runtime-files.txt"
+    entries = []
+    for path in appdir.rglob("*"):
+        if path == file_list or path.parent == appdir or (path.is_dir() and not path.is_symlink()):
+            continue
+        kind = "l" if path.is_symlink() else "f"
+        entries.append(f"{kind} {path.lstat().st_size} {path.relative_to(appdir)}\n".encode())
+    file_list.write_bytes(b"".join(sorted(entries)) + f"end {len(entries)}\n".encode())
 
 
 def _env(tmp_path: Path, fake_root: Path, assets: Path, source_appimage: Path) -> dict[str, str]:
@@ -858,6 +870,7 @@ case "${1:-}" in
     printf '[Icon Theme]\\nName=Keymasq\\n' > "$root/share/icons/Keymasq/index.theme"
     printf 'list-add-symbolic\\n' > "$root/share/keymasq/appimage/gui-icon-names.txt"
     printf 'gi\\n' > "$root/share/keymasq/appimage/python-runtime-site-packages.txt"
+    printf 'end 0\\n' > "$root/share/keymasq/appimage/runtime-files.txt"
     cat > "$root/lib/ld-linux-x86-64.so.2" <<'LOADER'
 #!/bin/sh
 printf '%s\\n' "$APPDIR" > "$KEYMASQ_FAKE_VERIFY_APPDIR_LOG"
@@ -1736,6 +1749,7 @@ def test_appimage_self_update_verifies_signed_manifest(tmp_path: Path) -> None:
         "new-update-public-key\n",
         encoding="utf-8",
     )
+    _write_runtime_file_list(Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]))
     target = fake_root / "opt/keymasq/Keymasq.AppImage"
     target.parent.mkdir(parents=True)
     target.write_text("old\n", encoding="utf-8")
@@ -2130,6 +2144,7 @@ exit 1
         blocked_unit = daemon_unit.with_name("keymasq-hardware@.service")
         blocked_unit.symlink_to(tmp_path / "unrelated-unit")
         expected_error = "refusing to install through symlinked destination"
+    _write_runtime_file_list(Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]))
 
     update_dir = tmp_path / "updates"
     update_dir.mkdir()
@@ -2225,6 +2240,7 @@ def test_appimage_self_update_allows_explicit_downgrade_to_pre_rename_runtime(
     env = _env(tmp_path, fake_root, assets, source_appimage)
     incoming_bin = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"]) / "bin"
     (incoming_bin / "keymasq-helper").rename(incoming_bin / "keymasq-record")
+    _write_runtime_file_list(incoming_bin.parent)
     target = fake_root / "opt/keymasq/Keymasq.AppImage"
     target.parent.mkdir(parents=True)
     target.write_text("old\n", encoding="utf-8")
@@ -2358,7 +2374,13 @@ exec {real_cp} "$@"
     assert [path.name for path in runtime_root.iterdir()] == []
 
 
-def test_appimage_self_update_replaces_incomplete_incoming_runtime(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "damage", ["missing-share", "truncated-file", "missing-file-list", "truncated-file-list"]
+)
+def test_appimage_self_update_replaces_incomplete_incoming_runtime(
+    tmp_path: Path,
+    damage: str,
+) -> None:
     fake_root = tmp_path / "root"
     assets = _asset_dir(tmp_path)
     source = tmp_path / "source.AppImage"
@@ -2379,8 +2401,18 @@ def test_appimage_self_update_replaces_incomplete_incoming_runtime(tmp_path: Pat
     env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
     incoming = install_root / "runtime" / sha256
     extracted = Path(env["KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR"])
-    for part in ("bin", "lib"):
-        shutil.copytree(extracted / part, incoming / part)
+    if damage == "missing-share":
+        for part in ("bin", "lib"):
+            shutil.copytree(extracted / part, incoming / part)
+    else:
+        shutil.copytree(extracted, incoming, symlinks=True)
+        file_list = incoming / "share/keymasq/appimage/runtime-files.txt"
+        if damage == "truncated-file":
+            (incoming / "lib/gtk4-brotway/libgtk-4.so.1").write_bytes(b"")
+        elif damage == "missing-file-list":
+            file_list.unlink()
+        else:
+            file_list.write_text(file_list.read_text().splitlines()[0] + "\n")
 
     runtime_link = tmp_path / "keymasq"
     runtime_link.symlink_to(RUNTIME_SCRIPT)
@@ -2396,5 +2428,48 @@ def test_appimage_self_update_replaces_incomplete_incoming_runtime(tmp_path: Pat
     assert target.read_text(encoding="utf-8") == "new\n"
     assert (install_root / "runtime/current").readlink() == Path(sha256)
     assert (incoming / "share/keymasq/appimage/keymasqd.service").is_file()
+    assert (incoming / "lib/gtk4-brotway/libgtk-4.so.1").read_bytes() == (
+        extracted / "lib/gtk4-brotway/libgtk-4.so.1"
+    ).read_bytes()
+    assert (incoming / "share/keymasq/appimage/runtime-files.txt").read_bytes() == (
+        extracted / "share/keymasq/appimage/runtime-files.txt"
+    ).read_bytes()
     assert (fake_root / "etc/udev/rules.d/91-keymasq-acl.rules").is_file()
     assert {path.name for path in (install_root / "runtime").iterdir()} == {"current", sha256}
+
+
+def test_appimage_install_keeps_active_runtime_when_promotion_fails(tmp_path: Path) -> None:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source = tmp_path / "source.AppImage"
+    source.write_text("appimage\n", encoding="utf-8")
+    env = _env(tmp_path, fake_root, assets, source)
+    sha256 = subprocess.check_output(["sha256sum", str(source)], text=True).split()[0]
+    runtime_root = fake_root / "opt/keymasq/runtime"
+    active = runtime_root / sha256
+    (active / "bin").mkdir(parents=True)
+    _write_executable(active / "bin/keymasq", "#!/bin/sh\nexit 0\n")
+    (runtime_root / "current").symlink_to(sha256)
+    real_mv = shutil.which("mv", path=env["PATH"].split(":", 1)[1])
+    _write_executable(
+        Path(env["PATH"].split(":", 1)[0]) / "mv",
+        f"""#!/bin/sh
+case "$*" in
+  *"/.extract-"*) exit 1 ;;
+esac
+exec {real_mv} "$@"
+""",
+    )
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=False,
+        env=env,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert (active / "bin/keymasq").read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    assert (runtime_root / "current").readlink() == Path(sha256)
+    assert {path.name for path in runtime_root.iterdir()} == {"current", sha256}

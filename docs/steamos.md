@@ -146,8 +146,8 @@ The updater runs these steps in order:
 3. It checks that the manifest architecture matches the running system.
 4. It downloads the AppImage the manifest references and checks its SHA-256.
 5. It extracts the AppImage into a staging directory, checks that the copy
-   finished and contains every launcher, the bundled Python runtime and the
-   integration files, then renames it to `/opt/keymasq/runtime/<sha256>`. A
+   finished and that every file in the AppImage's runtime file list is present
+   with its expected size, then renames it to `/opt/keymasq/runtime/<sha256>`. A
    failed copy, for example on a full disk, removes the staging directory.
    An incomplete `/opt/keymasq/runtime/<sha256>` left by an earlier attempt is
    replaced instead of reused.

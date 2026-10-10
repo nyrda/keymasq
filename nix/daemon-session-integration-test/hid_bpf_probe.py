@@ -1,5 +1,3 @@
-"""HID-BPF refusal probes, run through sudo as the keymasq account."""
-
 import array
 import json
 import os

@@ -1,10 +1,3 @@
-"""Steam Deck touch inputs through the bundled HID-BPF program on a hid-steam device.
-
-The emulated Deck is bound by the kernel's hid-steam driver. The keymasq-hardware@
-root job attaches the program and hands its descriptors to the capability-free
-daemon, which reads the touch bits that hid-steam never reports.
-"""
-
 import contextlib
 import json
 import os
@@ -146,17 +139,22 @@ def _expect_touches(ctx: ScenarioContext, deck: SteamDeck) -> None:
 
 
 def _expect_gamepad(gamepad: evdev.InputDevice, expected: set[tuple[int, int, int]]) -> None:
-    observed: set[tuple[int, int, int]] = set()
+    observed: list[tuple[int, int, int]] = []
     deadline = time.monotonic() + EVENT_TIMEOUT_S
-    while not expected <= observed and time.monotonic() < deadline:
+    settle_until = None
+    while time.monotonic() < (settle_until or deadline):
         with contextlib.suppress(BlockingIOError):
-            observed.update(
+            observed.extend(
                 (event.type, event.code, event.value)
                 for event in gamepad.read()
                 if event.type in {evdev.ecodes.EV_KEY, evdev.ecodes.EV_ABS}
             )
+        if settle_until is None and expected <= set(observed):
+            settle_until = time.monotonic() + 0.3
         time.sleep(0.01)
-    assert expected <= observed, f"hid-steam output {sorted(observed)} lacks {sorted(expected)}"
+    assert sorted(observed) == sorted(expected), (
+        f"hid-steam output {sorted(observed)} differs from {sorted(expected)}"
+    )
 
 
 def _expect_hid_steam_output(ctx: ScenarioContext, deck: SteamDeck) -> None:

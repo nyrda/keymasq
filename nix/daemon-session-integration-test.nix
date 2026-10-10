@@ -112,7 +112,6 @@ let
           i18n.defaultLocale = "en_US.UTF-8";
 
           boot.kernelModules = [ "uinput" "uhid" "fuse" "hid_steam" ];
-          # Without Steam running, hid-steam only reports gamepad input outside lizard mode.
           boot.extraModprobeConfig = "options hid_steam lizard_mode=0";
           programs.fuse.enable = true;
           # Only the test client creates emulated physical HID devices. The

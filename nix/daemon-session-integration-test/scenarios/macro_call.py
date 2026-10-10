@@ -104,7 +104,6 @@ def _type_and_wait(ctx: ScenarioContext, text: str) -> tuple[int, dict[str, Any]
             if event.type == EV_KEY
         )
 
-    # Read while typing: the evdev client buffer drops events of a long burst.
     process = subprocess.Popen(
         ["keymasq", "type", "--json", "--wait", "--layout", "us", text],
         stdout=subprocess.PIPE,

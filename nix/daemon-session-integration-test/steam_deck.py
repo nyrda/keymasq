@@ -1,12 +1,9 @@
-"""Steam Deck controller interface emulated with UHID, bound by the kernel's hid-steam driver."""
-
 import os
 import select
 import struct
 import threading
 import time
 
-# Interface 2 of a Steam Deck: one vendor-defined 64-byte input and feature report.
 DESCRIPTOR = bytes.fromhex("06ffff0901a101150026ff0075089540090181020901b102c0")
 NAME = "Valve Software Steam Deck Controller"
 PHYS = "integration-deck/input2"

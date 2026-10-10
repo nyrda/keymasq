@@ -1793,6 +1793,33 @@ async def test_handovers_of_presses_withheld_by_a_keyboard_block_keep_a_held_key
     assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
 
 
+@pytest.mark.asyncio
+async def test_a_withheld_press_handed_to_another_device_leaves_a_held_key_to_its_source(
+    monkeypatch,
+) -> None:
+    rig = Rig(
+        monkeypatch,
+        {"key_a": key("key_x"), "key_w": key("key_x")},
+        [group("key_a", side(), restore=False)],
+        mouse_mapping={"btn_side": key("key_x")},
+    )
+    blocked = False
+    rig.device.keyboard_block_getter = lambda: blocked
+    rig.mouse.keyboard_block_getter = lambda: blocked
+    await rig.send((KEY_W, 1))
+    blocked = True
+    await rig.send((KEY_A, 1))
+    await rig.click_side(1)
+    await rig.click_side(0)
+    await rig.send((KEY_A, 0))
+    blocked = False
+    assert rig.key_writes() == [(KEY_X, 1)]
+
+    await rig.send((KEY_W, 0))
+
+    assert rig.key_writes() == [(KEY_X, 1), (KEY_X, 0)]
+
+
 def tap(target: str) -> MappingAction:
     action = key(target)
     action.tap_enabled = True

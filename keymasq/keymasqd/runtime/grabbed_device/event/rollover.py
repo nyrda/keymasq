@@ -788,7 +788,7 @@ def _take_over_blocked_keys(
         before = blocked_before.get(bucket, {})
         for code, count in list(counts.items()):
             previous = before.get(code, 0)
-            if count <= previous:
+            if count <= previous or _move_blocked_count(chosen, donors, bucket, code):
                 continue
             key_down = ("key", bucket, code) in down
             if not key_down and not previous:
@@ -799,6 +799,28 @@ def _take_over_blocked_keys(
                 del counts[code]
             if key_down:
                 outputs.track_key_state(chosen.runtime, None, code, 1, bucket=bucket)
+
+
+def _move_blocked_count(
+    chosen: HeldMember,
+    donors: list[HeldMember],
+    bucket: str,
+    code: int,
+) -> bool:
+    """Drop a withheld donor press on another device, which the chosen press replaces."""
+    for donor in donors:
+        if donor.runtime is chosen.runtime:
+            continue
+        counts = donor.runtime.state.blocked_output_keys.get(bucket, {})
+        count = counts.get(code, 0)
+        if not count:
+            continue
+        if count > 1:
+            counts[code] = count - 1
+        else:
+            del counts[code]
+        return True
+    return False
 
 
 async def _end_tap(held: HeldMember) -> None:

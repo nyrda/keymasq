@@ -1,0 +1,59 @@
+[hardware]
+name = "Integration Steam Deck"
+vendor_id = "28de"
+product_id = "1205"
+
+[[hardware.evdev.devices]]
+path = "keymasq:28de:1205"
+type = "gamepad"
+id = "pad"
+phys = "$DECK_PHYS"
+
+[hardware.layout]
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_south"
+label = "A"
+evdev = "btn_south"
+source = "pad"
+type = "key"
+
+[[hardware.layout.buttons]]
+id = "btn_touch_ls"
+label = "LS Touch"
+evdev = "btn_touch_ls"
+evdev_code = 768
+source = "touch"
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_touch_rs"
+label = "RS Touch"
+evdev = "btn_touch_rs"
+evdev_code = 769
+source = "touch"
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_touch_lp"
+label = "LP Touch"
+evdev = "btn_touch_lp"
+evdev_code = 770
+source = "touch"
+type = "gamepad"
+
+[[hardware.layout.buttons]]
+id = "btn_touch_rp"
+label = "RP Touch"
+evdev = "btn_touch_rp"
+evdev_code = 771
+source = "touch"
+type = "gamepad"
+
+[[hardware.input_sources]]
+id = "touch"
+driver = "steam-deck-touch"
+companion_of = "pad"
+phys = "$DECK_PHYS"
+backend = "hid-bpf"

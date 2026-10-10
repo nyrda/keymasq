@@ -26,8 +26,11 @@ from . import (
     gamepad_axis_output,
     gamepad_output,
     held_output_profile_change,
+    hid_bpf_touch,
     hotplug_replug,
+    macro_call,
     macro_keyboard_block,
+    macro_keyboard_block_interactions,
     macro_lifecycle,
     macro_pause,
     macro_playback,
@@ -74,6 +77,13 @@ SCENARIOS = [
     ScenarioCase("macro child pause expiry", macro_pause.run_child_expiry),
     ScenarioCase("macro paused parent child failure", macro_pause.run_child_failure),
     ScenarioCase("macro keyboard block", macro_keyboard_block.run),
+    ScenarioCase("macro keyboard block rollover", macro_keyboard_block_interactions.run_rollover),
+    ScenarioCase(
+        "macro keyboard block emergency reset",
+        macro_keyboard_block_interactions.run_emergency_reset,
+    ),
+    ScenarioCase("macro call from mapped type macro", macro_call.run_mapped),
+    ScenarioCase("macro call from keymasq type", macro_call.run_cli),
     ScenarioCase("superkey tap", superkey_tap.run),
     ScenarioCase(
         "superkey overload multi-action press/release",
@@ -125,6 +135,7 @@ SCENARIOS = [
     ScenarioCase("hotplug replug", hotplug_replug.run),
     ScenarioCase("source hiding", source_hiding.run),
     ScenarioCase("native hidraw access", native_hidraw.run),
+    ScenarioCase("hid-bpf steam deck touch", hid_bpf_touch.run),
     ScenarioCase(
         "macro recording disabled by policy",
         recording_capture.run_disabled_by_policy,

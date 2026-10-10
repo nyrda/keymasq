@@ -1,0 +1,26 @@
+[profile]
+name = "$MACRO_CALL_PROFILE_NAME"
+enabled = false
+is_permanent = true
+priority = 620
+notify_on_activation = false
+created_at = "2026-10-10T00:00:00"
+
+[devices."$HARDWARE_ID"]
+always_grab_all = false
+
+[devices."$HARDWARE_ID".mapping.key_f13]
+action = "macro"
+target = "$CALLER_MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_f14]
+action = "macro"
+target = "$MISSING_CALLER_MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_f15]
+action = "macro"
+target = "$SELF_CALLER_MACRO_NAME"
+
+[devices."$HARDWARE_ID".mapping.key_f16]
+action = "macro"
+target = "$LOOP_A_MACRO_NAME"

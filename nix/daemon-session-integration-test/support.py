@@ -241,6 +241,21 @@ class ScenarioContext:
         raise AssertionError(f"no response for session request: {payload}")
 
     def create_source_keyboard(self, name: str, *, vendor: int, product: int) -> evdev.UInput:
+        device = self.new_source_keyboard(name, vendor=vendor, product=product)
+        self.settle_udev()
+        source_device = self.wait_for_source_device(name, vendor=vendor, product=product)
+        existing_device = getattr(device, "device", None)
+        if existing_device is not None and existing_device is not source_device:
+            with contextlib.suppress(OSError, RuntimeError):
+                existing_device.close()
+        device.device = source_device
+        if not getattr(device.device, "path", None):
+            device.close()
+            raise AssertionError("source uinput did not expose an evdev path")
+        time.sleep(0.5)
+        return device
+
+    def new_source_keyboard(self, name: str, *, vendor: int, product: int) -> evdev.UInput:
         source_keys = [
             getattr(evdev.ecodes, f"KEY_{letter}") for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         ]
@@ -265,17 +280,6 @@ class ScenarioContext:
             product=product,
             phys=f"{name}/input0",
         )
-        self.settle_udev()
-        source_device = self.wait_for_source_device(name, vendor=vendor, product=product)
-        existing_device = getattr(device, "device", None)
-        if existing_device is not None and existing_device is not source_device:
-            with contextlib.suppress(OSError, RuntimeError):
-                existing_device.close()
-        device.device = source_device
-        if not getattr(device.device, "path", None):
-            device.close()
-            raise AssertionError("source uinput did not expose an evdev path")
-        time.sleep(0.5)
         return device
 
     def create_source_gamepad(self) -> evdev.UInput:
@@ -854,15 +858,18 @@ type = "key"
             raise AssertionError("secondary source keyboard is not available")
         path = self.secondary_source.device.path
         self.secondary_source.close()
-        self.secondary_source = self.create_source_keyboard(
+        self.secondary_source = self.new_source_keyboard(
             SECOND_SOURCE_NAME,
             vendor=0xCAFE,
             product=0x0002,
         )
-        if self.secondary_source.device.path != path:
-            raise AssertionError(
-                f"replugged source moved from {path} to {self.secondary_source.device.path}"
-            )
+        nodes = [
+            f"/dev/input/{node.name}"
+            for node in Path("/sys/class/input").glob("event*")
+            if (node / "device/name").read_text().strip() == SECOND_SOURCE_NAME
+        ]
+        if nodes != [path]:
+            raise AssertionError(f"replugged source moved from {path} to {nodes}")
 
     def reopen_outputs(self) -> None:
         self.close_outputs()

@@ -220,9 +220,9 @@ speed = 1.0
 Per mapping (profile mappings, superkey slots, combo actions, analog
 thresholds): `replay_mouse_movement`, `replay_mouse_clicks`, `speed`.
 
-Per saved macro, set with `keymasq macros create/update` or the macro editor:
-`loop_mode`, `loop_count`, `loop_stop_behavior`, `pause_timeout_s`,
-`block_mouse_movement`, `block_keyboard`. They apply to every binding of the
+Per saved macro, set in the macro JSON (`keymasq macros create [--force]`) or
+the macro editor: `loop_mode`, `loop_count`, `loop_stop_behavior`,
+`pause_timeout_s`, `block_mouse_movement`, `block_keyboard`. They apply to every binding of the
 macro. Mapping-level copies of these keys are ignored when a profile, superkey,
 or analog control loads and are dropped on the next save. If the saved macro
 cannot be read when a profile is applied (missing, unreadable, invalid

@@ -329,8 +329,14 @@ async def test_hyprland_activewindow_event_emits_on_title_change() -> None:
 
 class _FakeHyprland:
 
-    def __init__(self, *, lua_config: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        lua_config: bool = True,
+        layer_interactivity_field: str = "interactivity",
+    ) -> None:
         self.lua_config = lua_config
+        self.layer_interactivity_field = layer_interactivity_field
         self.active_window: dict[str, object] = {
             "address": "0x5a5a",
             "class": "kitty",
@@ -363,6 +369,8 @@ class _FakeHyprland:
         if self.failing_layer_queries:
             self.failing_layer_queries -= 1
             return None
+        if f"layer.{self.layer_interactivity_field}" not in command:
+            return b'[string "repl"]:1: attempt to concatenate a nil value'
         lines = ["keymasq-layers"]
         for address, (namespace, interactivity) in self.layers.items():
             in_query = "namespace =" not in command or f'"{namespace}"' in command
@@ -399,9 +407,16 @@ def _start_without_sockets(monkeypatch: pytest.MonkeyPatch, hyprland: _FakeHyprl
     monkeypatch.setattr(HyprlandListener, "_listen", AsyncMock())
 
 
+@pytest.mark.parametrize(
+    "layer_interactivity_field",
+    ["interactivity", "keyboard_interactivity"],
+    ids=["hyprland-0.56", "hyprland-after-0.56"],
+)
 @pytest.mark.asyncio
-async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes() -> None:
-    hyprland = _FakeHyprland()
+async def test_hyprland_exclusive_layer_reports_focused_layer_until_it_closes(
+    layer_interactivity_field: str,
+) -> None:
+    hyprland = _FakeHyprland(layer_interactivity_field=layer_interactivity_field)
     listener, focus_updates = _listener_with_fake_hyprland(hyprland)
 
     await listener._handle_event("activewindow>>kitty,Beta")

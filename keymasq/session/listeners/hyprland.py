@@ -40,7 +40,9 @@ def _layers_command(namespace: str | None = None) -> str:
         f'repl return (function() local lines = {{ "{LAYER_QUERY_MARKER}" }} '
         f"for _, layer in ipairs(hl.get_layers({query})) do "
         "if layer.mapped then "
-        'lines[#lines + 1] = layer.address .. " " .. layer.interactivity .. " " .. layer.namespace '
+        # Hyprland after 0.56 renamed interactivity to keyboard_interactivity.
+        "local interactivity = layer.keyboard_interactivity or layer.interactivity "
+        'lines[#lines + 1] = layer.address .. " " .. interactivity .. " " .. layer.namespace '
         'end end return table.concat(lines, "\\n") end)()'
     )
 

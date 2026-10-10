@@ -891,7 +891,7 @@ async def test_a_slow_member_action_holds_up_neither_other_groups_nor_other_devi
         {"key_a": axis(LEFT), "key_d": axis(RIGHT), "key_w": key("key_x")},
         [group("key_a", "key_d"), group(side, "key_w")],
         mouse_mapping={
-            "btn_side": MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS),
+            "btn_side": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS)),
         },
     )
     gate = asyncio.Event()
@@ -949,7 +949,7 @@ async def test_a_queued_press_is_dropped_when_its_device_goes_away(monkeypatch) 
         {"key_w": key("key_x")},
         [group(side, "key_w")],
         mouse_mapping={
-            "btn_side": MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS),
+            "btn_side": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS)),
         },
     )
     gate = asyncio.Event()
@@ -1176,7 +1176,7 @@ async def cursor_member_setup(
         [],
         hardware_id=KEYBOARD,
         button_map=BUTTON_MAP,
-        mapping={"key_a": CURSOR_MOVE},
+        mapping={"key_a": overload(CURSOR_MOVE)},
     )
     manager, keyboard = setup.manager, setup.device
     mouse = make_combo_grabbed_device(
@@ -1377,7 +1377,7 @@ async def test_the_release_of_a_forgotten_member_leaves_the_new_winner_alone(mon
 async def test_a_device_leaving_cancels_its_queued_member_action(monkeypatch) -> None:
     rig = Rig(
         monkeypatch,
-        {"key_w": MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS)},
+        {"key_w": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS))},
         [group("key_w", "key_d")],
     )
     gate = asyncio.Event()

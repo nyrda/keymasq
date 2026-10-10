@@ -26,6 +26,7 @@ from keymasq.keymasqd.runtime.combo import execution, superkeys
 from keymasq.keymasqd.runtime.combo.recall import (
     attach_combo_trigger_recall_state,
     combo_trigger_recall_state,
+    find_grabbed_device_for_binding,
     ordered_unique_bindings,
     restore_combo_trigger_bindings,
 )
@@ -40,6 +41,7 @@ from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     ActionRuntime,
     EvdevModule,
+    GrabbedDeviceState,
 )
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_OVERLOAD,
@@ -226,6 +228,7 @@ async def start_combo_action(
         trigger_binding,
         trigger_name=trigger_name,
         deps=deps,
+        detach_cursor_move=True,
     )
     state = manager.combo_state.active_actions.get(combo_id)
     if state is not None:
@@ -414,6 +417,7 @@ async def _start_combo_action_instance(
     trigger_name: str,
     deps: ComboRuntimeDeps,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     if action is None or action.action_type == ActionType.SUPERKEY:
         return
@@ -428,6 +432,12 @@ async def _start_combo_action_instance(
         trigger_binding,
         trigger_name=trigger_name,
     )
+    if detach_cursor_move:
+        owner = find_grabbed_device_for_binding(manager, trigger_binding)
+        owner_state = getattr(owner, "state", None)
+        if isinstance(owner_state, GrabbedDeviceState):
+            # The triggering device's cleanup also stops a move the combo started.
+            runtime.state.cursor_move_tasks = owner_state.cursor_move_tasks
     if execution.profile_action_tracks_trigger(action):
         _observe_combo_profile_trigger(
             manager,
@@ -486,6 +496,7 @@ async def _start_combo_action_instance(
             repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=deps.resolve_code_fn,
             record_repeat=record_repeat,
+            detach_cursor_move=detach_cursor_move,
         )
         await started.wait()
     except asyncio.CancelledError:

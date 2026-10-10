@@ -56,6 +56,7 @@ async def execute_action(
     repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     if (
         record_repeat
@@ -99,6 +100,7 @@ async def execute_action(
             repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=resolve_code_fn,
             record_repeat=record_repeat,
+            detach_cursor_move=detach_cursor_move,
         )
         return
 
@@ -266,6 +268,7 @@ async def execute_action(
             event_name,
             deps=deps,
             execution_handle=execution_handle,
+            detach_cursor_move=detach_cursor_move,
         )
         return
 
@@ -393,6 +396,7 @@ async def _execute_repeat_action(
     repeat_superkey_executor: RepeatSuperkeyExecutor | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
     record_repeat: bool = True,
+    detach_cursor_move: bool = False,
 ) -> None:
     repeat_event_name = f"{event_name}#repeat"
     repeat_state = getattr(device_runtime, "repeat_state", None)
@@ -433,6 +437,7 @@ async def _execute_repeat_action(
             repeat_superkey_executor=repeat_superkey_executor,
             resolve_code_fn=resolve_code_fn,
             record_repeat=record_repeat,
+            detach_cursor_move=detach_cursor_move,
         )
         refresh_repeated_exec_source(repeat_state, repeated_entry)
         return
@@ -463,4 +468,5 @@ async def _execute_repeat_action(
         repeat_superkey_executor=repeat_superkey_executor,
         resolve_code_fn=resolve_code_fn,
         record_repeat=record_repeat,
+        detach_cursor_move=detach_cursor_move,
     )

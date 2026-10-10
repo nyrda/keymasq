@@ -93,6 +93,7 @@ cat >/usr/local/bin/keymasq-helper-wrapper <<EOF
 exec ${PYTHON_BIN} -m keymasq.helper "\$@"
 EOF
 chmod 0755 /usr/local/bin/keymasq-helper-wrapper
+rm -f /usr/local/bin/keymasq-record-wrapper
 
 # Source hiding and hardware masking run their privileged steps as bounded
 # root jobs; the daemon itself holds no capabilities.

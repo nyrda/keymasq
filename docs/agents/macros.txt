@@ -226,8 +226,10 @@ the macro editor: `loop_mode`, `loop_count`, `loop_stop_behavior`,
 macro. Mapping-level copies of these keys are ignored when a profile, superkey,
 or analog control loads and are dropped on the next save. If the saved macro
 cannot be read when a profile is applied (missing, unreadable, invalid
-settings), the binding plays once with no input blocking until the macro is
-saved or the profile is reapplied. Macro call events inside a timeline are
+settings), the binding uses the default options (loop_mode "none", no input
+blocking) until the macro is saved or the profile is reapplied; the macro events
+are still loaded at trigger time, so a missing or unreadable macro does not
+play. Macro call events inside a timeline are
 different: each call carries its own `loop_mode`, `loop_count`,
 `loop_stop_behavior`, `pause_timeout_s`, `speed`, and replay flags, while the
 block settings come from the called macro.

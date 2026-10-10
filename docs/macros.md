@@ -352,9 +352,10 @@ analog threshold that plays the macro uses these saved settings, and saving the
 macro updates all of them. Mappings cannot override them.
 
 If Keymasq cannot read the saved macro's settings when a profile is applied,
-for example because the macro file is unreadable, the mapping uses the
-defaults, playing once without input blocking, until the macro is saved again
-or the profile is reapplied. Settings from older profile files are never used.
+the mapping uses the default settings (play once, no input blocking) instead,
+until the macro is saved again or the profile is reapplied. Settings from older
+profile files are never used. The mapping still plays the macro's events only
+if the macro can be read when it is triggered.
 
 ![Mapping dialog for picking a macro and setting speed and replay options](assets/screenshots/keymasq_map_macro_1.png)
 

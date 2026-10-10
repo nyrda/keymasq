@@ -127,6 +127,7 @@ last tag:
 - [ ] `./scripts/integration.sh listeners`
 - [ ] `scripts/check-doc-screenshots`
 - [ ] `scripts/test-appimage-brotway <Keymasq.AppImage>` on the built AppImage
+- [ ] `scripts/test-appimage-upgrade <Keymasq.AppImage>` on the built AppImage
 
 These suites are manual gates, and CI does not run them. Prereleases should
 pass the same gates unless the prerelease exists specifically to test packaging

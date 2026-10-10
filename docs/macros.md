@@ -517,7 +517,8 @@ Keyboard blocking follows these rules:
 - Keys typed by macros are never blocked. This includes other macros that
   start while the block is active.
 - Keys that were already held when playback started stay held, and releasing
-  them still works.
+  them still works. When a rollover group hands such a key to another member
+  that sends the same key, releasing that member lets the key go.
 - A key pressed during playback sends nothing, and its release is dropped too.
   A plain key still held when playback ends needs to be pressed again.
 - Features that press keys on their own, such as rapidfire, rollover groups,

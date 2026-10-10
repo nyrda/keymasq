@@ -224,7 +224,8 @@ restore = true               # a still-held member takes over again
 Members may use any action, or be unmapped (they pass through). Gaining the
 active role presses the member's action and losing it releases the action, like
 a real key press, so tap, rapidfire, macros, and superkeys restart on every
-handover. Press-only actions (exec, compositor dispatch, profile enable,
+handover. A tap still running when another member takes over ends at once,
+before the new member presses. Press-only actions (exec, compositor dispatch, profile enable,
 disable and toggle, mpris, macro slot and recording controls, emergency reset)
 run once per physical press, not again on each takeover. Two members that send the same plain key, button, or axis target
 without tap or rapidfire hand over by overwriting it, without a release. A

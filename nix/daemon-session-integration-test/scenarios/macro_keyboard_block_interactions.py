@@ -10,6 +10,9 @@ BLOCKING_NAME = "integration-keyboard-block-interactions"
 TRIGGER = evdev.ecodes.KEY_F13
 LEFT_MEMBER = evdev.ecodes.KEY_F15
 RIGHT_MEMBER = evdev.ecodes.KEY_F16
+FIRST_SHARED_MEMBER = evdev.ecodes.KEY_F17
+SECOND_SHARED_MEMBER = evdev.ecodes.KEY_F18
+SHARED = evdev.ecodes.KEY_X
 RESET = evdev.ecodes.KEY_T
 MACRO_START = [(evdev.ecodes.KEY_1, 1), (evdev.ecodes.KEY_1, 0)]
 MACRO_END = [(evdev.ecodes.KEY_2, 1), (evdev.ecodes.KEY_2, 0)]
@@ -64,7 +67,14 @@ def _blocking_profile(ctx: ScenarioContext) -> Iterator[None]:
         ctx.reopen_outputs()
         yield
     finally:
-        for code in (LEFT_MEMBER, RIGHT_MEMBER, RESET, TRIGGER):
+        for code in (
+            LEFT_MEMBER,
+            RIGHT_MEMBER,
+            FIRST_SHARED_MEMBER,
+            SECOND_SHARED_MEMBER,
+            RESET,
+            TRIGGER,
+        ):
             ctx.source_key(code, 0)
         ctx.request({"command": "cancel_macro_playback"}, ok=False)
         ctx.request({"command": "disable_profile", "profile_name": PROFILE_NAME}, ok=False)
@@ -87,6 +97,20 @@ def run_rollover(ctx: ScenarioContext) -> None:
         ctx.expect_exact_keys([(LEFT, 0), (RIGHT, 1)])
         ctx.source_key(RIGHT_MEMBER, 0)
         ctx.expect_exact_keys([(RIGHT, 0)])
+
+
+def run_shared_key_handover(ctx: ScenarioContext) -> None:
+    with _blocking_profile(ctx):
+        ctx.source_key(FIRST_SHARED_MEMBER, 1)
+        ctx.expect_exact_keys([(SHARED, 1)])
+        ctx.tap_source(TRIGGER)
+        ctx.expect_exact_keys(MACRO_START)
+
+        ctx.source_key(SECOND_SHARED_MEMBER, 1)
+        ctx.source_key(SECOND_SHARED_MEMBER, 0)
+        ctx.source_key(FIRST_SHARED_MEMBER, 0)
+        ctx.expect_exact_keys([(SHARED, 0)])
+        ctx.expect_exact_keys(MACRO_END)
 
 
 def run_emergency_reset(ctx: ScenarioContext) -> None:

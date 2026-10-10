@@ -21,6 +21,14 @@ target = "key_left"
 action = "keyboard"
 target = "key_right"
 
+[devices."$HARDWARE_ID".mapping.key_f17]
+action = "keyboard"
+target = "key_x"
+
+[devices."$HARDWARE_ID".mapping.key_f18]
+action = "keyboard"
+target = "key_x"
+
 [devices."$HARDWARE_ID".mapping.key_t]
 action = "emergency_reset"
 
@@ -29,6 +37,15 @@ name = "Block Snap Tap"
 members = [
   { hardware_id = "$HARDWARE_ID", button = "key_f15" },
   { hardware_id = "$HARDWARE_ID", button = "key_f16" },
+]
+winner = "newest"
+restore = true
+
+[[rollover_groups]]
+name = "Block Shared Key"
+members = [
+  { hardware_id = "$HARDWARE_ID", button = "key_f17" },
+  { hardware_id = "$HARDWARE_ID", button = "key_f18" },
 ]
 winner = "newest"
 restore = true

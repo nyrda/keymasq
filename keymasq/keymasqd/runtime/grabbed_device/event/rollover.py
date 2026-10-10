@@ -649,6 +649,8 @@ async def _settle(
         else:
             await _dispatch(held, event_type, 0, trigger_runtime, deps=deps)
             held.tracked.clear()
+            if chosen is not None:
+                await _end_tap(held)
         held.pressed = False
 
     group_state.active = chosen
@@ -687,6 +689,7 @@ async def _press(
 ) -> None:
     """Press the chosen member, taking over its donors' output."""
     tracked_before = _tracked_outputs(chosen.runtime)
+    blocked_before = _blocked_key_counts(chosen.runtime)
     # Marked first, so the press is released later even if it is cancelled.
     chosen.pressed = True
     action = find_action_for_code(
@@ -702,6 +705,8 @@ async def _press(
         # physical press and holds nothing, so taking over again skips it.
         await _dispatch(chosen, event_type, 1, trigger_runtime, deps=deps)
     chosen.fired = True
+    if donors:
+        _take_over_blocked_keys(chosen, donors, blocked_before)
     chosen.tracked |= _tracked_outputs(chosen.runtime) - tracked_before
     _take_over_outputs(chosen, donors)
     chosen.output = rollover_output(
@@ -755,6 +760,54 @@ def _take_over_outputs(chosen: HeldMember, donors: list[HeldMember]) -> None:
             _forget_tracked_outputs(donor.runtime, moved)
             chosen.tracked |= moved
         donor.tracked.clear()
+
+
+def _blocked_key_counts(runtime: GrabbedDeviceRuntime) -> dict[str, dict[int, int]]:
+    return {
+        bucket: dict(counts) for bucket, counts in runtime.state.blocked_output_keys.items()
+    }
+
+
+def _take_over_blocked_keys(
+    chosen: HeldMember,
+    donors: list[HeldMember],
+    blocked_before: dict[str, dict[int, int]],
+) -> None:
+    """Undo a keyboard block's hold-back of a press that took over a donor's key.
+
+    The donors' releases never run, so the chosen press stands in for their
+    presses instead of adding one. A key already down stays down and the chosen
+    member's release lets it go. A key whose donor press the block withheld
+    keeps that one count, which the chosen member's release consumes.
+    """
+    state = chosen.runtime.state
+    down = _tracked_outputs(chosen.runtime).union(
+        *(_tracked_outputs(donor.runtime) for donor in donors)
+    )
+    for bucket, counts in state.blocked_output_keys.items():
+        before = blocked_before.get(bucket, {})
+        for code, count in list(counts.items()):
+            previous = before.get(code, 0)
+            if count <= previous:
+                continue
+            key_down = ("key", bucket, code) in down
+            if not key_down and not previous:
+                continue
+            if previous:
+                counts[code] = previous
+            else:
+                del counts[code]
+            if key_down:
+                outputs.track_key_state(chosen.runtime, None, code, 1, bucket=bucket)
+
+
+async def _end_tap(held: HeldMember) -> None:
+    """End a losing member's tap now, before another member presses its output."""
+    task = held.runtime.state.tap_tasks.get(held.event_name)
+    if task is None or task.done():
+        return
+    task.cancel()
+    await asyncio.wait({task})
 
 
 async def _dispatch(

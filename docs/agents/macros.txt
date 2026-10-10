@@ -116,7 +116,8 @@ block_mouse_movement drops pointer movement from grabbed mice during playback.
 block_keyboard holds back keyboard key output (KEY_* codes, not BTN_*) that
 physical input produces through grabbed devices: passthrough, remaps,
 superkeys, combos, analog thresholds. Macro output is never blocked, including
-other macros. Releases of keys held before the block still pass; a press during
+other macros. Releases of keys held before the block still pass, also after a
+rollover group handed the key to a member sending the same key; a press during
 the block is dropped together with its repeats and release. Rapidfire, rollover
 groups, superkeys, and combos act normally again after the block, also for keys
 pressed during it. Each macro instance, including called children, applies its

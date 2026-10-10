@@ -1231,7 +1231,7 @@ class TestHardwareSetupDialog:
             {
                 "path": "/dev/input/event22",
                 "name": "keymasq-gamepad",
-                "phys": "py-evdev-uinput",
+                "phys": "keymasq/virtual-gamepad-1",
                 "vendor_id": "045e",
                 "product_id": "028e",
                 "device_type": "gamepad",
@@ -1240,7 +1240,7 @@ class TestHardwareSetupDialog:
             {
                 "path": "/dev/input/event23",
                 "name": "Xbox 360 Controller",
-                "phys": "py-evdev-uinput",
+                "phys": "keymasq/virtual-gamepad-2",
                 "vendor_id": "045e",
                 "product_id": "028e",
                 "device_type": "gamepad",
@@ -1250,13 +1250,22 @@ class TestHardwareSetupDialog:
             {
                 "path": "/dev/input/event24",
                 "name": "Logitech G920 Driving Force Racing Wheel for Xbox One",
-                "phys": "py-evdev-uinput",
+                "phys": "keymasq/passthrough/046d:c262/joystick",
                 "vendor_id": "046d",
                 "product_id": "c262",
                 "device_type": "gamepad",
                 "device_types": ["gamepad"],
                 "recording_kind": "keymasq_passthrough",
                 "source_hardware_id": "046d:c262",
+            },
+            {
+                "path": "/dev/input/event25",
+                "name": "8BitDo Pro 2",
+                "phys": "keymasq/passthrough/2dc8:6012/joystick",
+                "vendor_id": "2dc8",
+                "product_id": "6012",
+                "device_type": "gamepad",
+                "device_types": ["gamepad"],
             },
             {
                 "path": "/dev/input/event10",

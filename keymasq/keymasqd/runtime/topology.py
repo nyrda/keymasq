@@ -718,7 +718,7 @@ def scan_live_interfaces_sync(
 
     for path, device_info in cached_devices.items():
         try:
-            if device_info.is_virtual:
+            if device_info.is_keymasq_output:
                 continue
             vendor_id = device_info.vendor_id
             product_id = device_info.product_id

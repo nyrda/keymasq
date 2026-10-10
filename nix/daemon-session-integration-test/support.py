@@ -22,10 +22,9 @@ HARDWARE_ID = "cafe:0001"
 SECOND_HARDWARE_ID = "cafe:0002"
 GAMEPAD_HARDWARE_ID = "cafe:0003"
 MOUSE_HARDWARE_ID = "cafe:0004"
-# Source devices stand in for physical hardware, so none is named "keymasq-*"
-# or keeps the python-evdev phys. The daemon treats those as its own virtual
-# outputs: it never resolves a keymasq:<vendor>:<product> path to them, and its
-# topology scan omits them, so an unrelated hotplug would release their grabs.
+# Source devices stand in for physical hardware, so none uses a "keymasq/" phys.
+# The daemon treats those as its own virtual outputs: it never resolves a
+# keymasq:<vendor>:<product> path to them, and its topology scan omits them.
 SOURCE_NAME = "integration-source-keyboard"
 SECOND_SOURCE_NAME = "integration-secondary-keyboard"
 GAMEPAD_SOURCE_NAME = "integration-source-gamepad"

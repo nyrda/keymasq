@@ -353,6 +353,7 @@ def test_passthrough_uinput_kwargs_can_omit_unsupported_max_effects() -> None:
     kwargs = grabbed_device._passthrough_uinput_kwargs(
         caps={evdev.ecodes.EV_KEY: [evdev.ecodes.BTN_SOUTH]},
         passthrough_name="pad",
+        passthrough_phys="keymasq/passthrough/pad",
         passthrough_vendor=None,
         passthrough_product=None,
         passthrough_version=None,

@@ -159,6 +159,9 @@ Detection paths:
   `phys`, and capabilities
 - profile mappings refer to hardware IDs and source control IDs, not event
   device path strings
+- Keymasq's own uinput outputs have a `phys` starting with `keymasq/` and are
+  never matched or listed as hardware; other uinput devices (including the
+  python-evdev default `py-evdev-uinput`) are treated as ordinary hardware
 
 ## Mapping source IDs
 

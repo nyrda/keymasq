@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from keymasq.common.devices import normalize_input_classes, primary_input_class
 from keymasq.common.native_sources import is_native_backend
+from keymasq.common.virtual_devices import is_keymasq_output_phys
 from keymasq.gui.session_client import session_request
 from keymasq.gui.wizards.hardware_setup import inventory
 from keymasq.gui.wizards.hardware_setup.identity import (
@@ -42,7 +43,7 @@ def should_skip_detected_device_info(device_info: dict[str, Any]) -> bool:
     name = str(device_info.get("name", "") or "").strip().lower()
     recording_kind = str(device_info.get("recording_kind", "") or "").strip().lower()
 
-    if "keymasq" in name:
+    if "keymasq" in name or is_keymasq_output_phys(device_info.get("phys")):
         return True
     if recording_kind in {"keymasq_output", "keymasq_passthrough"}:
         return True

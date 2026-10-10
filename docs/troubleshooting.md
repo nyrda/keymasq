@@ -216,7 +216,8 @@ The **+** dialog lists input devices the daemon can open. It leaves out:
 
 - devices that already have a hardware config. Open that device's tab and use
   **Hardware Settings** to add more of its event devices
-- Keymasq's own virtual keyboards, mice, and gamepads
+- Keymasq's own virtual keyboards, mice, gamepads, and passthrough clones,
+  whose `phys` starts with `keymasq/`
 - event devices that report no vendor and product ID
 - touchpads, unless **Show raw evdev devices** is checked
 

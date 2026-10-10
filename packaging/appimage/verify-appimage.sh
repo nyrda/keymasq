@@ -42,6 +42,28 @@ if [[ -z "$appdir" ]]; then
   exit 1
 fi
 
+runtime_file_list="share/keymasq/appimage/runtime-files.txt"
+if [[ ! -f "$appdir/$runtime_file_list" ]]; then
+  echo "AppImage runtime file list was not found" >&2
+  exit 1
+fi
+runtime_file_entries=$(($(wc -l <"$appdir/$runtime_file_list") - 1))
+if [[ "$(tail -n 1 "$appdir/$runtime_file_list")" != "end $runtime_file_entries" ]]; then
+  echo "AppImage runtime file list has no matching end marker" >&2
+  exit 1
+fi
+missing_runtime_files="$(
+  cd "$appdir"
+  LC_ALL=C comm -23 \
+    <(sed '$d' "$runtime_file_list") \
+    <(find . \( -type f -o -type l \) ! -path "./$runtime_file_list" -printf '%y %s %P\n' | LC_ALL=C sort)
+)"
+if [[ -n "$missing_runtime_files" ]]; then
+  echo "extracted AppImage does not match its runtime file list:" >&2
+  head -n 20 <<<"$missing_runtime_files" >&2
+  exit 1
+fi
+
 python_bin=
 for candidate in "$appdir"/shared/bin/python3.* "$appdir"/shared/bin/python3 "$appdir"/shared/bin/python; do
   if [[ -x "$candidate" ]]; then

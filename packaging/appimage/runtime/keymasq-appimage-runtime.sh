@@ -7,6 +7,7 @@ APPIMAGE_NAME=Keymasq.AppImage
 RUNTIME_DIR_NAME=runtime
 CURRENT_RUNTIME_NAME=current
 VERSION_FILE_NAME=version
+RUNTIME_FILE_LIST=share/keymasq/appimage/runtime-files.txt
 UPDATE_MANIFEST_NAME=latest-x86_64.json
 DEFAULT_UPDATE_BASE_URL=https://repo.keymasq.tools/appimage
 USER_WRAPPER_MARKER='# Managed by Keymasq AppImage'
@@ -262,26 +263,86 @@ current_runtime_id() {
 	fi
 }
 
-validate_runtime_dir() {
-	keymasq_validate_dir=$1
-	[ -x "$keymasq_validate_dir/bin/keymasq" ] || die "extracted runtime missing keymasq launcher"
-	[ -x "$keymasq_validate_dir/bin/keymasqd" ] || die "extracted runtime missing keymasqd launcher"
-	[ -x "$keymasq_validate_dir/bin/keymasq-session" ] || die "extracted runtime missing keymasq-session launcher"
+runtime_dir_missing() {
+	keymasq_check_dir=$1
+	[ -x "$keymasq_check_dir/bin/keymasq" ] || { echo "keymasq launcher"; return 0; }
+	[ -x "$keymasq_check_dir/bin/keymasqd" ] || { echo "keymasqd launcher"; return 0; }
+	[ -x "$keymasq_check_dir/bin/keymasq-session" ] || { echo "keymasq-session launcher"; return 0; }
 	# Stable releases from before the rename, a --allow-downgrade target, ship keymasq-record.
-	[ -x "$keymasq_validate_dir/bin/keymasq-helper" ] || [ -x "$keymasq_validate_dir/bin/keymasq-record" ] ||
-		die "extracted runtime missing keymasq-helper launcher"
-	[ -x "$keymasq_validate_dir/bin/slurp" ] || die "extracted runtime missing bundled slurp launcher"
-	[ -x "$keymasq_validate_dir/bin/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || die "extracted runtime missing Brotway daemon"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-run" ] || die "extracted runtime missing Brotway launcher binary"
-	[ -x "$keymasq_validate_dir/lib/gtk4-brotway/gtk4-brotway-debugmenu" ] || die "extracted runtime missing Brotway debug menu binary"
-	[ -e "$keymasq_validate_dir/lib/gtk4-brotway/libgtk-4.so.1" ] || die "extracted runtime missing Brotway GTK library"
+	[ -x "$keymasq_check_dir/bin/keymasq-helper" ] || [ -x "$keymasq_check_dir/bin/keymasq-record" ] ||
+		{ echo "keymasq-helper launcher"; return 0; }
+	[ -x "$keymasq_check_dir/bin/slurp" ] || { echo "bundled slurp launcher"; return 0; }
+	[ -x "$keymasq_check_dir/bin/waypipe" ] || { echo "bundled waypipe launcher"; return 0; }
+	[ -x "$keymasq_check_dir/bin/gtk4-brotway-run" ] || { echo "Brotway launcher"; return 0; }
+	[ -x "$keymasq_check_dir/lib/gtk4-brotway/gtk4-broadwayd" ] || { echo "Brotway daemon"; return 0; }
+	[ -x "$keymasq_check_dir/lib/gtk4-brotway/gtk4-brotway-run" ] || { echo "Brotway launcher binary"; return 0; }
+	[ -x "$keymasq_check_dir/lib/gtk4-brotway/gtk4-brotway-debugmenu" ] || { echo "Brotway debug menu binary"; return 0; }
+	[ -e "$keymasq_check_dir/lib/gtk4-brotway/libgtk-4.so.1" ] || { echo "Brotway GTK library"; return 0; }
+	(APPDIR=$keymasq_check_dir; resolve_appdir_python) || { echo "bundled Python runtime"; return 0; }
+	for keymasq_check_package in "$keymasq_check_dir"/lib/python3*/site-packages/keymasq/__init__.py; do
+		[ -f "$keymasq_check_package" ] || { echo "keymasq Python package"; return 0; }
+	done
+	for keymasq_check_asset in 91-keymasq-acl.rules 99-keymasq-hide-grabbed.rules \
+		appimage-update.gpg.asc security-steamos.toml keymasq-sysusers.conf keymasq-tmpfiles.conf \
+		keymasqd.service keymasq-hardware@.service 49-keymasq-hardware.rules \
+		keymasq-session.service keymasq.desktop; do
+		[ -f "$keymasq_check_dir/share/keymasq/appimage/$keymasq_check_asset" ] ||
+			{ echo "AppImage integration asset $keymasq_check_asset"; return 0; }
+	done
+	keymasq_check_file=$(runtime_file_list_missing "$keymasq_check_dir" "${2:-0}")
+	[ -z "$keymasq_check_file" ] || { echo "runtime file $keymasq_check_file"; return 0; }
+	return 1
+}
+
+runtime_file_list_missing() {
+	keymasq_list_dir=$1
+	keymasq_list_required=$2
+	keymasq_list="$keymasq_list_dir/$RUNTIME_FILE_LIST"
+	# Payloads from before the list only reach this unrequired, as fresh complete copies.
+	if [ ! -f "$keymasq_list" ]; then
+		[ "$keymasq_list_required" = 0 ] || echo "$RUNTIME_FILE_LIST"
+		return 0
+	fi
+	keymasq_list_entries=$(($(wc -l <"$keymasq_list") - 1))
+	if [ "$(tail -n 1 "$keymasq_list")" != "end $keymasq_list_entries" ]; then
+		echo "$RUNTIME_FILE_LIST"
+		return 0
+	fi
+	# A copy interrupted by a full disk can leave every checked path in place
+	# with truncated or missing files elsewhere.
+	(
+		cd "$keymasq_list_dir" &&
+			find . -mindepth 2 \( -type f -o -type l \) ! -path "./$RUNTIME_FILE_LIST" -printf '%y %s %P\n'
+	) | awk -v list="$keymasq_list" '
+		BEGIN {
+			while ((getline line < list) > 0) {
+				if (previous != "") wanted[previous] = 1
+				previous = line
+			}
+		}
+		{ delete wanted[$0] }
+		END {
+			for (entry in wanted) {
+				sub(/^[^ ]* [^ ]* /, "", entry)
+				print entry
+				exit
+			}
+		}'
+}
+
+validate_runtime_dir() {
+	if keymasq_validate_missing=$(runtime_dir_missing "$1" "${2:-0}"); then
+		die "extracted runtime missing $keymasq_validate_missing"
+	fi
 }
 
 copy_extracted_runtime() {
 	keymasq_copy_source_dir=$1
 	keymasq_copy_dst=$2
-	[ -d "$keymasq_copy_source_dir" ] || die "extracted AppImage runtime does not exist: $keymasq_copy_source_dir"
+	if [ ! -d "$keymasq_copy_source_dir" ]; then
+		warn "extracted AppImage runtime does not exist: $keymasq_copy_source_dir"
+		return 1
+	fi
 	cp -a "$keymasq_copy_source_dir/." "$keymasq_copy_dst/"
 }
 
@@ -290,16 +351,17 @@ extract_appimage_runtime_to() {
 	keymasq_extract_dst=$2
 	if [ -n "${KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR:-}" ]; then
 		copy_extracted_runtime "$KEYMASQ_APPIMAGE_EXTRACTED_SOURCE_DIR" "$keymasq_extract_dst"
-		return 0
+		return
 	fi
 
-	keymasq_tmp_extract=$(mktemp -d)
+	keymasq_tmp_extract=$(mktemp -d) || return 1
 	if ! (
 		cd "$keymasq_tmp_extract"
 		"$keymasq_extract_appimage" --appimage-extract >/dev/null
 	); then
 		rm -rf "$keymasq_tmp_extract"
-		die "failed to extract AppImage runtime"
+		warn "failed to extract AppImage runtime"
+		return 1
 	fi
 
 	keymasq_extracted_dir=
@@ -311,11 +373,14 @@ extract_appimage_runtime_to() {
 	done
 	if [ -z "$keymasq_extracted_dir" ]; then
 		rm -rf "$keymasq_tmp_extract"
-		die "AppImage extraction did not produce an AppDir"
+		warn "AppImage extraction did not produce an AppDir"
+		return 1
 	fi
 
-	copy_extracted_runtime "$keymasq_extracted_dir" "$keymasq_extract_dst"
+	keymasq_extract_status=0
+	copy_extracted_runtime "$keymasq_extracted_dir" "$keymasq_extract_dst" || keymasq_extract_status=$?
 	rm -rf "$keymasq_tmp_extract"
+	return "$keymasq_extract_status"
 }
 
 prepare_runtime_from_appimage() {
@@ -323,28 +388,44 @@ prepare_runtime_from_appimage() {
 	keymasq_prepare_sha256=$2
 	keymasq_prepare_runtime_root=$(runtime_root_path)
 	keymasq_prepare_runtime_dir=$(runtime_path_for_sha256 "$keymasq_prepare_sha256")
-	if [ -d "$keymasq_prepare_runtime_dir" ]; then
-		validate_runtime_dir "$keymasq_prepare_runtime_dir"
-		return 0
+	if [ -e "$keymasq_prepare_runtime_dir" ] || [ -L "$keymasq_prepare_runtime_dir" ]; then
+		if ! keymasq_prepare_missing=$(runtime_dir_missing "$keymasq_prepare_runtime_dir" 1); then
+			return 0
+		fi
+		warn "replacing incomplete runtime $keymasq_prepare_runtime_dir: missing $keymasq_prepare_missing"
 	fi
 
 	install -d -m 0755 "$keymasq_prepare_runtime_root"
 	keymasq_prepare_staging="$keymasq_prepare_runtime_root/.extract-$keymasq_prepare_sha256.$$"
-	rm -rf "$keymasq_prepare_staging"
+	keymasq_prepare_stale="$keymasq_prepare_runtime_root/.stale-$keymasq_prepare_sha256.$$"
+	rm -rf "$keymasq_prepare_staging" "$keymasq_prepare_stale"
 	install -d -m 0755 "$keymasq_prepare_staging"
 	if ! extract_appimage_runtime_to "$keymasq_prepare_appimage" "$keymasq_prepare_staging"; then
 		rm -rf "$keymasq_prepare_staging"
 		die "failed to prepare extracted runtime"
 	fi
-	validate_runtime_dir "$keymasq_prepare_staging"
-	if ! mv "$keymasq_prepare_staging" "$keymasq_prepare_runtime_dir"; then
+	if keymasq_prepare_missing=$(runtime_dir_missing "$keymasq_prepare_staging"); then
 		rm -rf "$keymasq_prepare_staging"
-		if [ -d "$keymasq_prepare_runtime_dir" ]; then
-			validate_runtime_dir "$keymasq_prepare_runtime_dir"
-		else
+		die "extracted runtime missing $keymasq_prepare_missing"
+	fi
+	if { [ -e "$keymasq_prepare_runtime_dir" ] || [ -L "$keymasq_prepare_runtime_dir" ]; } &&
+		! mv -T "$keymasq_prepare_runtime_dir" "$keymasq_prepare_stale"; then
+		rm -rf "$keymasq_prepare_staging"
+		die "failed to move incomplete runtime aside: $keymasq_prepare_runtime_dir"
+	fi
+	if ! mv -T "$keymasq_prepare_staging" "$keymasq_prepare_runtime_dir"; then
+		rm -rf "$keymasq_prepare_staging"
+		if [ ! -e "$keymasq_prepare_runtime_dir" ] && [ ! -L "$keymasq_prepare_runtime_dir" ]; then
+			if [ -e "$keymasq_prepare_stale" ] || [ -L "$keymasq_prepare_stale" ]; then
+				mv -T "$keymasq_prepare_stale" "$keymasq_prepare_runtime_dir" ||
+					warn "could not restore previous runtime directory from $keymasq_prepare_stale"
+			fi
 			die "failed to install extracted runtime"
 		fi
+		rm -rf "$keymasq_prepare_stale"
+		validate_runtime_dir "$keymasq_prepare_runtime_dir" 1
 	fi
+	rm -rf "$keymasq_prepare_stale"
 }
 
 activate_runtime() {
@@ -1019,9 +1100,10 @@ repair_hardware_integration() {
 refresh_installed_integration() {
 	target_user=$1
 	runtime_id=$2
-	new_asset_dir="$(runtime_path_for_sha256 "$runtime_id")/share/keymasq/appimage"
-	[ -d "$new_asset_dir" ] || die "updated runtime missing AppImage integration assets: $new_asset_dir"
-	KEYMASQ_APPIMAGE_ASSET_DIR=$new_asset_dir
+	new_runtime_dir=$(runtime_path_for_sha256 "$runtime_id")
+	# Older updaters reuse a runtime directory left incomplete by an interrupted copy.
+	validate_runtime_dir "$new_runtime_dir" 1
+	KEYMASQ_APPIMAGE_ASSET_DIR="$new_runtime_dir/share/keymasq/appimage"
 	export KEYMASQ_APPIMAGE_ASSET_DIR
 
 	refresh_common_integration "$target_user"

@@ -313,6 +313,18 @@ install_runtime_files() {
   cp -a "$REPO_ROOT/assets/tools.keymasq.keymasq.svg" "$APPDIR/share/keymasq/appimage/"
 }
 
+write_runtime_file_list() {
+  local list_path="share/keymasq/appimage/runtime-files.txt"
+  # Packing rewrites the AppDir root entries; the installed runtime uses the subdirectories.
+  (
+    cd "$APPDIR"
+    find . -mindepth 2 \( -type f -o -type l \) ! -path "./$list_path" -printf '%y %s %P\n'
+  ) | LC_ALL=C sort >"$WORKDIR/runtime-files.txt"
+  # The runtime treats a list without this trailer as truncated.
+  printf 'end %s\n' "$(wc -l <"$WORKDIR/runtime-files.txt")" >>"$WORKDIR/runtime-files.txt"
+  install -Dm644 "$WORKDIR/runtime-files.txt" "$APPDIR/$list_path"
+}
+
 resolve_brotway_bundle() {
   local dst="$BUILD_ROOT/verified-inputs/$BROTWAY_BUNDLE_NAME"
   local local_bundle="${KEYMASQ_APPIMAGE_BROTWAY_BUNDLE:-}"
@@ -752,6 +764,7 @@ verify_brotway_gtk_abi
 # AppImage is assembled as root in CI. Preserve executable files and make the
 # complete read-only payload traversable and readable by those users.
 chmod -R a+rX "$APPDIR"
+write_runtime_file_list
 
 "$quick_sharun" --make-appimage
 

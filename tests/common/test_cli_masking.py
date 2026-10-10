@@ -348,3 +348,23 @@ def test_disable_all_rejects_no_wait(monkeypatch, capsys) -> None:
     assert raised.value.code == 2
     assert not calls
     assert "--no-wait cannot be used with --all" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("resumed", "text"), [(True, "Remapping resumed"), (False, "Remapping is not paused")]
+)
+@pytest.mark.parametrize("json_output", [False, True])
+def test_resume_reports_whether_remapping_was_paused(
+    monkeypatch, capsys, resumed, text, json_output
+) -> None:
+    monkeypatch.setattr(
+        masking,
+        "_session_request",
+        lambda payload, timeout: {"status": "ok", "resumed": resumed, "masks": []},
+    )
+    masking.resume_cli(json_output=json_output)
+    out = capsys.readouterr().out
+    if json_output:
+        assert json.loads(out) == {"status": "ok", "resumed": resumed}
+    else:
+        assert out.strip() == text

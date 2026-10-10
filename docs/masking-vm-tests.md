@@ -70,10 +70,11 @@ The `keymasq masking` CLI runs against the same services:
   by its port without asking.
 - With the hardware operations lock held, `enable` exits with status 1 and
   `confirm` fails. Access is restored once the lock is released.
-- `enable` masks a previously confirmed device without asking. During a recovery
-  pause, `enable` fails and `disable` clears the saved mask. `resume` then
-  restarts only the masks that are still saved. `disable --all` turns every
-  mask off.
+- `enable` masks a previously confirmed device without asking. `resume` without
+  a pause exits with status 0, leaves the active mask running, and logs no
+  command error in keymasqd. During a recovery pause, `enable` fails and
+  `disable` clears the saved mask. `resume` then restarts only the masks that
+  are still saved. `disable --all` turns every mask off.
 
 The USB/IP controller used here does not re-enumerate after a software port power
 cycle, so takeover with an existing raw USB handle needs a separate hardware test.

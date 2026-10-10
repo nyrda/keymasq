@@ -100,7 +100,10 @@ pkgs.testers.runNixOSTest {
         with subtest("answering yes at the keymasq masking enable prompt keeps the mask"):
             cli("prompt-yes")
         with subtest("keymasq masking disable and resume after a recovery pause"):
+            cursor = "--cursor-file=/tmp/pause-resume.cursor -u keymasqd.service --no-pager"
+            machine.succeed(f"journalctl -b -n 1 {cursor} >/dev/null")
             cli("pause-resume")
+            machine.fail(f"journalctl {cursor} | grep -F 'Command error'")
             restart_and_check_off()
         with subtest("two masks restore independently and unmask all preserves ordinary remapping"):
             check("multiple")

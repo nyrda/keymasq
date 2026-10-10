@@ -920,7 +920,10 @@ class MaskCoordinator:
                     else "user_restore"
                 )
                 await self.restore(reason)
-            else:
+                return await self.status()
+            suspended = self.backend.state_dir / "suspended"
+            paused = message.get("suspended") is True or await asyncio.to_thread(suspended.exists)
+            if paused:
                 items = list(self.reservations.values())
                 journals = [item.backend.journal for item in items]
                 journaled = await asyncio.to_thread(lambda: any(path.exists() for path in journals))
@@ -928,10 +931,8 @@ class MaskCoordinator:
                     raise ValueError("Hardware recovery is still in progress")
                 for item in self.reservations.values():
                     await item.request({"command": "resume"})
-                await asyncio.to_thread(
-                    (self.backend.state_dir / "suspended").unlink, missing_ok=True
-                )
-            return await self.status()
+                await asyncio.to_thread(suspended.unlink, missing_ok=True)
+            return {**await self.status(), "resumed": paused}
         identity = str(message.get("id", ""))
         if command == "mask":
             if await asyncio.to_thread((self.backend.state_dir / "suspended").exists):

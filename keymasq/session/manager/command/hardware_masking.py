@@ -35,7 +35,7 @@ async def handle_hardware_masking_commands(
     )
     if result.status != "ok":
         return {"status": "error", "message": result.error or "Hardware masking failed"}
-    if command == "resume_hardware":
+    if command == "resume_hardware" and cast(JsonObject, result.data or {}).get("resumed", True):
         from ..profile import coordinator
 
         await coordinator.reevaluate_profiles(manager, reason="hardware recovery resumed")

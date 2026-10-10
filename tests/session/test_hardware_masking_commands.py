@@ -29,3 +29,22 @@ async def test_slow_hardware_recovery_finishes_before_session_deadline(command, 
     result = await hardware_masking.handle_hardware_masking_commands(manager, command, {})
     assert result == {"status": "ok", **state}
     assert reapply.await_count == (1 if command == "resume_hardware" else 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data", "reevaluations"), [({"resumed": False}, 0), ({"resumed": True}, 1), ({}, 1)]
+)
+async def test_resume_reevaluates_profiles_only_when_remapping_resumed(
+    data, reevaluations, monkeypatch
+):
+    manager = SessionManager()
+    manager.connected = True
+    monkeypatch.setattr(
+        manager.client, "send_command", AsyncMock(return_value=Response(status="ok", data=data))
+    )
+    reapply = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reapply)
+    result = await hardware_masking.handle_hardware_masking_commands(manager, "resume_hardware", {})
+    assert result == {"status": "ok", **data}
+    assert reapply.await_count == reevaluations

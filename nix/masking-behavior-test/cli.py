@@ -210,6 +210,10 @@ def pause_resume():
     assert state["state"] == "masked" and state["automatic"] and state["persist"], state
     for name in NAMES:
         assert_masked(name, forwarding=True, check_bystander=False)
+    assert cli("resume").strip() == "Remapping is not paused"
+    assert cli_json("resume") == {"status": "ok", "resumed": False}
+    assert mask_state(ctx, target.identity)["state"] == "masked"
+    assert_masked(forwarding=True, check_bystander=False)
     with gui_client() as client:
         client.request({"command": "restore_hardware"})
     listing = cli_json("list")

@@ -458,9 +458,14 @@ class HardwareMasking:
                     await self.runtimes[identity].release_runtime()
             else:
                 await self.release_runtime()
+        # An emergency stop that could not record its marker is still a pause,
+        # even when startup below reopens admission.
+        latched = self.emergency_latched
         try:
             await self.startup()
             generation = self.stop_generation
+            if operation == "resume" and not data.get("id"):
+                data = {**data, "suspended": latched or self.emergency_latched}
             result = await self.request(operation, data)
         except OSError:
             if operation != "inventory":

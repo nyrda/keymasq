@@ -1,7 +1,6 @@
 # Run from the repository root: ./scripts/integration.sh masking-behavior
 # Uses kernel UHID devices to check trials, independent masks, reconnects,
-# remapping, saved choices across reboot, rejected requests, hotplug latency,
-# and the keymasq masking CLI.
+# remapping, saved choices across reboot, and rejected requests.
 { pkgs, keymasqPackage, keymasqModule }:
 
 let

@@ -15,6 +15,7 @@ from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.grabbed_device import device as grabbed_device
 from keymasq.keymasqd.runtime.grabbed_device.device import GrabbedDevice
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.superkey_state import SuperkeyActionData
 from tests.keymasqd.device_manager_support import FakeUInput, make_combo_runtime_setup
 
 KEYBOARD = "1234:5678"
@@ -233,10 +234,35 @@ async def test_other_keys_and_the_key_release_leave_a_natural_move_running(monke
 
 
 @pytest.mark.asyncio
-async def test_natural_moves_run_one_after_another_in_press_order(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "second_move",
+    [
+        natural_move(100, speed=30_000.0),
+        MappingAction(
+            action_type=ActionType.SUPERKEY,
+            superkey_config=SuperkeyConfig(
+                name="tap move",
+                tap_actions=[
+                    SuperkeyActionData(
+                        action_type=ActionType.MOUSE_MOVE_NATURAL_ABS.value,
+                        move_x=100,
+                        move_speed=30_000.0,
+                        move_jitter=0.0,
+                        move_tolerance=1,
+                        move_max_duration_ms=600_000,
+                    )
+                ],
+            ),
+        ),
+    ],
+)
+async def test_natural_moves_run_one_after_another_in_press_order(
+    monkeypatch,
+    second_move: MappingAction,
+) -> None:
     rig = await cursor_rig(
         monkeypatch,
-        {"key_a": natural_move(300, speed=30_000.0), "key_s": natural_move(100, speed=30_000.0)},
+        {"key_a": natural_move(300, speed=30_000.0), "key_s": second_move},
     )
     rig.feed((KEY_A, 1), (KEY_A, 0), (KEY_S, 1), (KEY_S, 0))
 
@@ -249,9 +275,17 @@ async def test_natural_moves_run_one_after_another_in_press_order(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_releasing_the_device_stops_its_natural_move(monkeypatch) -> None:
-    rig = await cursor_rig(monkeypatch, {"key_a": SLOW_MOVE})
-    rig.feed((KEY_A, 1))
+@pytest.mark.parametrize(
+    ("move_keys", "combos"),
+    [([(KEY_A, 1)], None), ([(KEY_C, 1), (KEY_V, 1)], [COMBO_SLOW_MOVE])],
+)
+async def test_releasing_the_device_stops_its_natural_move(
+    monkeypatch,
+    move_keys: list[tuple[int, int]],
+    combos: list[object] | None,
+) -> None:
+    rig = await cursor_rig(monkeypatch, {"key_a": SLOW_MOVE}, combos)
+    rig.feed(*move_keys)
     await wait_until(lambda: bool(rig.rel_writes()))
 
     await rig.keyboard.release()

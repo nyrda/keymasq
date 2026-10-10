@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
 from keymasq.keymasqd.output_helpers import resolve_gamepad_axis_code, resolve_output_code
@@ -458,9 +460,11 @@ def _start_cursor_move_task(
     deps: ActionExecutionDeps,
 ) -> None:
     tasks = device_runtime.state.cursor_move_tasks
-    task = deps.fire_and_observe_fn(
+    # Starting eagerly queues on the cursor lock in press order.
+    move = asyncio.eager_task_factory(
+        asyncio.get_running_loop(),
         emit_move_action(device_runtime, action),
-        f"cursor move {event_name}",
     )
+    task = deps.fire_and_observe_fn(move, f"cursor move {event_name}")
     tasks.add(task)
     task.add_done_callback(tasks.discard)

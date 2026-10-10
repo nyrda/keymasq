@@ -582,6 +582,8 @@ async def test_valid_sample_timeout_ignores_time_the_daemon_could_not_observe(
         await asyncio.wait_for(subscriber.read(), 1)
         time.sleep(blocked_s)
         suspended[0] += slept_ns
+        if blocked_s:
+            packets.put_nowait(CAPTURED_REPORT[:12])
         await asyncio.sleep(0.02 if blocked_s else 0.1)
         await packets.put(CAPTURED_REPORT)
         if blocked_s:

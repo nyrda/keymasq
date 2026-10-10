@@ -162,11 +162,14 @@ class SourceManager:
                         now = time.monotonic_ns()
                         values = binding.driver.decode(report)
                         if values is None:
-                            if (now - last_valid_ns) / 1_000_000_000 > timeout_s:
-                                raise OSError(
-                                    errno.ENOTSUP,
-                                    "Input reports do not support this driver's channels",
-                                )
+                            if now > due_ns:
+                                if not clock.unobserved(due_ns, suspended_at_ns):
+                                    raise OSError(
+                                        errno.ENOTSUP,
+                                        "Input reports do not support this driver's channels",
+                                    )
+                                last_valid_ns = now
+                                suspended_at_ns = clock.suspended_ns()
                             continue
                         last_valid_ns = now
                         suspended_at_ns = clock.suspended_ns()

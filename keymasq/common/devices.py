@@ -332,14 +332,25 @@ def wheel_duplicate_key(
     return (label, code, normalized_value)
 
 
+_HIGH_RES_WHEEL_LOW_RES_CODES: dict[int, int] = {
+    int(high_res): int(low_res)
+    for high_res, low_res in (
+        (getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None), evdev.ecodes.REL_WHEEL),
+        (getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None), evdev.ecodes.REL_HWHEEL),
+    )
+    if high_res is not None
+}
+WHEEL_REL_CODES = frozenset(
+    {
+        int(evdev.ecodes.REL_WHEEL),
+        int(evdev.ecodes.REL_HWHEEL),
+        *_HIGH_RES_WHEEL_LOW_RES_CODES,
+    }
+)
+
+
 def high_res_wheel_low_res_code(code: int) -> int | None:
-    rel_wheel_hi_res = getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None)
-    rel_hwheel_hi_res = getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None)
-    if rel_wheel_hi_res is not None and int(code) == int(rel_wheel_hi_res):
-        return int(evdev.ecodes.REL_WHEEL)
-    if rel_hwheel_hi_res is not None and int(code) == int(rel_hwheel_hi_res):
-        return int(evdev.ecodes.REL_HWHEEL)
-    return None
+    return _HIGH_RES_WHEEL_LOW_RES_CODES.get(int(code))
 
 
 def capability_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:

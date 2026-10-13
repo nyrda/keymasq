@@ -12,7 +12,7 @@ from typing import cast
 
 import evdev
 
-from keymasq.common.devices import classify_event_device_type
+from keymasq.common.devices import WHEEL_REL_CODES, classify_event_device_type
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.source_state import read_missing_source_axes
@@ -80,23 +80,11 @@ from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
 
-_COMBO_REL_CODES = frozenset(
-    int(code)
-    for code in (
-        evdev.ecodes.REL_WHEEL,
-        evdev.ecodes.REL_HWHEEL,
-        getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None),
-        getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None),
-    )
-    if code is not None
-)
-
-
 def _combo_engine_reads(event: InputEventLike) -> bool:
     # Combos bind only keys, buttons and wheel pulses; anything else is a no-op there.
     event_type = int(event.type)
     return event_type == evdev.ecodes.EV_KEY or (
-        event_type == evdev.ecodes.EV_REL and int(event.code) in _COMBO_REL_CODES
+        event_type == evdev.ecodes.EV_REL and int(event.code) in WHEEL_REL_CODES
     )
 
 
@@ -672,7 +660,7 @@ async def _process_event(
             and machine.state != SuperkeyState.IDLE
         )
     )
-    if event_class is EventClass.RELATIVE:
+    if event_class is EventClass.RELATIVE and int(event.code) in WHEEL_REL_CODES:
         wheel_diag_label = await process_wheel_event(
             device_runtime,
             event,

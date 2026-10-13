@@ -60,6 +60,7 @@ def _label_is_mainline(label: str) -> bool:
         label.startswith("action_")
         or label
         in {
+            "input_latency",
             "passthrough_fast",
             "passthrough_mapped",
             "passthrough_other",

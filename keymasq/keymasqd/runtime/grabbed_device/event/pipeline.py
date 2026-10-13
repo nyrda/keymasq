@@ -37,6 +37,7 @@ from keymasq.keymasqd.runtime.grabbed_device.event.combo import (
 from keymasq.keymasqd.runtime.grabbed_device.event.diagnostics import (
     log_raw_hardware_event,
     record_diagnostics,
+    record_input_latency,
 )
 from keymasq.keymasqd.runtime.grabbed_device.event.dispatch import (
     apply_fast_passthrough,
@@ -305,6 +306,8 @@ async def process_event(
     if route is not None and route.snapshot_boundary is event:
         route.snapshot_boundary = None
         device_runtime.restore_default_output_axes()
+    if int(event.type) == int(deps.evdev_mod.ecodes.EV_SYN) and int(event.code) == 0:  # SYN_REPORT
+        record_input_latency(device_runtime, event, time_mod=deps.time_mod)
 
 
 async def _process_ordered_event(

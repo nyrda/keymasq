@@ -140,6 +140,11 @@ processing, rendering, display latency, or the physical switch/button travel.
 For passthrough devices, normal input events and their source `SYN_REPORT`
 frame flush are measured separately so multi-event device frames stay intact.
 
+Most labels start timing when Keymasq begins handling an event. `input_latency`
+starts at the kernel's timestamp for the input frame instead, so it also
+includes time the frame waited while keymasqd was busy with other work, such
+as applying a profile change.
+
 ### Mainline diagnostics
 
 Diagnostics shows these by default. They are the most useful labels for
@@ -147,6 +152,7 @@ checking normal input overhead.
 
 | Label | What it means | Example |
 |---|---|---|
+| `input_latency` | Time from the kernel timestamping an input frame to Keymasq finishing that frame's `SYN_REPORT`, including any wait before handling started. | Spikes here with low per-event labels mean the frame was delayed, not slow to process. |
 | `passthrough_fast` | An event passed through when the grabbed device has no active mapping work for it. | Moving an unmapped mouse, or clicking an unmapped button on a grabbed device. |
 | `passthrough_mapped` | An event passed through while a mapping profile is loaded, but this specific input has no remap action. | Moving the mouse while only one side button is remapped. |
 | `passthrough_other` | A non-key, non-relative event passed through. | An uncommon device event such as an absolute axis update. |

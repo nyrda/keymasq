@@ -25,7 +25,7 @@ from keymasq.keymasqd.runtime.combo.state import (
     ResolveCodeFn,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyActionData, SuperkeyConfig
-from keymasq.keymasqd.task_helpers import fire_and_observe
+from keymasq.keymasqd.task_helpers import LoopSlice, fire_and_observe
 
 log = logging.getLogger("keymasqd.devices")
 
@@ -99,10 +99,14 @@ def unchanged_combo_ids(
     return preserved
 
 
-def parse_runtime_combos(manager: object, payloads: Sequence[object]) -> list[RuntimeCombo]:
+async def parse_runtime_combos(
+    manager: object, payloads: Sequence[object]
+) -> list[RuntimeCombo]:
     """Normalize session payloads into runtime combo definitions."""
     parsed: list[RuntimeCombo] = []
+    loop_slice = LoopSlice()
     for combo_data in payloads:
+        await loop_slice.checkpoint()
         combo_dict = json_object(combo_data)
         if combo_dict is None:
             continue
@@ -129,6 +133,7 @@ def parse_runtime_combos(manager: object, payloads: Sequence[object]) -> list[Ru
                 continue
             bindings: list[RuntimeComboBinding] = []
             for event_data in events_data:
+                await loop_slice.checkpoint()
                 event_dict = json_object(event_data)
                 if event_dict is None:
                     continue
@@ -181,7 +186,7 @@ class ComboManagerMixin:
 
     async def set_combos(self: Any, combos: Sequence[object]) -> JsonObject:
         async with self._op_lock:
-            parsed = parse_runtime_combos(self, combos)
+            parsed = await parse_runtime_combos(self, combos)
             old_active_signatures = combo_runtime_signatures(self.combo_state.active_combos)
             new_active_combos = self._with_emergency_cancel_combos(parsed)
             unchanged_ids = unchanged_combo_ids(old_active_signatures, new_active_combos)

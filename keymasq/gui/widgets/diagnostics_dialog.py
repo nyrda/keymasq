@@ -20,6 +20,7 @@ from keymasq.gui.widgets.docs_links import docs_page_url
 
 DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal")
 DIAGNOSTICS_LABELS = {
+    "input_latency": "Input to output",
     "passthrough_fast": "Unmapped passthrough",
     "passthrough_mapped": "Passthrough with mappings",
     "passthrough_other": "Other passthrough",
@@ -38,6 +39,7 @@ PEAK_TOOLTIP = (
     "OS scheduling noise, not normal input latency."
 )
 _LABEL_SORT_ORDER: dict[str, int] = {
+    "input_latency": -1,
     "passthrough_mapped": 0,
     "passthrough_fast": 1,
     "passthrough_other": 2,

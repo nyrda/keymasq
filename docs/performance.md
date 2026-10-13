@@ -2,33 +2,49 @@
 
 ## Input latency
 
-Keymasq adds **15–50 microseconds** (0.015–0.05 ms) to input events during
-remapping. This is the round-trip time through the Python userspace daemon,
-including kernel syscalls for reading from evdev and writing to uinput.
+Keymasq handles each grabbed input event in its Python daemon before writing
+the result to a virtual device. On one test machine (Python 3.12, `powersave`
+CPU governor, under load), the daemon's own processing took:
 
-| Component | Latency |
-|---|---|
-| Python processing | ~0.5 us |
-| evdev read syscall | ~5–20 us |
-| uinput write syscall | ~5–20 us |
-| Context switch overhead | ~1–5 us |
-| **Total** | **~15–50 us** |
+| Input frame | Median | p99 | p99.9 |
+|---|---|---|---|
+| Mouse movement (`REL_X`, `REL_Y`, `SYN_REPORT`) | 60–63 us | 191–198 us | 296–383 us |
+| Key press or release, unmapped or remapped | 68–71 us | 192–195 us | 280–283 us |
+
+That is about 20–40 us of processing per event. The evdev read and uinput
+write system calls come on top of this. These figures are from
+[benchmarks/pipeline_latency.py](https://github.com/nyrda/keymasq/blob/master/benchmarks/pipeline_latency.py)
+and vary with CPU speed and power settings.
 
 ### Context
 
 | Reference point | Latency |
 |---|---|
-| Keymasq overhead | 0.015–0.05 ms |
-| Human perception threshold | ~1 ms |
+| Keymasq processing, one mouse report | 0.06 ms median, under 0.4 ms p99.9 |
+| USB polling interval (1000 Hz) | 1 ms |
+| USB polling interval (8000 Hz) | 0.125 ms |
 | One frame at 144 Hz | 6.9 ms |
 | One frame at 60 Hz | 16.7 ms |
-| USB polling interval (1000 Hz) | 1 ms |
 | Typical display latency | 5–20 ms |
 
-Keymasq's overhead is 20–60x lower than the threshold where latency becomes
-perceptible, and 100–300x lower than a single frame at typical refresh rates.
-For competitive gaming, the latency is still only 2–5% of the frame budget
-even at 1000 Hz.
+A 1000 Hz mouse sends a report every millisecond, more than ten times
+Keymasq's typical processing time per report.
+
+### Avoiding stalls
+
+Occasional delays matter more than average processing time. keymasqd keeps
+other work from holding up grabbed input:
+
+- Profile and combo changes are parsed in slices of about 0.5 ms, and input
+  keeps flowing between slices. Input handled during a change uses the
+  previous mappings until the new ones are installed together.
+- A worker thread running Python hands the event loop back within about 0.2 ms.
+- The daemon's startup code is excluded from Python's full garbage
+  collections.
+- Unsaved recordings play back in small batches, like saved macros, instead of
+  being loaded and freed all at once.
+
+Use the `input_latency` diagnostics label to see these delays on your system.
 
 ## Macro replay fidelity
 
@@ -123,8 +139,10 @@ do not collapse onto the same logical button state.
 
 For methodology and full results, see:
 
+- [benchmarks/PIPELINE_LATENCY.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/PIPELINE_LATENCY.md) —
+  daemon pipeline cost and event-loop stalls
 - [benchmarks/LATENCY_ANALYSIS.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/LATENCY_ANALYSIS.md) —
-  evdev passthrough latency breakdown
+  evdev read/write syscall overhead
 - [benchmarks/MACRO_REPLAY_FIDELITY.md](https://github.com/nyrda/keymasq/blob/master/benchmarks/MACRO_REPLAY_FIDELITY.md) —
   macro timing accuracy across scenarios
 
@@ -140,6 +158,11 @@ processing, rendering, display latency, or the physical switch/button travel.
 For passthrough devices, normal input events and their source `SYN_REPORT`
 frame flush are measured separately so multi-event device frames stay intact.
 
+Most labels start timing when Keymasq begins handling an event. `input_latency`
+starts at the kernel's timestamp for the input frame instead, so it also
+includes time the frame waited while keymasqd was busy with other work, such
+as applying a profile change.
+
 ### Mainline diagnostics
 
 Diagnostics shows these by default. They are the most useful labels for
@@ -147,6 +170,7 @@ checking normal input overhead.
 
 | Label | What it means | Example |
 |---|---|---|
+| `input_latency` | Time from the kernel timestamping an input frame to Keymasq finishing that frame's `SYN_REPORT`, including any wait before handling started. | Spikes here with low per-event labels mean the frame was delayed, not slow to process. |
 | `passthrough_fast` | An event passed through when the grabbed device has no active mapping work for it. | Moving an unmapped mouse, or clicking an unmapped button on a grabbed device. |
 | `passthrough_mapped` | An event passed through while a mapping profile is loaded, but this specific input has no remap action. | Moving the mouse while only one side button is remapped. |
 | `passthrough_other` | A non-key, non-relative event passed through. | An uncommon device event such as an absolute axis update. |

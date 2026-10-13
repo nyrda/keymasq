@@ -1,6 +1,7 @@
 import asyncio
 import errno
 import logging
+import time
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, Mock
@@ -493,6 +494,45 @@ class TestGrabbedDeviceHelpers:
             )
             == mapping["south"]
         )
+
+    @pytest.mark.asyncio
+    async def test_syn_report_records_time_since_kernel_timestamp(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        diagnostics: list[tuple[str, float]] = []
+        device = make_grabbed_device(
+            monkeypatch,
+            diagnostics_recorder=lambda label, duration_us: diagnostics.append(
+                (label, duration_us)
+            ),
+        )
+        device.uinput = FakeUInput()  # type: ignore[assignment]
+        deps = pipeline.build_event_processing_deps(log=logging.getLogger("test"))
+
+        def stamped(seconds_ago: float, event_type: int, code: int, value: int):
+            stamp_us = (time.monotonic_ns() // 1000) - int(seconds_ago * 1_000_000)
+            sec, usec = divmod(stamp_us, 1_000_000)
+            return evdev.InputEvent(sec, usec, event_type, code, value)
+
+        await pipeline.process_event(
+            device, stamped(0.002, evdev.ecodes.EV_REL, evdev.ecodes.REL_X, 3), deps=deps
+        )
+        await pipeline.process_event(
+            device, stamped(0.002, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0), deps=deps
+        )
+        wall_clock_sec, wall_clock_usec = divmod(time.time_ns() // 1000, 1_000_000)
+        await pipeline.process_event(
+            device,
+            evdev.InputEvent(
+                wall_clock_sec, wall_clock_usec, evdev.ecodes.EV_SYN, evdev.ecodes.SYN_REPORT, 0
+            ),
+            deps=deps,
+        )
+
+        latencies = [duration for label, duration in diagnostics if label == "input_latency"]
+        assert len(latencies) == 1
+        assert 2000 <= latencies[0] < 1_000_000
 
     @pytest.mark.asyncio
     async def test_passthrough_preserves_source_syn_report_frame(

@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import gc
 import logging
 import os
 import signal
@@ -432,6 +433,11 @@ def main() -> None:
     # reduces jitter on the sub-millisecond asyncio.sleep() deadlines used by
     # macro replay.
     set_timer_slack_ns(logger=log)
+    # A worker thread running Python otherwise holds the GIL for up to 5 ms after input arrives.
+    sys.setswitchinterval(0.0002)
+    # Imported code lives for the whole process; keep it out of full collections that stall input.
+    gc.collect()
+    gc.freeze()
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")

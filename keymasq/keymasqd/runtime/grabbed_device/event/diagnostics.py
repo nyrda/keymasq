@@ -27,6 +27,28 @@ def record_diagnostics(
     )
 
 
+_MAX_INPUT_LATENCY_NS = 60_000_000_000
+
+
+def record_input_latency(
+    device_runtime: GrabbedDeviceRuntime,
+    event: InputEventLike,
+    *,
+    time_mod: TimeModule,
+) -> None:
+    recorder = device_runtime.diagnostics_recorder
+    sec = getattr(event, "sec", None)
+    usec = getattr(event, "usec", None)
+    if recorder is None or not isinstance(sec, int) or not isinstance(usec, int):
+        return
+    if sec == 0 and usec == 0:
+        return
+    latency_ns = time_mod.monotonic_ns() - (sec * 1_000_000_000 + usec * 1000)
+    # A device whose evdev clock could not be switched to monotonic reports wall-clock stamps.
+    if 0 <= latency_ns < _MAX_INPUT_LATENCY_NS:
+        recorder("input_latency", latency_ns / 1000.0)
+
+
 def action_diagnostic_label(action: MappingAction, *, combo_consumed: bool) -> str:
     prefix = "combo_release_action" if combo_consumed else "action"
     return f"{prefix}_{action.action_type.value}"

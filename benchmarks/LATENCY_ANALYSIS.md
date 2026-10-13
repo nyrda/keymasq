@@ -1,5 +1,9 @@
 # Evdev Passthrough Latency Analysis
 
+> The Python figures below time dictionary lookups, not Keymasq's event
+> pipeline. See [PIPELINE_LATENCY.md](PIPELINE_LATENCY.md) for the measured
+> pipeline cost, about 20–40 us per event.
+
 ## Summary
 
 Python evdev overhead is **negligible** for key remapping use cases. The total passthrough latency is dominated by kernel syscalls, not Python processing.

@@ -8,6 +8,7 @@ import pytest
 from keymasq.common import devices
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType
+from keymasq.keymasqd import task_helpers
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import repeat
 from keymasq.keymasqd.runtime.combo import events, lifecycle
@@ -114,6 +115,65 @@ class TestCombos:
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1),
             (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F15, 1),
         ]
+
+    @pytest.mark.asyncio
+    async def test_set_combos_triggers_previous_combos_while_parsing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(task_helpers, "LOOP_SLICE_S", 0.0)
+        hardware_id = "1234:5678"
+
+        def alt_combo(combo_id: str, key: str, target: str) -> dict[str, object]:
+            return {
+                "id": combo_id,
+                "name": combo_id,
+                "steps": [
+                    {
+                        "events": [
+                            {"hardware_id": hardware_id, "source": "kbd", "evdev": "key_leftalt"},
+                            {"hardware_id": hardware_id, "source": "kbd", "evdev": key},
+                        ]
+                    }
+                ],
+                "action": {"action": "keyboard", "target": target},
+            }
+
+        setup = await make_combo_runtime_setup(
+            monkeypatch,
+            [alt_combo("old", "key_c", "key_f13")],
+            hardware_id=hardware_id,
+            button_map={"key_leftalt": "key_leftalt", "key_c": "key_c"},
+        )
+
+        async def trigger_alt_c() -> list[tuple[int, int, int]]:
+            setup.keyboard.writes.clear()
+            for code, value in (
+                (evdev.ecodes.KEY_LEFTALT, 1),
+                (evdev.ecodes.KEY_C, 1),
+                (evdev.ecodes.KEY_C, 0),
+                (evdev.ecodes.KEY_LEFTALT, 0),
+            ):
+                event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=code, value=value)
+                await pipeline.process_event(
+                    setup.device, event, deps=grabbed_event_processing_deps()
+                )
+                await asyncio.sleep(0)
+            return list(setup.keyboard.writes)
+
+        replacement = [alt_combo(f"padding-{index}", "key_x", "key_f15") for index in range(8)]
+        replacement.append(alt_combo("new", "key_c", "key_f14"))
+        update = asyncio.create_task(setup.manager.set_combos(replacement))
+        await asyncio.sleep(0)
+
+        writes = await trigger_alt_c()
+
+        assert not update.done()
+        assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F13, 1) in writes
+
+        await update
+
+        assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_F14, 1) in await trigger_alt_c()
 
     @pytest.mark.asyncio
     async def test_combo_overlapping_multistep_first_step_drops_sibling_sequence_branch(

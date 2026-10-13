@@ -2,6 +2,8 @@
 
 # pyright: reportAttributeAccessIssue=false, reportUnknownMemberType=false
 
+from collections.abc import Iterator
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -69,6 +71,11 @@ class CatalogControllerMixin:
         dialog.present(self._parent)
 
     def _populate_list(self) -> None:
+        adjustment = self._list_scroll.get_vadjustment()
+        scroll_value = adjustment.get_value()
+        focused_row = self._focused_row()
+        focused_index = focused_row.get_index() if focused_row is not None else -1
+
         while self._listbox.get_first_child():
             self._listbox.remove(self._listbox.get_first_child())
 
@@ -76,6 +83,32 @@ class CatalogControllerMixin:
             self._listbox.append(self._build_macro_row(macro))
         self._listbox.invalidate_filter()
         self._update_empty_state()
+
+        # Removing the focused row moves focus to the first row, which scrolls the list to the top.
+        if focused_row is not None:
+            self._refocus_row(focused_row._row_state.name, focused_index)
+        adjustment.set_value(scroll_value)
+
+    def _focused_row(self) -> Gtk.ListBoxRow | None:
+        root = self._listbox.get_root()
+        focus = root.get_focus() if root is not None else None
+        if focus is None or not focus.is_ancestor(self._listbox):
+            return None
+        return focus if isinstance(focus, Gtk.ListBoxRow) else focus.get_ancestor(Gtk.ListBoxRow)
+
+    def _refocus_row(self, name: str, index: int) -> None:
+        rows = [row for row in self._iter_rows() if row.get_child_visible()]
+        if not rows:
+            return
+        row = next((row for row in rows if row._row_state.name == name), None)
+        row = row or next((row for row in rows if row.get_index() >= index), rows[-1])
+        row.grab_focus()
+
+    def _iter_rows(self) -> Iterator[Gtk.ListBoxRow]:
+        child = self._listbox.get_first_child()
+        while child is not None:
+            yield child
+            child = child.get_next_sibling()
 
     def _update_empty_state(self) -> None:
         if not self._catalog.macros:

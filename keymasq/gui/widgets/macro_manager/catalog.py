@@ -97,11 +97,12 @@ class CatalogControllerMixin:
         return focus if isinstance(focus, Gtk.ListBoxRow) else focus.get_ancestor(Gtk.ListBoxRow)
 
     def _refocus_row(self, name: str, index: int) -> None:
-        rows = list(self._iter_rows())
+        rows = [row for row in self._iter_rows() if row.get_child_visible()]
         if not rows:
             return
         row = next((row for row in rows if row._row_state.name == name), None)
-        (row or rows[min(index, len(rows) - 1)]).grab_focus()
+        row = row or next((row for row in rows if row.get_index() >= index), rows[-1])
+        row.grab_focus()
 
     def _iter_rows(self) -> Iterator[Gtk.ListBoxRow]:
         child = self._listbox.get_first_child()

@@ -2407,6 +2407,18 @@ class TestDialogConstruction:
         assert adjustment.get_value() == 500
         assert focused_macro_name() == "macro_16"
 
+        dialog._on_macros_loaded(macros(["zebra_one", "lion", "zebra_two"]))
+        dialog._show_search()
+        dialog._search_entry.set_text("zebra")
+        dialog._listbox.get_row_at_index(0).grab_focus()
+        flush_gtk_events()
+        assert focused_macro_name() == "zebra_one"
+
+        dialog._on_macros_loaded(macros(["lion", "zebra_two"]))
+        flush_gtk_events()
+
+        assert focused_macro_name() == "zebra_two"
+
         parent.destroy()
 
     def test_macro_manager_duplicate_request_and_finish_paths(self, monkeypatch):

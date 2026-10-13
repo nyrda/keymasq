@@ -7,8 +7,10 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - .github/actions/test-rpm/**
       - .github/workflows/nightly.yml
       - .github/workflows/package.yml
+      - packaging/rpm/zypper-retry.sh
       - scripts/nightly-metadata.py
       - tests/common/test_nightly_metadata.py
 
@@ -38,9 +40,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VALIDATE_ONLY: ${{ github.event_name == 'pull_request' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          sha="$(gh api "repos/$GH_REPO/commits/master" --jq .sha)"
+          sha="${PR_HEAD_SHA:-$(gh api "repos/$GH_REPO/commits/master" --jq .sha)}"
           gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
           python3 scripts/nightly-metadata.py "$sha" "$RUNNER_TEMP/releases.json" >> "$GITHUB_OUTPUT"
 

@@ -1055,14 +1055,20 @@ class TestDeviceTabWidget:
 
         tab._on_profile_settings_clicked(tab.settings_btn)
         assert len(macro_requests) == 1
-        macro_requests[0]({"status": "ok", "macros": [{"name": "Greet"}]})
+        macro_requests[0](None)
+        assert tab._profile_settings_dialog is not None
+        tab._on_profile_settings_dialog_closed(tab._profile_settings_dialog)
+
+        tab._on_profile_settings_clicked(tab.settings_btn)
+        assert len(macro_requests) == 2
+        macro_requests[1]({"status": "ok", "macros": [{"name": "Greet"}]})
 
         model = tab.activation_macro_dropdown.get_model()
         labels = [model.get_string(index) for index in range(model.get_n_items())]
         assert labels == ["None", "Greet"]
 
         tab._on_macro_list_changed({"event": "macro_deleted", "name": "Greet"})
-        assert len(macro_requests) == 2
+        assert len(macro_requests) == 3
 
     def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig

@@ -1,6 +1,7 @@
 """Pure serialization helpers for macro mapping actions."""
 
 import json
+import re
 from typing import cast
 
 from keymasq.common.model.actions import MappingAction
@@ -44,21 +45,28 @@ def add_runtime_fields(
 
 def signature_references(signature: str, macro_names: set[str]) -> bool:
     """Return whether a sent mapping or combo signature names one of the macros."""
-    if not signature:
+    stored_names = {stored for name in macro_names if (stored := _stored_name(name))}
+    if not signature or not stored_names:
         return False
     try:
         payload = json.loads(signature)
     except ValueError:
         return True
-    return _payload_references(payload, macro_names)
+    return _payload_references(payload, stored_names)
 
 
-def _payload_references(value: object, macro_names: set[str]) -> bool:
+def _stored_name(name: str) -> str:
+    # Mirrors MacroStore._sanitize_name, which keymasqd applies to every macro lookup.
+    return re.sub(r"[^a-zA-Z0-9_.-]", "_", name).strip("._")
+
+
+def _payload_references(value: object, stored_names: set[str]) -> bool:
     if isinstance(value, dict):
         payload = cast(dict[str, object], value)
-        if payload.get("macro_name") in macro_names:
+        macro_name = payload.get("macro_name")
+        if isinstance(macro_name, str) and _stored_name(macro_name) in stored_names:
             return True
-        return any(_payload_references(item, macro_names) for item in payload.values())
+        return any(_payload_references(item, stored_names) for item in payload.values())
     if isinstance(value, list):
-        return any(_payload_references(item, macro_names) for item in cast(list[object], value))
+        return any(_payload_references(item, stored_names) for item in cast(list[object], value))
     return False

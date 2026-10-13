@@ -17,6 +17,9 @@ class LifecycleMacroMixin:
     """Maintain lifecycle macro choices independently of profile selection."""
 
     def _on_lifecycle_macros_loaded(self: Any, result: dict | None) -> bool:
+        if not isinstance(result, dict) or result.get("status") != "ok":
+            self._lifecycle_macros_stale = True
+            return False
         self._profile_lifecycle_macro_names = list(
             LifecycleMacroOptions.from_payload(result).available
         )

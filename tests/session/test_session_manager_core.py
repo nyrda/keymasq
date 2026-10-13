@@ -4,7 +4,7 @@ import signal
 import threading
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -408,8 +408,7 @@ async def test_reload_handler_debounces_burst_updates() -> None:
     manager = SessionManager()
     calls = 0
 
-    async def fake_reload_profiles(*, force_runtime_refresh: bool = False) -> None:
-        assert force_runtime_refresh is True
+    async def fake_reload_profiles() -> None:
         nonlocal calls
         calls += 1
         await asyncio.sleep(0.02)
@@ -461,10 +460,21 @@ async def test_reload_profiles_keeps_sent_payload_signatures_unless_sighup(
 
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
-    assert reevaluate_profiles.await_args_list == [
-        call(manager, reason="config reload"),
-        call(manager, reason="config reload"),
-    ]
+    assert reevaluate_profiles.await_count == 2
+
+    manager.profile_state.last_sent_mapping_signatures = {"1234:5678": "sig"}
+
+    async def sighup_during_reevaluate(*_args: object, **_kwargs: object) -> None:
+        if reevaluate_profiles.await_count == 3:
+            manager._reload_handler()
+
+    reevaluate_profiles.side_effect = sighup_during_reevaluate
+    reload_task = asyncio.create_task(manager.reload_profiles())
+    manager.reload_task = reload_task
+    await reload_task
+
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert reevaluate_profiles.await_count == 4
 
 
 @pytest.mark.asyncio

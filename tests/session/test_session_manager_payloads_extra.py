@@ -46,11 +46,12 @@ async def test_macro_refresh_resends_only_payloads_that_name_the_macro(
         "direct": MappingAction(action_type=ActionType.MACRO, macro_name="Greet"),
         "nested": MappingAction(action_type=ActionType.SUPERKEY, superkey_name="greeter"),
         "other": MappingAction(action_type=ActionType.MACRO, macro_name="Farewell"),
+        "stored_spelling": MappingAction(action_type=ActionType.MACRO, macro_name="Greet_Me"),
     }
     for hardware_id, action in actions.items():
         resolved = ResolvedDeviceProfile(hardware_id=hardware_id, mappings={"btn": action})
-        manager.profile_state.last_sent_mapping_signatures[hardware_id] = (
-            mapping_payload.signature(manager, resolved, hardware_id)
+        manager.profile_state.last_sent_mapping_signatures[hardware_id] = mapping_payload.signature(
+            manager, resolved, hardware_id
         )
     combo = ResolvedCombo(
         id="greet",
@@ -65,9 +66,9 @@ async def test_macro_refresh_resends_only_payloads_that_name_the_macro(
     await coordinator.refresh_macro_bindings(manager, {"Unused"})
 
     reevaluate_profiles.assert_not_awaited()
-    assert set(manager.profile_state.last_sent_mapping_signatures) == {"direct", "nested", "other"}
+    assert set(manager.profile_state.last_sent_mapping_signatures) == set(actions)
 
-    await coordinator.refresh_macro_bindings(manager, {"Greet"})
+    await coordinator.refresh_macro_bindings(manager, {"Greet", "Greet Me"})
 
     assert set(manager.profile_state.last_sent_mapping_signatures) == {"other"}
     assert manager.profile_state.last_sent_combo_signature == ""

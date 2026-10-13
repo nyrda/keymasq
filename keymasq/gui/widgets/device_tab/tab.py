@@ -29,7 +29,6 @@ from keymasq.session.hardware import HardwareManager
 from keymasq.session.profile.manager import ProfileManager
 
 SessionCallback = Callable[[JsonDict | None], bool]
-SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS = 500
 
 
 class DeviceTab(
@@ -117,7 +116,7 @@ class DeviceTab(
         return KeySelectorDialog(parent, title, current_action, **kwargs)
 
     def _schedule_selector_commit(self, callback: Callable[[], bool]) -> int:
-        return int(GLib.timeout_add(SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS, callback))
+        return int(GLib.idle_add(callback))
 
     def _remove_selector_commit_source(self, source_id: int) -> None:
         GLib.source_remove(source_id)

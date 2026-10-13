@@ -366,6 +366,55 @@ class TestMainWindow:
         assert tab2._selected_profile is not None
         assert tab2._selected_profile.config.name == "Desktop"
 
+    def test_device_tab_refresh_publishes_shared_selection_once(
+        self, temp_config_dir, monkeypatch
+    ):
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import ProfileConfig
+        from keymasq.gui.preferences import load_selected_profile, save_selected_profile
+        from keymasq.gui.window.core import MainWindow
+
+        window = MainWindow(demo_mode=True)
+        window.profile_manager.save_profile(
+            ProfileConfig(name="Desktop", enabled=True, is_permanent=True)
+        )
+        window.profile_manager.save_profile(
+            ProfileConfig(name="Gaming", enabled=True, is_permanent=True)
+        )
+        for product_id in ("6678", "6679", "6680"):
+            device_tabs._add_device_tab(
+                window,
+                HardwareConfig(
+                    vendor_id="2234",
+                    product_id=product_id,
+                    name=f"Mouse {product_id}",
+                    evdev_devices=[],
+                    buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+                ),
+            )
+        profiles._sync_selected_profile_name(window, "Gaming")
+        tabs = list(tab_layout._iter_profile_tabs(window))
+
+        writes: list[str | None] = []
+
+        def record_save(profile_name: str | None) -> None:
+            writes.append(profile_name)
+            save_selected_profile(profile_name)
+
+        monkeypatch.setattr(profiles, "save_selected_profile", record_save)
+
+        device_tabs._refresh_device_tabs(window)
+
+        assert writes == []
+        assert [tab.selected_profile_name() for tab in tabs] == ["Gaming"] * len(tabs)
+
+        device_tabs._refresh_device_tabs(window, preferred_profile_name="Desktop")
+
+        assert writes == ["Desktop"]
+        assert window._selected_profile_name == "Desktop"
+        assert load_selected_profile() == "Desktop"
+        assert [tab.selected_profile_name() for tab in tabs] == ["Desktop"] * len(tabs)
+
     def test_created_profile_is_selected_and_reloaded(self, temp_config_dir, monkeypatch):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
         from keymasq.common.model.profiles import ProfileConfig

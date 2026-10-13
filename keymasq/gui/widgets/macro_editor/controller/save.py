@@ -169,7 +169,7 @@ class SaveControllerMixin:
             return False
 
         self._apply_saved_macro_state(payload, requested_name, requested_payload)
-        self._notify_session_reload()
+        self._notify_saved()
         warning = payload.get("warning")
         if isinstance(warning, str) and warning.strip():
             self._show_save_warning(warning)
@@ -310,7 +310,7 @@ class SaveControllerMixin:
             error_label.set_label(payload.get("message", f"'{requested_name}' already exists"))
             error_label.set_visible(True)
             return False
-        self._notify_session_reload()
+        self._notify_saved()
         dialog.close()
         return False
 

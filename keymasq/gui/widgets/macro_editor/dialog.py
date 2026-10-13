@@ -30,7 +30,6 @@ from keymasq.gui.session_client import (
     session_request,
     session_request_async,
 )
-from keymasq.gui.session_reload import notify_session_reload_async
 from keymasq.gui.widgets.macro_editor.add_popovers import MacroEditorAddPopoversMixin
 from keymasq.gui.widgets.macro_editor.controller.lifecycle import (
     LifecycleControllerMixin,
@@ -257,9 +256,8 @@ class MacroEditorMixin(
             on_done=on_done,
         )
 
-    def _notify_session_reload(self) -> None:
+    def _notify_saved(self) -> None:
         self.emit("saved")
-        notify_session_reload_async()
 
 
 class MacroEditorDialog(Adw.Dialog, MacroEditorMixin):

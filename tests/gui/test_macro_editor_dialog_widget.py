@@ -1057,7 +1057,7 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
     ]
 
     requests: list[dict] = []
-    reloads: list[bool] = []
+    saved_signals: list[bool] = []
     closed: list[bool] = []
 
     def fake_session_request(payload):
@@ -1075,11 +1075,7 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
 
     monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
     monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "notify_session_reload_async",
-        lambda: reloads.append(True),
-    )
+    dialog.connect("saved", lambda _dialog: saved_signals.append(True))
     monkeypatch.setattr(
         macro_editor_dialog_module.MacroEditorDialog,
         "close",
@@ -1095,7 +1091,7 @@ def test_macro_editor_apply_saves_without_closing(monkeypatch) -> None:
     assert dialog._macro_data["revision"] == 3
     assert dialog._initial_macro_data["revision"] == 3
     assert dialog._macro_name == "demo_macro"
-    assert reloads == [True]
+    assert saved_signals == [True]
     assert closed == []
     assert apply_btn.get_sensitive() is True
 
@@ -1470,7 +1466,7 @@ def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -
 
     dialog = _build_macro_dialog(monkeypatch)
     alerts: list[tuple[str | None, str | None, object]] = []
-    reloads: list[bool] = []
+    saved_signals: list[bool] = []
     requested = dialog._current_macro_payload()
     requested["name"] = "renamed"
     saved = {**requested, "revision": 3}
@@ -1484,11 +1480,7 @@ def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -
         "present",
         lambda alert, parent: alerts.append((alert.get_heading(), alert.get_body(), parent)),
     )
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "notify_session_reload_async",
-        lambda: reloads.append(True),
-    )
+    dialog.connect("saved", lambda _dialog: saved_signals.append(True))
 
     result = GuiTaskResult(value={"status": "ok", "macro": saved, "warning": warning})
     assert (
@@ -1503,7 +1495,7 @@ def test_macro_editor_partial_rename_warns_and_adopts_saved_macro(monkeypatch) -
 
     assert dialog._macro_name == "renamed"
     assert dialog._macro_data["revision"] == 3
-    assert reloads == [True]
+    assert saved_signals == [True]
     assert alerts == [("Macro Saved With Warning", warning, dialog._parent)]
 
 
@@ -1536,7 +1528,6 @@ def test_macro_editor_save_in_flight_blocks_editor_duplicates_and_tracks_snapsho
 
     monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
     monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
-    monkeypatch.setattr(macro_editor_dialog_module, "notify_session_reload_async", lambda: None)
 
     apply_btn = dialog._footer_action_buttons[2]
     save_btn = dialog._footer_action_buttons[3]
@@ -1600,7 +1591,7 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     closed: list[bool] = []
     alerts: list[tuple[object, object]] = []
     requests: list[dict] = []
-    reloads: list[bool] = []
+    saved_signals: list[bool] = []
 
     def fake_session_request(payload):
         requests.append(payload)
@@ -1623,11 +1614,7 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     )
     monkeypatch.setattr(macro_editor_dialog_module, "session_request", fake_session_request)
     monkeypatch.setattr(macro_editor_dialog_module, "run_gui_task", fake_run_gui_task)
-    monkeypatch.setattr(
-        macro_editor_dialog_module,
-        "notify_session_reload_async",
-        lambda: reloads.append(True),
-    )
+    dialog.connect("saved", lambda _dialog: saved_signals.append(True))
 
     result = {
         "macro": {
@@ -1653,7 +1640,7 @@ def test_macro_editor_unsaved_close_save_response_saves_and_closes(monkeypatch) 
     assert requests[0]["expected_revision"] == 2
     assert requests[0]["macro"]["block_mouse_movement"] is True
     assert dialog._macro_data["revision"] == 3
-    assert reloads == [True]
+    assert saved_signals == [True]
     assert closed == [True]
     assert dialog.get_can_close() is True
 

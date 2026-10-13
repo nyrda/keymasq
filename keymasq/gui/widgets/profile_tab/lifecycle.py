@@ -26,12 +26,16 @@ class LifecycleMacroMixin:
     def _load_lifecycle_macros(self: Any) -> None:
         if self.profile_manager is None or self.demo_mode:
             return
+        self._lifecycle_macros_stale = False
         self._request_session_async(
             {"command": "list_macros"},
             self._on_lifecycle_macros_loaded,
         )
 
     def _on_macro_list_changed(self: Any, _event: dict) -> None:
+        if self._profile_settings_dialog is None:
+            self._lifecycle_macros_stale = True
+            return
         self._load_lifecycle_macros()
 
     def _on_profile_managed_destroy(self: Any, _widget: object) -> None:

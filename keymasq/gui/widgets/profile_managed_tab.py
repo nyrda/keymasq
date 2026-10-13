@@ -59,6 +59,7 @@ class ProfileManagedTab(
         self._profile_lifecycle_macro_names: list[str] = []
         self._profile_lifecycle_macro_options: list[str] = [""]
         self._suspend_lifecycle_macro_signal = False
+        self._lifecycle_macros_stale = False
         self._registered_macro_event_handlers = False
         if self.main_window is not None and hasattr(self.main_window, "register_event_handler"):
             self.main_window.register_event_handler("macro_saved", self._on_macro_list_changed)

@@ -210,7 +210,6 @@ def test_apply_keeps_window_open_updates_revision_and_reuses_saved_name(editor_p
 
     monkeypatch.setattr(window, "_session_request", request)
     monkeypatch.setattr(window, "_run_gui_task", run)
-    monkeypatch.setattr(editor_module, "notify_session_reload_async", lambda: None)
     window.connect("saved", lambda _: saved.append(True))
     window._on_apply(Gtk.Button())
     assert requests[0]["expected_revision"] == 2
@@ -285,7 +284,6 @@ def test_quit_waits_for_pending_save_and_stops_on_failure(
 
     monkeypatch.setattr(window, "_run_gui_task", defer_save)
     monkeypatch.setattr(window, "_show_save_error", errors.append)
-    monkeypatch.setattr(editor_module, "notify_session_reload_async", lambda: None)
     window._save_current_macro(None, close_after_save=close_after_save)
     editor_module.close_macro_editors(
         editor_parent.get_application(), lambda: finished.append(True)

@@ -80,6 +80,26 @@ from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
 
+_COMBO_REL_CODES = frozenset(
+    int(code)
+    for code in (
+        evdev.ecodes.REL_WHEEL,
+        evdev.ecodes.REL_HWHEEL,
+        getattr(evdev.ecodes, "REL_WHEEL_HI_RES", None),
+        getattr(evdev.ecodes, "REL_HWHEEL_HI_RES", None),
+    )
+    if code is not None
+)
+
+
+def _combo_engine_reads(event: InputEventLike) -> bool:
+    # Combos bind only keys, buttons and wheel pulses; anything else is a no-op there.
+    event_type = int(event.type)
+    return event_type == evdev.ecodes.EV_KEY or (
+        event_type == evdev.ecodes.EV_REL and int(event.code) in _COMBO_REL_CODES
+    )
+
+
 def build_action_execution_deps(
     *, fire_and_observe_fn: FireAndObserve = fire_and_observe
 ) -> ActionExecutionDeps:
@@ -526,7 +546,7 @@ async def _process_event(
     callback_result = None
     # Reserve the original gesture's next press before a replacement combo can
     # execute. Releases still reach the engine to clear any prior held binding.
-    if not retained_pattern_press:
+    if not retained_pattern_press and _combo_engine_reads(event):
         callback_result = await device_runtime.event_callback(
             device_runtime.hardware_id,
             device_runtime.path,

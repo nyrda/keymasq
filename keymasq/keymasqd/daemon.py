@@ -8,7 +8,6 @@ import signal
 import socket
 import stat
 import sys
-import time
 from collections.abc import Awaitable, Callable
 from typing import cast
 
@@ -93,7 +92,10 @@ class Daemon:
 
     async def start(self) -> None:
         asyncio.get_running_loop().set_default_executor(
-            ObservedThreadPoolExecutor(self.device_manager.note_diagnostics_activity)
+            ObservedThreadPoolExecutor(
+                self.device_manager.begin_diagnostics_activity,
+                self.device_manager.end_diagnostics_activity,
+            )
         )
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
@@ -281,13 +283,11 @@ class Daemon:
         data: JsonObject,
         client: ClientContext | None = None,
     ) -> JsonObject:
-        started_ns = time.monotonic_ns()
+        token = self.device_manager.begin_diagnostics_activity(f"command {command_type.value}")
         try:
             return await self._dispatch_command(command_type, data, client)
         finally:
-            self.device_manager.note_diagnostics_activity(
-                started_ns, f"command {command_type.value}"
-            )
+            self.device_manager.end_diagnostics_activity(token)
 
     async def _dispatch_command(
         self,

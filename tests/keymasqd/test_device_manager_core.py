@@ -3,6 +3,7 @@ import errno
 import gc
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
@@ -2850,22 +2851,35 @@ class TestListDevices:
         manager = DeviceManager()
         loop = asyncio.get_running_loop()
         loop.set_default_executor(
-            diagnostics.ObservedThreadPoolExecutor(manager.note_diagnostics_activity)
+            diagnostics.ObservedThreadPoolExecutor(
+                manager.begin_diagnostics_activity,
+                manager.end_diagnostics_activity,
+            )
         )
+        release = threading.Event()
 
         def scan_sysfs() -> None:
             time.sleep(0.005)
 
+        def load_macro_file() -> None:
+            release.wait(5.0)
+
         await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
         try:
             await asyncio.to_thread(scan_sysfs)
+            still_running = asyncio.ensure_future(asyncio.to_thread(load_macro_file))
+            await asyncio.sleep(0.01)
             with caplog.at_level(logging.WARNING):
                 manager._record_diagnostic("input_latency", 20_000.0)
                 await asyncio.sleep(0.05)
+            release.set()
+            await still_running
 
             assert "worker " in caplog.text
             assert "scan_sysfs" in caplog.text
+            assert "load_macro_file running for" in caplog.text
         finally:
+            release.set()
             await manager.set_diagnostics(False)
 
     @pytest.mark.asyncio
@@ -2970,7 +2984,9 @@ class TestListDevices:
 
         assert scans == [1, 3, 5, 6, 7]
 
-    def test_input_topology_fingerprint_tracks_nodes_links_and_access(self, tmp_path: Path) -> None:
+    def test_input_topology_fingerprint_tracks_nodes_links_and_access(
+        self, tmp_path: Path
+    ) -> None:
         dev = tmp_path / "dev"
         (dev / "input/by-id").mkdir(parents=True)
         (dev / "input/event3").write_text("")
@@ -4257,7 +4273,6 @@ class TestReleaseScheduling:
     ):
         """One interface's failed cleanup must not skip its siblings' release."""
         manager = DeviceManager()
-
         def interface(path: str, release: AsyncMock) -> SimpleNamespace:
             return SimpleNamespace(
                 path=path,

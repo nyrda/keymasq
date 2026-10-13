@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import functools
 import gc
+import itertools
 import logging
 import random
 import time
@@ -192,6 +193,8 @@ class DiagnosticsRuntime:
         self._lag_task: asyncio.Task[None] | None = None
         self._last_spike_log_ns = 0
         self._suppressed_spikes = 0
+        self._activity_ids = itertools.count()
+        self._running: dict[int, tuple[int, str]] = {}
 
     async def configure(
         self,
@@ -249,9 +252,20 @@ class DiagnosticsRuntime:
             samples = state.samples[label] = SampleReservoir()
         samples.add(float(duration_us))
 
-    def note_activity(self, started_ns: int, description: str) -> None:
+    def begin_activity(self, description: str) -> int | None:
         if not self._tracking_stalls():
+            return None
+        token = next(self._activity_ids)
+        self._running[token] = (time.monotonic_ns(), description)
+        return token
+
+    def end_activity(self, token: int | None) -> None:
+        if token is None:
             return
+        running = self._running.pop(token, None)
+        if running is None or not self._tracking_stalls():
+            return
+        started_ns, description = running
         ended_ns = time.monotonic_ns()
         duration_ms = (ended_ns - started_ns) / 1_000_000
         self._stall_events.append(
@@ -278,6 +292,7 @@ class DiagnosticsRuntime:
             self._lag_task = None
         if not tracking:
             self._stall_events.clear()
+            self._running.clear()
 
     def _on_gc(self, phase: str, info: dict[str, int]) -> None:
         now_ns = time.monotonic_ns()
@@ -332,6 +347,12 @@ class DiagnosticsRuntime:
             for event in list(self._stall_events)
             if event.ended_ns >= window_start_ns and event.started_ns <= handled_ns
         ]
+        now_ns = time.monotonic_ns()
+        causes.extend(
+            f"{description} running for {(now_ns - started_ns) / 1_000_000:.2f} ms"
+            for started_ns, description in list(self._running.values())
+            if started_ns <= handled_ns
+        )
         if len(causes) > _SPIKE_CAUSES_LISTED:
             causes = [
                 *causes[:_SPIKE_CAUSES_LISTED],
@@ -372,20 +393,26 @@ class DiagnosticsRuntime:
 class ObservedThreadPoolExecutor(ThreadPoolExecutor):
     """Default executor that reports each job so stall diagnostics can name it."""
 
-    def __init__(self, note_activity: Callable[[int, str], None]) -> None:
+    def __init__(
+        self,
+        begin_activity: Callable[[str], int | None],
+        end_activity: Callable[[int | None], None],
+    ) -> None:
         super().__init__(thread_name_prefix="keymasqd-worker")
-        self._note_activity = note_activity
+        self._begin_activity = begin_activity
+        self._end_activity = end_activity
 
     def submit[**P, T](self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
-        note_activity = self._note_activity
+        begin_activity = self._begin_activity
+        end_activity = self._end_activity
         description = f"worker {_job_name(fn)}"
 
         def observed() -> T:
-            started_ns = time.monotonic_ns()
+            token = begin_activity(description)
             try:
                 return fn(*args, **kwargs)
             finally:
-                note_activity(started_ns, description)
+                end_activity(token)
 
         return super().submit(observed)
 

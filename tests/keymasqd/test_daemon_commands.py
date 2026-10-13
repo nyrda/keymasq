@@ -151,6 +151,5 @@ async def test_handled_commands_are_noted_for_stall_diagnostics(daemon_testbed):
 
     await daemon._handle_command(CommandType.SET_MAPPING, {"hardware_id": "kbd", "mapping": {}})
 
-    started_ns, description = device_manager.note_diagnostics_activity.call_args.args
-    assert isinstance(started_ns, int)
-    assert description == "command set_mapping"
+    device_manager.begin_diagnostics_activity.assert_called_once_with("command set_mapping")
+    device_manager.end_diagnostics_activity.assert_called_once_with(7)

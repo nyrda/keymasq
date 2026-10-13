@@ -2,7 +2,7 @@
 
 > The Python figures below time dictionary lookups, not Keymasq's event
 > pipeline. See [PIPELINE_LATENCY.md](PIPELINE_LATENCY.md) for the measured
-> pipeline cost, about 20–40 us per event.
+> pipeline cost, about 7–26 us per event.
 
 ## Summary
 

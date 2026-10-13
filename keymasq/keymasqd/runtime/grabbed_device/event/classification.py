@@ -105,7 +105,28 @@ def _evdev_code_names(
     return cast(Mapping[object, object], raw_names)
 
 
+_EVENT_NAMES: dict[tuple[int, int], str] = {}
+
+
 def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
+    event_type: object = event.type
+    raw_code: object = event.code
+    # Names depend only on the static ecodes tables, so the shared module's are cached.
+    cacheable = (
+        type(event_type) is int
+        and type(raw_code) is int
+        and getattr(evdev_mod, "ecodes", None) is evdev.ecodes
+    )
+    if cacheable:
+        key = (event_type, raw_code)
+        name = _EVENT_NAMES.get(key)
+        if name is None:
+            name = _EVENT_NAMES[key] = _resolve_event_name(event, evdev_mod=evdev_mod)
+        return name
+    return _resolve_event_name(event, evdev_mod=evdev_mod)
+
+
+def _resolve_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
     raw_code: object = event.code
     code = _event_code_int(raw_code)
     if code is None:

@@ -34,10 +34,23 @@ One run on Python 3.12 with uvloop, `powersave` CPU governor, load average 5:
 
 | Pipeline frame | Median | p99 | p99.9 |
 |---|---:|---:|---:|
-| Mouse move, device without mappings | 60.0 us | 190.7 us | 382.5 us |
-| Mouse move, profile with mappings | 62.6 us | 197.6 us | 295.7 us |
-| Unmapped key press or release | 71.2 us | 194.5 us | 282.6 us |
-| Remapped key press or release | 67.9 us | 191.7 us | 279.5 us |
+| Mouse move, device without mappings | 19.9 us | 69.9 us | 128.5 us |
+| Mouse move, profile with mappings | 23.0 us | 74.9 us | 137.3 us |
+| Unmapped key press or release | 40.7 us | 115.5 us | 171.2 us |
+| Remapped key press or release | 51.7 us | 139.4 us | 216.6 us |
+
+Before the per-event work below was removed, the same run on the same machine
+measured 60.0, 63.7, 71.5 and 68.6 us medians, with p99 values of 163–196 us.
+Most of that time was spent on work that did not depend on the event:
+
+- resolving each event's name from the ecodes tables, now cached per type
+  and code
+- running the combo callback, recall check and wheel handling for mouse
+  movement and sync events, which combos and wheel handling never use
+- repeat bookkeeping for mouse movement, and copying a freshly built action
+  for every passed-through key press
+- converting event fields in every branch, and awaiting the analog observer
+  for events it ignores
 
 A deterministic pure-Python workload on the same machine showed the same
 spread between median and p99, so the tail here is machine noise rather than
@@ -65,8 +78,8 @@ A full collection of the 51,060 objects tracked after importing the daemon took
 
 ## Conclusions
 
-1. Python processing is about 20–40 us per event, not ~0.3 us. That is still
-   far below a 1 ms USB polling interval.
+1. Python processing is about 7–26 us per event, not ~0.3 us. That is far
+   below a 1 ms USB polling interval.
 2. The large delays came from other work holding up input, not from per-event
    processing: profile changes parsed in one block, worker threads holding
    the GIL for up to the 5 ms default switch interval, and full collections

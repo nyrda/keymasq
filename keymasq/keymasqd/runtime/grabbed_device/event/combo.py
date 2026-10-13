@@ -28,6 +28,10 @@ class ComboCallbackRoute:
     clear_released_source_action: bool = False
 
 
+_NOT_RECALLED = RecalledEventInterception()
+_NO_COMBO_ROUTE = ComboCallbackRoute()
+
+
 def intercept_recalled_event(
     state: GrabbedDeviceState,
     *,
@@ -42,9 +46,11 @@ def intercept_recalled_event(
     the combo callback before their passthrough is suppressed.
     """
 
+    if not event_is_key or not state.combo_recalled_bindings:
+        return _NOT_RECALLED
     normalized_event_name = normalize_combo_evdev(event_name)
-    if not event_is_key or normalized_event_name not in state.combo_recalled_bindings:
-        return RecalledEventInterception()
+    if normalized_event_name not in state.combo_recalled_bindings:
+        return _NOT_RECALLED
     if event_value == 2:
         return RecalledEventInterception(
             stop_processing=True,
@@ -73,7 +79,7 @@ def route_combo_callback_result(
             clear_released_source_action=True,
         )
     if not isinstance(result, ComboDecision):
-        return ComboCallbackRoute()
+        return _NO_COMBO_ROUTE
 
     passthrough_requested = result.passthrough_current_event
     if not result.consume_current_event:

@@ -76,8 +76,25 @@ from keymasq.keymasqd.runtime.pointer_movement import (
     release_pointer_movement,
 )
 from keymasq.keymasqd.runtime.rollover import next_press_sequence
+from keymasq.keymasqd.runtime.wheel_codes import is_wheel_rel_code
 from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
+
+
+def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: EvdevModule) -> bool:
+    ecodes = evdev_mod.ecodes
+    return event_type == int(ecodes.EV_REL) and is_wheel_rel_code(
+        event_code,
+        rel_wheel=int(ecodes.REL_WHEEL),
+        rel_hwheel=int(ecodes.REL_HWHEEL),
+    )
+
+
+def _combo_engine_reads(event_type: int, event_code: int, *, evdev_mod: EvdevModule) -> bool:
+    # Combos bind only keys, buttons and wheel pulses; anything else is a no-op there.
+    return event_type == int(evdev_mod.ecodes.EV_KEY) or _is_wheel_event(
+        event_type, event_code, evdev_mod=evdev_mod
+    )
 
 
 def build_action_execution_deps(
@@ -353,6 +370,9 @@ async def _process_event(
 
     evdev_mod = deps.evdev_mod
     started_ns = deps.time_mod.perf_counter_ns()
+    event_type = int(event.type)
+    event_code = int(event.code)
+    event_value = int(event.value)
     event_name = get_event_name(event, evdev_mod=evdev_mod)
     event_class = classify_event(
         event,
@@ -365,10 +385,15 @@ async def _process_event(
         event,
         evdev_mod=evdev_mod,
     )
-    analog_drop = event_class is EventClass.SYNCHRONIZATION and int(event.code) == int(
+    analog_drop = event_class is EventClass.SYNCHRONIZATION and event_code == int(
         evdev_mod.ecodes.SYN_DROPPED
     )
-    await observe_analog_source_event(device_runtime, event, deps=deps.action_deps)
+    if (
+        event_type == int(evdev_mod.ecodes.EV_SYN)
+        or device_runtime.analog_axis_bindings
+        or device_runtime.state.analog_snapshot_boundary is not None
+    ):
+        await observe_analog_source_event(device_runtime, event, deps=deps.action_deps)
     if motion_drop_handled:
         # Stream loss invalidates held motion state even while actions are suppressed.
         await dispatch_motion_event(
@@ -385,7 +410,7 @@ async def _process_event(
         device_runtime,
         event_class=event_class,
         event_name=event_name,
-        event_value=int(event.value),
+        event_value=event_value,
     )
     if paused_label is not None:
         _finish_diagnostics(device_runtime, paused_label, started_ns, deps=deps)
@@ -424,9 +449,9 @@ async def _process_event(
         return
 
     if device_runtime.access_mode is InputAccessMode.OBSERVE:
-        motion_event = (int(event.type), int(event.code)) in (
+        motion_event = (event_type, event_code) in (
             device_runtime.motion_axis_bindings
-        ) or int(event.type) == int(evdev_mod.ecodes.EV_SYN)
+        ) or event_type == int(evdev_mod.ecodes.EV_SYN)
         consumed = motion_drop_handled
         if motion_event and not motion_drop_handled:
             consumed = await dispatch_motion_event(
@@ -445,7 +470,7 @@ async def _process_event(
 
     if event_class is EventClass.SYNCHRONIZATION and not analog_drop:
         await process_analog_syn_event(device_runtime, event, deps=deps.action_deps)
-    if event_class is EventClass.SYNCHRONIZATION and int(event.code) == 0:  # SYN_REPORT
+    if event_class is EventClass.SYNCHRONIZATION and event_code == 0:  # SYN_REPORT
         flush_pointer_frame(
             device_runtime,
             event,
@@ -454,10 +479,10 @@ async def _process_event(
         )
 
     if device_runtime.motion_axis_bindings:
-        motion_axis_event = (int(event.type), int(event.code)) in (
+        motion_axis_event = (event_type, event_code) in (
             device_runtime.motion_axis_bindings
         )
-        motion_syn_event = int(event.type) == int(evdev_mod.ecodes.EV_SYN)
+        motion_syn_event = event_type == int(evdev_mod.ecodes.EV_SYN)
         if motion_axis_event or motion_syn_event:
             motion_consumed = motion_drop_handled
             if not motion_drop_handled:
@@ -505,7 +530,7 @@ async def _process_event(
         device_runtime.state,
         event_is_key=event_is_key,
         event_name=event_name,
-        event_value=int(event.value),
+        event_value=event_value,
     )
     if recalled.stop_processing:
         if recalled.diagnostic_label is not None:
@@ -519,14 +544,16 @@ async def _process_event(
 
     retained_pattern_press = (
         event_is_key
-        and int(event.value) != 0
+        and event_value != 0
         and (machine := device_runtime.state.superkey_machines.get(event_name)) is not None
         and machine.is_retiring
     )
     callback_result = None
     # Reserve the original gesture's next press before a replacement combo can
     # execute. Releases still reach the engine to clear any prior held binding.
-    if not retained_pattern_press:
+    if not retained_pattern_press and _combo_engine_reads(
+        event_type, event_code, evdev_mod=evdev_mod
+    ):
         callback_result = await device_runtime.event_callback(
             device_runtime.hardware_id,
             device_runtime.path,
@@ -539,7 +566,7 @@ async def _process_event(
     combo_route = route_combo_callback_result(
         callback_result,
         event_is_key=event_is_key,
-        event_value=int(event.value),
+        event_value=event_value,
         event_name=event_name,
         held_source_actions=device_runtime.state.held_source_actions,
         combo_passthrough_held=device_runtime.state.combo_passthrough_held,
@@ -614,7 +641,7 @@ async def _process_event(
         if finish_combo_passthrough_held_event(
             device_runtime.state,
             event_name=event_name,
-            event_value=int(event.value),
+            event_value=event_value,
         ):
             clear_released_source_action(
                 device_runtime,
@@ -652,7 +679,9 @@ async def _process_event(
             and machine.state != SuperkeyState.IDLE
         )
     )
-    if event_class is EventClass.RELATIVE:
+    if event_class is EventClass.RELATIVE and _is_wheel_event(
+        event_type, event_code, evdev_mod=evdev_mod
+    ):
         wheel_diag_label = await process_wheel_event(
             device_runtime,
             event,

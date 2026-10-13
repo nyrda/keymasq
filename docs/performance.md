@@ -8,10 +8,10 @@ CPU governor, under load), the daemon's own processing took:
 
 | Input frame | Median | p99 | p99.9 |
 |---|---|---|---|
-| Mouse movement (`REL_X`, `REL_Y`, `SYN_REPORT`) | 60–63 us | 191–198 us | 296–383 us |
-| Key press or release, unmapped or remapped | 68–71 us | 192–195 us | 280–283 us |
+| Mouse movement (`REL_X`, `REL_Y`, `SYN_REPORT`) | 20–23 us | 70–75 us | 129–137 us |
+| Key press or release, unmapped or remapped | 41–52 us | 116–139 us | 171–217 us |
 
-That is about 20–40 us of processing per event. The evdev read and uinput
+That is about 7–26 us of processing per event. The evdev read and uinput
 write system calls come on top of this. These figures are from
 [benchmarks/pipeline_latency.py](https://github.com/nyrda/keymasq/blob/master/benchmarks/pipeline_latency.py)
 and vary with CPU speed and power settings.
@@ -20,15 +20,15 @@ and vary with CPU speed and power settings.
 
 | Reference point | Latency |
 |---|---|
-| Keymasq processing, one mouse report | 0.06 ms median, under 0.4 ms p99.9 |
+| Keymasq processing, one mouse report | 0.02 ms median, under 0.14 ms p99.9 |
 | USB polling interval (1000 Hz) | 1 ms |
 | USB polling interval (8000 Hz) | 0.125 ms |
 | One frame at 144 Hz | 6.9 ms |
 | One frame at 60 Hz | 16.7 ms |
 | Typical display latency | 5–20 ms |
 
-A 1000 Hz mouse sends a report every millisecond, more than ten times
-Keymasq's typical processing time per report.
+A 1000 Hz mouse sends a report every millisecond, about 40 times Keymasq's
+typical processing time per report.
 
 ### Avoiding stalls
 

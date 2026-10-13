@@ -195,14 +195,14 @@ def main() -> None:
     diagnostics_parser.add_argument(
         "--include",
         action="append",
-        choices=("mainline", "combo", "macro", "internal", "all"),
+        choices=("mainline", "combo", "macro", "internal", "stalls", "all"),
         default=[],
         help="Diagnostics category to log; repeat to add categories",
     )
     diagnostics_parser.add_argument(
         "--exclude",
         action="append",
-        choices=("mainline", "combo", "macro", "internal"),
+        choices=("mainline", "combo", "macro", "internal", "stalls"),
         default=[],
         help="Diagnostics category to hide after includes are applied",
     )

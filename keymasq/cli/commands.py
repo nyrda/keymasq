@@ -18,7 +18,7 @@ from keymasq.common.model.actions import parse_mpris_command
 from keymasq.common.paths import SESSION_SOCKET_PATH
 from keymasq.common.types import JsonObject
 
-DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal")
+DIAGNOSTICS_CATEGORIES = ("mainline", "combo", "macro", "internal", "stalls")
 
 
 def _session_unavailable() -> JsonObject:

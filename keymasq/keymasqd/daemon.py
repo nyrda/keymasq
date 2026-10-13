@@ -8,6 +8,7 @@ import signal
 import socket
 import stat
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from typing import cast
 
@@ -275,6 +276,20 @@ class Daemon:
         command_type: CommandType,
         data: JsonObject,
         client: ClientContext | None = None,
+    ) -> JsonObject:
+        started_ns = time.monotonic_ns()
+        try:
+            return await self._dispatch_command(command_type, data, client)
+        finally:
+            self.device_manager.note_diagnostics_activity(
+                started_ns, f"command {command_type.value}"
+            )
+
+    async def _dispatch_command(
+        self,
+        command_type: CommandType,
+        data: JsonObject,
+        client: ClientContext | None,
     ) -> JsonObject:
         if command_type == CommandType.START_RECORDING:
             self._ensure_macro_recording_allowed()

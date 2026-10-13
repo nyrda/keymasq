@@ -806,6 +806,9 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
     def _record_diagnostic(self, label: str, duration_us: float) -> None:
         self._diagnostics.record(label, duration_us)
 
+    def note_diagnostics_activity(self, started_ns: int, description: str) -> None:
+        self._diagnostics.note_activity(started_ns, description)
+
     def _macro_runtime_deps_with_diagnostics(self) -> MacroRuntimeDeps:
         recorder = (
             self._record_diagnostic

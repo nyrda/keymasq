@@ -214,6 +214,38 @@ playback iteration.
 Only stored macros are sampled. Cancelled, interrupted, or failed iterations
 do not produce a complete iteration sample.
 
+### Stall diagnostics
+
+Enable with:
+
+```bash
+keymasq diagnostics on --include mainline --include stalls
+```
+
+These labels show what else keymasqd was doing when input was delayed. The
+command line and the daemon log support this category; the GTK view does not
+offer it yet.
+
+| Label | What it means |
+|---|---|
+| `loop_lag` | How late a 1 ms timer on keymasqd's event loop fired. With uvloop, values up to about 1 ms are timer granularity; larger values mean the loop was busy. |
+| `gc_gen0`, `gc_gen1`, `gc_gen2` | Duration of a Python garbage collection of that generation, in any keymasqd thread. |
+
+While this category is on, an `input_latency` above 2 ms also logs a warning
+that lists what overlapped the delayed frame: garbage collections over 0.5 ms,
+event-loop blocks over 2 ms, and daemon commands that were running. At most one
+warning is logged per 100 ms; the next one reports how many were skipped.
+
+```text
+input_latency spike 4.21 ms, overlapping: gc gen2 3.80 ms; command set_mapping 2.10 ms
+```
+
+A daemon command in the list was running at the time, but that alone does not
+mean it blocked input, because commands can wait without holding up the loop.
+
+The stall category runs a 1 ms timer on the event loop while it is enabled.
+Turn diagnostics off when you are done.
+
 ### Internal diagnostics
 
 Enable with:

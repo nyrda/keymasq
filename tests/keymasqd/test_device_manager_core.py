@@ -1,7 +1,9 @@
 import asyncio
 import errno
+import gc
 import logging
 import os
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
@@ -2806,6 +2808,40 @@ class TestListDevices:
             "macro_load",
             "macro_iteration",
         }
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_attribute_an_input_spike_to_a_blocked_loop(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
+        try:
+            await asyncio.sleep(0.005)
+            time.sleep(0.01)
+            await asyncio.sleep(0.005)
+            with caplog.at_level(logging.WARNING):
+                manager._record_diagnostic("input_latency", 12_000.0)
+
+            assert max(manager.diagnostics_state.samples["loop_lag"]) >= 5000.0
+            assert "input_latency spike 12.00 ms" in caplog.text
+            assert "event loop blocked" in caplog.text
+        finally:
+            await manager.set_diagnostics(False)
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_record_gc_pauses_until_disabled(self) -> None:
+        callbacks_before = list(gc.callbacks)
+        manager = DeviceManager()
+        await manager.set_diagnostics(True, 60.0, ["stalls"])
+        try:
+            gc.collect()
+
+            assert manager.diagnostics_state.samples["gc_gen2"]
+        finally:
+            await manager.set_diagnostics(False)
+
+        assert gc.callbacks == callbacks_before
 
     @pytest.mark.asyncio
     async def test_topology_watch_loop_retries_when_live_and_reconciled_snapshots_differ(

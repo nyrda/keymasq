@@ -12,7 +12,7 @@ from typing import cast
 
 import evdev
 
-from keymasq.common.devices import WHEEL_REL_CODES, classify_event_device_type
+from keymasq.common.devices import classify_event_device_type, is_wheel_rel_code
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.source_state import read_missing_source_axes
@@ -80,11 +80,19 @@ from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 
 
-def _combo_engine_reads(event: InputEventLike) -> bool:
+def _is_wheel_event(event_type: int, event_code: int, *, evdev_mod: EvdevModule) -> bool:
+    ecodes = evdev_mod.ecodes
+    return event_type == int(ecodes.EV_REL) and is_wheel_rel_code(
+        event_code,
+        rel_wheel=int(ecodes.REL_WHEEL),
+        rel_hwheel=int(ecodes.REL_HWHEEL),
+    )
+
+
+def _combo_engine_reads(event_type: int, event_code: int, *, evdev_mod: EvdevModule) -> bool:
     # Combos bind only keys, buttons and wheel pulses; anything else is a no-op there.
-    event_type = int(event.type)
-    return event_type == evdev.ecodes.EV_KEY or (
-        event_type == evdev.ecodes.EV_REL and int(event.code) in WHEEL_REL_CODES
+    return event_type == int(evdev_mod.ecodes.EV_KEY) or _is_wheel_event(
+        event_type, event_code, evdev_mod=evdev_mod
     )
 
 
@@ -542,7 +550,9 @@ async def _process_event(
     callback_result = None
     # Reserve the original gesture's next press before a replacement combo can
     # execute. Releases still reach the engine to clear any prior held binding.
-    if not retained_pattern_press and _combo_engine_reads(event):
+    if not retained_pattern_press and _combo_engine_reads(
+        event_type, event_code, evdev_mod=evdev_mod
+    ):
         callback_result = await device_runtime.event_callback(
             device_runtime.hardware_id,
             device_runtime.path,
@@ -668,7 +678,9 @@ async def _process_event(
             and machine.state != SuperkeyState.IDLE
         )
     )
-    if event_class is EventClass.RELATIVE and event_code in WHEEL_REL_CODES:
+    if event_class is EventClass.RELATIVE and _is_wheel_event(
+        event_type, event_code, evdev_mod=evdev_mod
+    ):
         wheel_diag_label = await process_wheel_event(
             device_runtime,
             event,

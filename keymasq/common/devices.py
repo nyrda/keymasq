@@ -340,17 +340,14 @@ _HIGH_RES_WHEEL_LOW_RES_CODES: dict[int, int] = {
     )
     if high_res is not None
 }
-WHEEL_REL_CODES = frozenset(
-    {
-        int(evdev.ecodes.REL_WHEEL),
-        int(evdev.ecodes.REL_HWHEEL),
-        *_HIGH_RES_WHEEL_LOW_RES_CODES,
-    }
-)
 
 
 def high_res_wheel_low_res_code(code: int) -> int | None:
     return _HIGH_RES_WHEEL_LOW_RES_CODES.get(int(code))
+
+
+def is_wheel_rel_code(code: int, *, rel_wheel: int, rel_hwheel: int) -> bool:
+    return code == rel_wheel or code == rel_hwheel or code in _HIGH_RES_WHEEL_LOW_RES_CODES
 
 
 def capability_names_from_capabilities(caps: Mapping[int, Sequence[object]]) -> list[str]:

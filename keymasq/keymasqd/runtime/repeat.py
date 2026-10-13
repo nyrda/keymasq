@@ -7,11 +7,7 @@ from typing import Any
 
 import evdev
 
-from keymasq.common.devices import (
-    WHEEL_REL_CODES,
-    high_res_wheel_low_res_code,
-    normalize_wheel_value,
-)
+from keymasq.common.devices import high_res_wheel_low_res_code, normalize_wheel_value
 from keymasq.common.model.actions import (
     REPEAT_CATEGORY_GAMEPAD,
     REPEAT_CATEGORY_KEYBOARD,
@@ -396,7 +392,9 @@ def remember_passthrough_event(
         return
     event_type = int(event.type)
     event_code = int(event.code)
-    if event_type == int(evdev_mod.ecodes.EV_REL) and event_code not in WHEEL_REL_CODES:
+    if event_type == int(evdev_mod.ecodes.EV_REL) and (
+        high_res_wheel_low_res_code(event_code) or event_code
+    ) not in (int(evdev_mod.ecodes.REL_WHEEL), int(evdev_mod.ecodes.REL_HWHEEL)):
         return
     event_value = int(event.value)
     normalized_name = str(event_name or "").lower()

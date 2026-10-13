@@ -30,9 +30,14 @@ from keymasq.keymasqd.runtime import (
 from keymasq.keymasqd.runtime.combo import events, lifecycle
 from keymasq.keymasqd.runtime.grab import acquisition, planning, release
 from keymasq.keymasqd.runtime.grab.state import DesiredGrabConfig, GrabDeviceDeps, GrabRequest
+from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
 from keymasq.keymasqd.runtime.grabbed_device.types import InputAccessMode
 from keymasq.keymasqd.runtime.macro import controls, mouse
-from tests.keymasqd.device_manager_support import FakeUInput, make_grabbed_device
+from tests.keymasqd.device_manager_support import (
+    FakeUInput,
+    grabbed_event_processing_deps,
+    make_grabbed_device,
+)
 
 
 @pytest.mark.asyncio
@@ -703,6 +708,44 @@ async def test_profile_activation_trigger_end_broadcasts_deactivate_requested() 
     await asyncio.wait_for(deactivate_event.wait(), timeout=1.0)
 
     assert events == [expected_deactivate]
+
+
+@pytest.mark.asyncio
+async def test_set_mapping_remaps_input_with_previous_mapping_while_parsing(monkeypatch):
+    manager = DeviceManager()
+    keyboard = FakeUInput()
+    device = make_grabbed_device(
+        monkeypatch,
+        hardware_id="kbd",
+        button_map={"key_a": "key_a"},
+        mapping_getter=lambda: manager.active_mappings.get("kbd", {}),
+        keyboard_uinput=keyboard,
+        passthrough_uinput=FakeUInput(),
+        running=True,
+    )
+    manager.grabbed_devices["kbd"] = [device]
+    await manager.set_mapping("kbd", {"key_a": {"action": "keyboard", "target": "key_b"}})
+    replacement: JsonObject = {
+        f"btn_extra_{index}": {"action": "keyboard", "target": "key_x"} for index in range(400)
+    }
+    replacement["key_a"] = {"action": "keyboard", "target": "key_c"}
+
+    async def tap_key_a() -> list[tuple[int, int, int]]:
+        keyboard.writes.clear()
+        for value in (1, 0):
+            event = SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=value)
+            await pipeline.process_event(device, event, deps=grabbed_event_processing_deps())
+        return list(keyboard.writes)
+
+    update = asyncio.create_task(manager.set_mapping("kbd", replacement))
+    await asyncio.sleep(0)
+
+    assert not update.done()
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_B, 1) in await tap_key_a()
+
+    await update
+
+    assert (evdev.ecodes.EV_KEY, evdev.ecodes.KEY_C, 1) in await tap_key_a()
 
 
 requires_uinput = pytest.mark.skipif(

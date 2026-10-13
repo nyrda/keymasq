@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import contextlib
+import gc
 import logging
 import os
 import signal
@@ -140,6 +141,9 @@ class Daemon:
             await self.device_manager.start_topology_watcher()
             await self.sleep_coordinator.start()
 
+            # Keep the startup heap out of later full collections, which stall input.
+            gc.collect()
+            gc.freeze()
             sd_notify("READY=1")
             self._watchdog_task = asyncio.create_task(self._watchdog(), name="daemon-watchdog")
 
@@ -432,6 +436,8 @@ def main() -> None:
     # reduces jitter on the sub-millisecond asyncio.sleep() deadlines used by
     # macro replay.
     set_timer_slack_ns(logger=log)
+    # A worker thread running Python otherwise holds the GIL for up to 5 ms after input arrives.
+    sys.setswitchinterval(0.0002)
 
     if args.verbose >= 2:
         log.info("Trace logging enabled (-vv)")

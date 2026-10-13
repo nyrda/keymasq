@@ -1,11 +1,15 @@
 """Mapping replacement for an already grabbed device."""
 
+import asyncio
 import logging
+import time
 
 from keymasq.common.model.actions import MappingAction
 from keymasq.keymasqd.runtime import action_parser
 from keymasq.keymasqd.runtime.grab.release import cancel_pending_hardware_release
 from keymasq.keymasqd.runtime.grab.state import GrabManager, JsonObjectFn
+
+_PARSE_SLICE_S = 0.0005
 
 
 async def set_mapping(
@@ -33,7 +37,12 @@ async def set_mapping(
             raise ValueError(f"Device {hardware_id} not grabbed")
 
         parsed_mapping: dict[str, MappingAction] = {}
+        slice_started = time.perf_counter()
         for button_id, action_data in mapping.items():
+            if time.perf_counter() - slice_started >= _PARSE_SLICE_S:
+                # Large profiles parse for milliseconds; keep grabbed input flowing meanwhile.
+                await asyncio.sleep(0)
+                slice_started = time.perf_counter()
             action_dict = json_object_fn(action_data)
             if isinstance(action_data, str):
                 parsed_mapping[button_id] = action_parser.parse_action(

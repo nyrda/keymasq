@@ -2856,21 +2856,24 @@ class TestListDevices:
                 manager.end_diagnostics_activity,
             )
         )
+        started = threading.Event()
         release = threading.Event()
 
         def scan_sysfs() -> None:
             time.sleep(0.005)
 
         def load_macro_file() -> None:
+            started.set()
             release.wait(5.0)
 
         await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
         try:
             await asyncio.to_thread(scan_sysfs)
             still_running = asyncio.ensure_future(asyncio.to_thread(load_macro_file))
-            await asyncio.sleep(0.01)
+            while not started.is_set():
+                await asyncio.sleep(0.001)
             with caplog.at_level(logging.WARNING):
-                manager._record_diagnostic("input_latency", 20_000.0)
+                manager._record_diagnostic("input_latency", 60_000_000.0)
                 await asyncio.sleep(0.05)
             release.set()
             await still_running

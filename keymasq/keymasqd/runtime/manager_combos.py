@@ -133,6 +133,7 @@ async def parse_runtime_combos(
                 continue
             bindings: list[RuntimeComboBinding] = []
             for event_data in events_data:
+                await loop_slice.checkpoint()
                 event_dict = json_object(event_data)
                 if event_dict is None:
                     continue

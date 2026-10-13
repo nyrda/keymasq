@@ -58,8 +58,7 @@ class PinnedRecordingEvents:
 
     def iter_events(self) -> Iterator[RecordingEvent]:
         if self._handle is not None:
-            # Stays readable after the claim ends and cleanup unlinks the spool file;
-            # reopening the descriptor gives each loop iteration its own offset.
+            # Readable after cleanup unlinks the file, with a fresh offset per iteration.
             with open(f"/proc/self/fd/{self._handle.fileno()}", encoding="utf-8") as f:
                 yield from _spool_events(f)
         yield from self._memory_events

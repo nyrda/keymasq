@@ -118,7 +118,7 @@ def get_event_name(event: InputEventLike, *, evdev_mod: EvdevModule) -> str:
         and getattr(evdev_mod, "ecodes", None) is evdev.ecodes
     )
     if cacheable:
-        key = (cast(int, event_type), cast(int, raw_code))
+        key = (event_type, raw_code)
         name = _EVENT_NAMES.get(key)
         if name is None:
             name = _EVENT_NAMES[key] = _resolve_event_name(event, evdev_mod=evdev_mod)

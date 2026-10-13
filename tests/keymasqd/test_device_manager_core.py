@@ -17,7 +17,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.types import JsonObject
-from keymasq.keymasqd import device_manager
+from keymasq.keymasqd import device_manager, task_helpers
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import (
     adapters,
@@ -712,6 +712,7 @@ async def test_profile_activation_trigger_end_broadcasts_deactivate_requested() 
 
 @pytest.mark.asyncio
 async def test_set_mapping_remaps_input_with_previous_mapping_while_parsing(monkeypatch):
+    monkeypatch.setattr(task_helpers, "LOOP_SLICE_S", 0.0)
     manager = DeviceManager()
     keyboard = FakeUInput()
     device = make_grabbed_device(
@@ -726,9 +727,9 @@ async def test_set_mapping_remaps_input_with_previous_mapping_while_parsing(monk
     manager.grabbed_devices["kbd"] = [device]
     await manager.set_mapping("kbd", {"key_a": {"action": "keyboard", "target": "key_b"}})
     replacement: JsonObject = {
-        f"btn_extra_{index}": {"action": "keyboard", "target": "key_x"} for index in range(400)
+        "btn_extra": {"action": "keyboard", "target": "key_x"},
+        "key_a": {"action": "keyboard", "target": "key_c"},
     }
-    replacement["key_a"] = {"action": "keyboard", "target": "key_c"}
 
     async def tap_key_a() -> list[tuple[int, int, int]]:
         keyboard.writes.clear()

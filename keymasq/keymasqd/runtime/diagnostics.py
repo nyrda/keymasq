@@ -314,13 +314,20 @@ class DiagnosticsRuntime:
     async def _watch_loop_lag(self) -> None:
         while True:
             due_ns = time.monotonic_ns() + int(_LOOP_LAG_PERIOD_S * 1_000_000_000)
+            cpu_started_ns = time.thread_time_ns()
             await asyncio.sleep(_LOOP_LAG_PERIOD_S)
             now_ns = time.monotonic_ns()
             lag_us = max(0.0, (now_ns - due_ns) / 1000.0)
             self.record("loop_lag", lag_us)
             if lag_us >= _LOOP_STALL_US:
+                # Little CPU time means the OS or another thread held keymasqd up.
+                cpu_ms = (time.thread_time_ns() - cpu_started_ns) / 1_000_000
                 self._stall_events.append(
-                    StallEvent(due_ns, now_ns, f"event loop blocked {lag_us / 1000.0:.2f} ms")
+                    StallEvent(
+                        due_ns,
+                        now_ns,
+                        f"event loop blocked {lag_us / 1000.0:.2f} ms ({cpu_ms:.2f} ms on CPU)",
+                    )
                 )
 
     def _schedule_input_spike_log(self, latency_us: float) -> None:

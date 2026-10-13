@@ -2840,6 +2840,7 @@ class TestListDevices:
             assert max(manager.diagnostics_state.samples["loop_lag"]) >= 5000.0
             assert "input_latency spike 12.00 ms" in caplog.text
             assert "event loop blocked" in caplog.text
+            assert "ms on CPU)" in caplog.text
         finally:
             await manager.set_diagnostics(False)
 

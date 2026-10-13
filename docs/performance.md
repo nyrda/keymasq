@@ -244,6 +244,12 @@ next one reports how many were skipped.
 input_latency spike 4.21 ms, overlapping: gc gen2 3.80 ms; command set_mapping 2.10 ms
 ```
 
+An event-loop block also reports how much CPU time keymasqd's event-loop
+thread used in that period, for example `event loop blocked 6.35 ms (0.12 ms on
+CPU)`. A value close to the block length means keymasqd itself was busy. A small
+value means the loop thread was not running: the system scheduled other work,
+or another keymasqd thread held Python's interpreter lock.
+
 A daemon command or worker job in the list was running at the time, but that
 alone does not mean it blocked input, because commands and many worker jobs can
 wait without holding up the loop.

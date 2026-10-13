@@ -177,6 +177,8 @@ class ProfileSettingsMixin:
         dialog.set_child(content)
         self._profile_settings_dialog = dialog
         self._update_profile_settings()
+        if self._lifecycle_macros_stale:
+            self._load_lifecycle_macros()
         dialog.present(self.get_root())
 
     def _on_profile_dropdown_right_clicked(

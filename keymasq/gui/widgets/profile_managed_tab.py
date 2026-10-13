@@ -8,7 +8,7 @@ from gi.repository import Gtk, Pango  # pyright: ignore[reportAttributeAccessIss
 
 from keymasq.common.model.profiles import ProfileConfig
 from keymasq.gui.session_client import session_request_async
-from keymasq.gui.session_reload import notify_session_reload, notify_session_reload_async
+from keymasq.gui.session_reload import notify_session_reload_async
 from keymasq.gui.widgets.profile_tab.lifecycle import LifecycleMacroMixin
 from keymasq.gui.widgets.profile_tab.presentation import ProfilePresentationMixin
 from keymasq.gui.widgets.profile_tab.repository import ProfileRepositoryMixin
@@ -59,6 +59,7 @@ class ProfileManagedTab(
         self._profile_lifecycle_macro_names: list[str] = []
         self._profile_lifecycle_macro_options: list[str] = [""]
         self._suspend_lifecycle_macro_signal = False
+        self._lifecycle_macros_stale = False
         self._registered_macro_event_handlers = False
         if self.main_window is not None and hasattr(self.main_window, "register_event_handler"):
             self.main_window.register_event_handler("macro_saved", self._on_macro_list_changed)
@@ -228,9 +229,6 @@ class ProfileManagedTab(
         if timeout is None:
             return session_request_async(payload, callback)
         return session_request_async(payload, callback, timeout=timeout)
-
-    def _notify_session_reload(self) -> bool:
-        return notify_session_reload()
 
     def _notify_session_reload_async(self) -> None:
         notify_session_reload_async()

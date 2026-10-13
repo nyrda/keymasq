@@ -1,5 +1,9 @@
+import asyncio
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock
+
+import pytest
 
 from keymasq.session.manager.payload import action as action_payload
 from keymasq.session.manager.payload import combo as combo_serializer
@@ -19,6 +23,63 @@ def _manager_with_superkeys(*configs, analog_controls=()):
         ),
         superkeys=SimpleNamespace(get_superkey=lambda name: by_name.get(name)),
     )
+
+
+@pytest.mark.asyncio
+async def test_macro_refresh_resends_only_payloads_that_name_the_macro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType, SuperkeyMode
+    from keymasq.common.model.profiles import ComboEvent, ComboStep
+    from keymasq.common.model.superkeys import SuperkeyAction, SuperkeyConfig
+    from keymasq.session.manager.profile import coordinator
+    from keymasq.session.profile.types import ResolvedCombo, ResolvedDeviceProfile
+
+    superkey = SuperkeyConfig(
+        name="greeter",
+        mode=SuperkeyMode.PATTERN,
+        tap_actions=[SuperkeyAction(action_type=ActionType.MACRO, macro_name="Greet")],
+    )
+    manager = _manager_with_superkeys(superkey)
+    actions = {
+        "direct": MappingAction(action_type=ActionType.MACRO, macro_name="Greet"),
+        "nested": MappingAction(action_type=ActionType.SUPERKEY, superkey_name="greeter"),
+        "other": MappingAction(action_type=ActionType.MACRO, macro_name="Farewell"),
+        "stored_spelling": MappingAction(action_type=ActionType.MACRO, macro_name="Greet_Me"),
+    }
+    for hardware_id, action in actions.items():
+        resolved = ResolvedDeviceProfile(hardware_id=hardware_id, mappings={"btn": action})
+        manager.profile_state.last_sent_mapping_signatures[hardware_id] = mapping_payload.signature(
+            manager, resolved, hardware_id
+        )
+    combo = ResolvedCombo(
+        id="greet",
+        name="Greet",
+        steps=[ComboStep(events=[ComboEvent(evdev="key_f13")])],
+        action=MappingAction(action_type=ActionType.MACRO, macro_name="Greet"),
+    )
+    manager.profile_state.last_sent_combo_signature = combo_serializer.signature(manager, [combo])
+    reevaluate_profiles = AsyncMock()
+    monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
+
+    await coordinator.refresh_macro_bindings(manager, {"Unused"})
+
+    reevaluate_profiles.assert_not_awaited()
+    assert set(manager.profile_state.last_sent_mapping_signatures) == set(actions)
+
+    await coordinator.refresh_macro_bindings(manager, {"Greet", "Greet Me"})
+
+    assert set(manager.profile_state.last_sent_mapping_signatures) == {"other"}
+    assert manager.profile_state.last_sent_combo_signature == ""
+    reevaluate_profiles.assert_awaited_once_with(manager, reason="macro bindings refreshed")
+
+    in_flight_apply = asyncio.create_task(asyncio.sleep(1))
+    manager.profile_state.apply_task = in_flight_apply
+    await coordinator.refresh_macro_bindings(manager, {"Unused"})
+    in_flight_apply.cancel()
+
+    assert reevaluate_profiles.await_count == 2
 
 
 def test_profile_to_mapping_serializes_high_value_action_payloads() -> None:

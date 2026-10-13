@@ -769,7 +769,7 @@ class TestDeviceTabWidget:
         from keymasq.session.profile.manager import ProfileManager
 
         dialogs: list[object] = []
-        scheduled: list[tuple[int, Callable[[], bool]]] = []
+        scheduled: list[Callable[[], bool]] = []
 
         class DummyDialog:
             callbacks: dict[str, Callable[..., object]]
@@ -787,9 +787,9 @@ class TestDeviceTabWidget:
 
         monkeypatch.setattr(device_tab_module, "KeySelectorDialog", DummyDialog)
         monkeypatch.setattr(
-            device_tab_module.GLib,
-            "timeout_add",
-            lambda delay_ms, callback: scheduled.append((delay_ms, callback)) or 123,
+            DeviceTab,
+            "_schedule_selector_commit",
+            lambda _tab, callback: scheduled.append(callback) or 123,
         )
 
         device = HardwareConfig(
@@ -835,17 +835,12 @@ class TestDeviceTabWidget:
         dialog.callbacks["closed"](dialog)
 
         assert save_calls == []
-        assert scheduled == [
-            (
-                device_tab_module.SELECTOR_COMMIT_AFTER_CLOSE_DELAY_MS,
-                tab._run_pending_selector_commit,
-            )
-        ]
+        assert scheduled == [tab._run_pending_selector_commit]
 
         tab.refresh_profiles(preferred_profile_name="Work", publish_selection=False)
         assert tab.selected_profile_name() == "Work"
 
-        assert scheduled[0][1]() is False
+        assert scheduled[0]() is False
 
         gaming = profile_manager.get_profile("Gaming")
         work = profile_manager.get_profile("Work")
@@ -873,7 +868,7 @@ class TestDeviceTabWidget:
         from keymasq.session.profile.manager import ProfileManager
 
         dialogs: list[object] = []
-        scheduled: list[tuple[int, Callable[[], bool]]] = []
+        scheduled: list[Callable[[], bool]] = []
         requests: list[dict] = []
 
         class DummyDialog:
@@ -892,9 +887,9 @@ class TestDeviceTabWidget:
 
         monkeypatch.setattr(device_tab_module, "KeySelectorDialog", DummyDialog)
         monkeypatch.setattr(
-            device_tab_module.GLib,
-            "timeout_add",
-            lambda delay_ms, callback: scheduled.append((delay_ms, callback)) or 123,
+            DeviceTab,
+            "_schedule_selector_commit",
+            lambda _tab, callback: scheduled.append(callback) or 123,
         )
         monkeypatch.setattr(
             device_tab_module,
@@ -930,7 +925,7 @@ class TestDeviceTabWidget:
         dialog.callbacks["closed"](dialog)
 
         profile_manager.reload()
-        assert scheduled[0][1]() is False
+        assert scheduled[0]() is False
 
         current_profile = profile_manager.get_profile("Desktop")
         assert current_profile is not None
@@ -955,9 +950,9 @@ class TestDeviceTabWidget:
         scheduled: list[Callable[[], bool]] = []
         removed: list[int] = []
         monkeypatch.setattr(
-            device_tab_module.GLib,
-            "timeout_add",
-            lambda _delay_ms, callback: scheduled.append(callback) or 123,
+            DeviceTab,
+            "_schedule_selector_commit",
+            lambda _tab, callback: scheduled.append(callback) or 123,
         )
         monkeypatch.setattr(device_tab_module.GLib, "source_remove", removed.append)
 
@@ -993,9 +988,9 @@ class TestDeviceTabWidget:
         scheduled: list[Callable[[], bool]] = []
         removed: list[int] = []
         monkeypatch.setattr(
-            device_tab_module.GLib,
-            "timeout_add",
-            lambda _delay_ms, callback: scheduled.append(callback) or 123,
+            DeviceTab,
+            "_schedule_selector_commit",
+            lambda _tab, callback: scheduled.append(callback) or 123,
         )
         monkeypatch.setattr(device_tab_module.GLib, "source_remove", removed.append)
 
@@ -1020,6 +1015,60 @@ class TestDeviceTabWidget:
         assert commits == ["first", "second"]
         assert tab._commit_state.pending is None
         assert tab._commit_state.source_id == 0
+
+    def test_device_tab_defers_lifecycle_macro_fetch_until_settings_open(
+        self,
+        temp_config_dir,
+        monkeypatch,
+    ):
+        from collections.abc import Callable
+
+        from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig
+        from keymasq.common.model.profiles import ProfileConfig
+        import keymasq.gui.widgets.device_tab.tab as device_tab_module
+        from keymasq.gui.widgets.device_tab.tab import DeviceTab
+        from keymasq.session.profile.manager import ProfileManager
+
+        macro_requests: list[Callable[[dict | None], bool]] = []
+
+        def fake_request(payload, callback):
+            if payload == {"command": "list_macros"}:
+                macro_requests.append(callback)
+
+        monkeypatch.setattr(device_tab_module, "session_request_async", fake_request)
+
+        device = HardwareConfig(
+            vendor_id="1234",
+            product_id="5678",
+            name="Test Mouse",
+            evdev_devices=[],
+            buttons=[ButtonDefinition(id="btn_back", label="Back", evdev="btn_side")],
+        )
+        profile_manager = ProfileManager()
+        profile_manager.save_profile(ProfileConfig(name="Gaming", enabled=True, is_permanent=True))
+        tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=False)
+        tab.refresh_profiles(preferred_profile_name="Gaming", publish_selection=False)
+        macro_requests.clear()
+
+        tab._on_macro_list_changed({"event": "macro_saved", "name": "Greet"})
+        assert macro_requests == []
+
+        tab._on_profile_settings_clicked(tab.settings_btn)
+        assert len(macro_requests) == 1
+        macro_requests[0](None)
+        assert tab._profile_settings_dialog is not None
+        tab._on_profile_settings_dialog_closed(tab._profile_settings_dialog)
+
+        tab._on_profile_settings_clicked(tab.settings_btn)
+        assert len(macro_requests) == 2
+        macro_requests[1]({"status": "ok", "macros": [{"name": "Greet"}]})
+
+        model = tab.activation_macro_dropdown.get_model()
+        labels = [model.get_string(index) for index in range(model.get_n_items())]
+        assert labels == ["None", "Greet"]
+
+        tab._on_macro_list_changed({"event": "macro_deleted", "name": "Greet"})
+        assert len(macro_requests) == 3
 
     def test_device_tab_profile_settings_lists_all_devices_for_grab_mode(self, temp_config_dir):
         from keymasq.common.model.hardware import ButtonDefinition, HardwareConfig

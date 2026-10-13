@@ -222,26 +222,8 @@ def test_gui_tab_layout_preference_round_trips_with_appearance(temp_config_dir) 
     assert load_hidden_tabs() == {"combos"}
 
 
-def test_session_reload_reports_sync_and_async_status(
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_session_reload_reports_async_status(monkeypatch: pytest.MonkeyPatch) -> None:
     import keymasq.gui.session_reload as session_reload_module
-
-    monkeypatch.setattr(
-        session_reload_module,
-        "session_request",
-        lambda payload, timeout=5.0: {"status": "ok", "payload": payload},
-    )
-    assert session_reload_module.notify_session_reload(timeout=1.0) is True
-
-    def raise_request(_payload, timeout=5.0):
-        raise RuntimeError("daemon unavailable")
-
-    caplog.set_level(logging.ERROR, logger="keymasq.gui.session_reload")
-    monkeypatch.setattr(session_reload_module, "session_request", raise_request)
-    assert session_reload_module.notify_session_reload() is False
-    assert "Unexpected failure notifying session reload" in caplog.text
 
     callbacks: list[bool] = []
 

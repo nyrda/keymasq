@@ -51,6 +51,7 @@ def _refresh_device_tabs(
     source_hardware_id: str | None = None,
     source_widget: _runtime.Gtk.Widget | None = None,
 ) -> None:
+    refreshed: list[ProfileManagedTab] = []
     for child in tab_layout._iter_profile_tabs(window):
         if isinstance(child, ProfileManagedTab):
             if source_widget is not None and child is source_widget:
@@ -64,7 +65,14 @@ def _refresh_device_tabs(
                 preferred = preferred_profile_name
             elif preferred_profile_name is not None:
                 preferred = preferred_profile_name
-            child.refresh_profiles(preferred_profile_name=preferred)
+            child.refresh_profiles(preferred_profile_name=preferred, publish_selection=False)
+            refreshed.append(child)
+
+    if not refreshed:
+        return
+    selected = refreshed[0].selected_profile_name()
+    if selected != profiles.selected_profile_name(window):
+        profiles._sync_selected_profile_name(window, selected, source_widget=refreshed[0])
 
 
 def _ensure_placeholder_page(window) -> None:

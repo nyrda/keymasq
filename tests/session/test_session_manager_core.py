@@ -437,7 +437,7 @@ async def test_reload_handler_debounces_burst_updates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reload_profiles_invalidates_runtime_payload_signatures(
+async def test_reload_profiles_keeps_sent_payload_signatures_unless_sighup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
@@ -445,14 +445,36 @@ async def test_reload_profiles_invalidates_runtime_payload_signatures(
     manager.profile_state.last_sent_combo_signature = "combo-sig"
     reevaluate_profiles = AsyncMock()
 
+    monkeypatch.setattr(manager, "RELOAD_DEBOUNCE_S", 0)
     monkeypatch.setattr(manager, "reload_config_from_disk", lambda: None)
     monkeypatch.setattr(coordinator, "reevaluate_profiles", reevaluate_profiles)
 
     await manager.reload_profiles()
 
+    assert manager.profile_state.last_sent_mapping_signatures == {"1234:5678": "sig"}
+    assert manager.profile_state.last_sent_combo_signature == "combo-sig"
+
+    manager._reload_handler()
+    assert manager.reload_task is not None
+    await manager.reload_task
+
     assert manager.profile_state.last_sent_mapping_signatures == {}
     assert manager.profile_state.last_sent_combo_signature == ""
-    reevaluate_profiles.assert_awaited_once_with(manager, reason="config reload")
+    assert reevaluate_profiles.await_count == 2
+
+    manager.profile_state.last_sent_mapping_signatures = {"1234:5678": "sig"}
+
+    async def sighup_during_reevaluate(*_args: object, **_kwargs: object) -> None:
+        if reevaluate_profiles.await_count == 3:
+            manager._reload_handler()
+
+    reevaluate_profiles.side_effect = sighup_during_reevaluate
+    reload_task = asyncio.create_task(manager.reload_profiles())
+    manager.reload_task = reload_task
+    await reload_task
+
+    assert manager.profile_state.last_sent_mapping_signatures == {}
+    assert reevaluate_profiles.await_count == 4
 
 
 @pytest.mark.asyncio

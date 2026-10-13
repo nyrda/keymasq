@@ -106,6 +106,7 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self.restart_requested = False
         self.reload_task: asyncio.Task[bool] | None = None
         self.reload_pending = False
+        self.reload_force_requested = False
         self.config_reload_timer: asyncio.TimerHandle | None = None
         self._config_reload_coalesce_until = 0.0
         self._config_own_writes: dict[Path, float] = {}
@@ -301,12 +302,13 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         self._retry_event.set()
 
     def _reload_handler(self) -> None:
+        self.reload_force_requested = True
         if self.reload_pending:
             log.debug("Reload already pending, skipping")
             return
 
         if self.reload_task and not self.reload_task.done():
-            log.debug("Reload task still running, dropping reload request")
+            log.debug("Reload task still running; it will resend every mapping")
             return
 
         self.reload_pending = True
@@ -338,7 +340,9 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         log.info("Reloaded all superkeys, analog controls, profiles and hardware configs")
         self.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
         await self._sync_virtual_gamepads_to_daemon()
-        runtime_state.invalidate_runtime_payload_signatures(self)
+        if self.reload_force_requested:
+            self.reload_force_requested = False
+            runtime_state.invalidate_runtime_payload_signatures(self)
 
         configured_ids = set(self.hardware.list_hardware_ids())
         stale_ids = [
@@ -352,6 +356,10 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
             self.profile_state.resolved_devices.pop(hardware_id, None)
 
         await coordinator.reevaluate_profiles(self, reason="config reload")
+        while self.reload_force_requested:
+            self.reload_force_requested = False
+            runtime_state.invalidate_runtime_payload_signatures(self)
+            await coordinator.reevaluate_profiles(self, reason="config reload")
         return True
 
     async def on_window_change(

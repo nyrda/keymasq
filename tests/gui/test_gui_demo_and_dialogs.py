@@ -2342,6 +2342,73 @@ class TestDialogConstruction:
         assert len(alerts) == 2
         assert alerts[1][0].get_body() == "initial boom"
 
+    def test_macro_manager_reload_keeps_scroll_position_and_focused_macro(self, monkeypatch):
+        gi.require_version("Gtk", "4.0")
+        from gi.repository import GLib, Gtk
+
+        from keymasq.gui.widgets.macro_manager_dialog import MacroManagerDialog
+
+        def flush_gtk_events() -> None:
+            context = GLib.MainContext.default()
+            deadline = time.monotonic() + 0.3
+            while time.monotonic() < deadline:
+                context.iteration(False)
+                time.sleep(0.005)
+
+        def macros(names: list[str]) -> dict:
+            return {
+                "macros": [
+                    {
+                        "name": name,
+                        "duration_us": 1_000,
+                        "device_types": ["keyboard"],
+                        "event_count": 1,
+                    }
+                    for name in names
+                ]
+            }
+
+        def focused_macro_name() -> str:
+            row = dialog._listbox.get_root().get_focus()
+            if not isinstance(row, Gtk.ListBoxRow):
+                row = row.get_ancestor(Gtk.ListBoxRow)
+            return row._row_state.name
+
+        monkeypatch.setattr(GLib, "idle_add", lambda callback, *args: 0)
+        parent = Gtk.Window()
+        parent.set_default_size(900, 800)
+        dialog = MacroManagerDialog(parent)
+        names = [f"macro_{index:02d}" for index in range(40)]
+        dialog._on_macros_loaded(macros(names))
+        parent.present()
+        dialog.present(parent)
+        flush_gtk_events()
+
+        edit_button = next(
+            button
+            for button in collect_widgets(dialog._listbox.get_row_at_index(15), Gtk.Button)
+            if button.get_tooltip_text().startswith("Edit macro")
+        )
+        edit_button.grab_focus()
+        adjustment = dialog._list_scroll.get_vadjustment()
+        adjustment.set_value(500)
+        flush_gtk_events()
+        assert adjustment.get_value() == 500
+
+        dialog._on_macros_loaded(macros(names))
+        flush_gtk_events()
+
+        assert adjustment.get_value() == 500
+        assert focused_macro_name() == "macro_15"
+
+        dialog._on_macros_loaded(macros([name for name in names if name != "macro_15"]))
+        flush_gtk_events()
+
+        assert adjustment.get_value() == 500
+        assert focused_macro_name() == "macro_16"
+
+        parent.destroy()
+
     def test_macro_manager_duplicate_request_and_finish_paths(self, monkeypatch):
         gi.require_version("Gtk", "4.0")
         from gi.repository import GLib, Gtk

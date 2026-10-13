@@ -115,6 +115,7 @@ class ManagerViewMixin:
         install_listbox_fuzzy_filter(self._listbox, self._search_entry)
         scrolled.set_child(self._listbox)
         content.append(scrolled)
+        self._list_scroll = scrolled
 
         self._empty_label = Gtk.Label(label="No macros recorded yet")
         self._empty_label.add_css_class("dim-label")

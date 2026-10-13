@@ -143,3 +143,13 @@ async def test_client_disconnect_releases_devices_after_recording_discard_fails(
     recording_manager.discard_all_pending_recordings.assert_awaited_once()
     capture_manager.close_all.assert_called_once()
     device_manager.release_all_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_handled_commands_are_noted_for_stall_diagnostics(daemon_testbed):
+    daemon, device_manager, _recording_manager, _macro_store, _capture_manager = daemon_testbed
+
+    await daemon._handle_command(CommandType.SET_MAPPING, {"hardware_id": "kbd", "mapping": {}})
+
+    device_manager.begin_diagnostics_activity.assert_called_once_with("command set_mapping")
+    device_manager.end_diagnostics_activity.assert_called_once_with(7)

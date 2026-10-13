@@ -57,6 +57,8 @@ def make_daemon_testbed(monkeypatch):
         start_topology_watcher=AsyncMock(return_value=None),
         stop_topology_watcher=AsyncMock(return_value=None),
         release_all_devices=AsyncMock(return_value=None),
+        begin_diagnostics_activity=Mock(return_value=7),
+        end_diagnostics_activity=Mock(),
     )
     recording_manager = SimpleNamespace(
         abort=AsyncMock(return_value=None),

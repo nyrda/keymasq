@@ -68,7 +68,9 @@ journalctl -u keymasqd -f
 ```
 
 This logs periodic latency percentiles (p50, p95, p99, max) for internal event
-processing. By default, diagnostics logs the main input paths most useful for
+processing. Each summary covers the events since the previous one. The count
+and maximum are exact; with more than 2048 events in an interval, the
+percentiles come from a random sample of 2048 of them. By default, diagnostics logs the main input paths most useful for
 everyday latency checks. You can add narrower categories when debugging combo
 behavior or daemon internals:
 
@@ -213,6 +215,47 @@ playback iteration.
 
 Only stored macros are sampled. Cancelled, interrupted, or failed iterations
 do not produce a complete iteration sample.
+
+### Stall diagnostics
+
+Enable with:
+
+```bash
+keymasq diagnostics on --include mainline --include stalls
+```
+
+These labels show what else keymasqd was doing when input was delayed. The
+command line and the daemon log support this category; the GTK view does not
+offer it yet.
+
+| Label | What it means |
+|---|---|
+| `loop_lag` | How late a 1 ms timer on keymasqd's event loop fired. With uvloop, values up to about 1 ms are timer granularity; larger values mean the loop was busy. |
+| `gc_gen0`, `gc_gen1`, `gc_gen2` | Duration of a Python garbage collection of that generation, in any keymasqd thread. |
+
+While this category is on, an `input_latency` above 2 ms also logs a warning
+that lists what overlapped the delayed frame: garbage collections over 0.5 ms,
+event-loop blocks over 2 ms, and daemon commands and worker-thread jobs that
+were running. The warning is written about 20 ms after the frame, so blocks
+recorded after it are included. At most one warning is logged per 100 ms; the
+next one reports how many were skipped.
+
+```text
+input_latency spike 4.21 ms, overlapping: gc gen2 3.80 ms; command set_mapping 2.10 ms
+```
+
+An event-loop block also reports how much CPU time keymasqd's event-loop
+thread used in that period, for example `event loop blocked 6.35 ms (0.12 ms on
+CPU)`. A value close to the block length means keymasqd itself was busy. A small
+value means the loop thread was not running: the system scheduled other work,
+or another keymasqd thread held Python's interpreter lock.
+
+A daemon command or worker job in the list was running at the time, but that
+alone does not mean it blocked input, because commands and many worker jobs can
+wait without holding up the loop.
+
+The stall category runs a 1 ms timer on the event loop while it is enabled.
+Turn diagnostics off when you are done.
 
 ### Internal diagnostics
 

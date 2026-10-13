@@ -44,6 +44,7 @@ from keymasq.keymasqd.hardware_masking import MASK_COMMANDS, HardwareMasking
 from keymasq.keymasqd.macro_store import MacroStore
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import source_hiding
+from keymasq.keymasqd.runtime.diagnostics import ObservedThreadPoolExecutor
 from keymasq.keymasqd.sleep import LogindSleepCoordinator
 from keymasq.keymasqd.socket_server import ClientContext, SocketServer
 from keymasq.keymasqd.timer_precision import set_timer_slack_ns
@@ -90,6 +91,12 @@ class Daemon:
         self.security_policy: SecurityPolicy | None = None
 
     async def start(self) -> None:
+        asyncio.get_running_loop().set_default_executor(
+            ObservedThreadPoolExecutor(
+                self.device_manager.begin_diagnostics_activity,
+                self.device_manager.end_diagnostics_activity,
+            )
+        )
         RUN_DIR.mkdir(parents=True, exist_ok=True)
         self._secure_run_dir()
         await source_hiding.reconcile_all()
@@ -275,6 +282,18 @@ class Daemon:
         command_type: CommandType,
         data: JsonObject,
         client: ClientContext | None = None,
+    ) -> JsonObject:
+        token = self.device_manager.begin_diagnostics_activity(f"command {command_type.value}")
+        try:
+            return await self._dispatch_command(command_type, data, client)
+        finally:
+            self.device_manager.end_diagnostics_activity(token)
+
+    async def _dispatch_command(
+        self,
+        command_type: CommandType,
+        data: JsonObject,
+        client: ClientContext | None,
     ) -> JsonObject:
         if command_type == CommandType.START_RECORDING:
             self._ensure_macro_recording_allowed()

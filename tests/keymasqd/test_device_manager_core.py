@@ -1,8 +1,10 @@
 import asyncio
 import errno
+import gc
 import logging
 import os
-from collections import deque
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -22,6 +24,7 @@ from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import (
     adapters,
     device_path_resolver,
+    diagnostics,
     manager_cursor,
     outputs,
     source_hiding,
@@ -2718,7 +2721,10 @@ class TestListDevices:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
         manager.broadcast_callback = AsyncMock()
-        manager.diagnostics_state.samples = {"passthrough_mapped": deque([1.0, 3.0])}
+        samples = diagnostics.SampleReservoir()
+        samples.add(1.0)
+        samples.add(3.0)
+        manager.diagnostics_state.samples = {"passthrough_mapped": samples}
         summaries: list[dict[str, dict[str, object]]] = []
         broadcasts: list[tuple[CommandType, dict[str, object]]] = []
         calls: list[tuple[object, tuple[object, ...]]] = []
@@ -2747,12 +2753,10 @@ class TestListDevices:
         }
         assert summaries == [expected_summary]
         assert calls == [
-            (
-                manager._summarize_diagnostics_snapshot,
-                ({"passthrough_mapped": [1.0, 3.0]},),
-            ),
+            (manager._summarize_diagnostics_snapshot, ({"passthrough_mapped": samples},)),
             (summaries.append, (expected_summary,)),
         ]
+        assert manager.diagnostics_state.samples == {}
         assert broadcasts == [
             (
                 CommandType.DIAGNOSTICS_SNAPSHOT,
@@ -2764,6 +2768,18 @@ class TestListDevices:
                 },
             )
         ]
+
+    def test_diagnostics_summary_counts_every_sample_and_bounds_percentile_work(self) -> None:
+        samples = diagnostics.SampleReservoir()
+        for value in range(10_000):
+            samples.add(float(value))
+
+        summary = diagnostics.summarize({"loop_lag": samples})["loop_lag"]
+
+        assert summary["n"] == 10_000
+        assert summary["max"] == 9999.0
+        assert len(samples) == diagnostics.RESERVOIR_SIZE
+        assert 4000.0 <= cast(float, summary["p50"]) <= 6000.0
 
     @pytest.mark.asyncio
     async def test_diagnostics_filters_to_mainline_by_default(self) -> None:
@@ -2806,6 +2822,83 @@ class TestListDevices:
             "macro_load",
             "macro_iteration",
         }
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_attribute_an_input_spike_to_a_blocked_loop(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
+        try:
+            await asyncio.sleep(0.005)
+            with caplog.at_level(logging.WARNING):
+                time.sleep(0.01)
+                manager._record_diagnostic("input_latency", 12_000.0)
+                await asyncio.sleep(0.05)
+
+            assert max(manager.diagnostics_state.samples["loop_lag"]) >= 5000.0
+            assert "input_latency spike 12.00 ms" in caplog.text
+            assert "event loop blocked" in caplog.text
+            assert "ms on CPU)" in caplog.text
+        finally:
+            await manager.set_diagnostics(False)
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_name_worker_jobs_overlapping_an_input_spike(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            diagnostics.ObservedThreadPoolExecutor(
+                manager.begin_diagnostics_activity,
+                manager.end_diagnostics_activity,
+            )
+        )
+        started = threading.Event()
+        release = threading.Event()
+
+        def scan_sysfs() -> None:
+            time.sleep(0.005)
+
+        def load_macro_file() -> None:
+            started.set()
+            release.wait(5.0)
+
+        await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
+        try:
+            await asyncio.to_thread(scan_sysfs)
+            still_running = asyncio.ensure_future(asyncio.to_thread(load_macro_file))
+            while not started.is_set():
+                await asyncio.sleep(0.001)
+            with caplog.at_level(logging.WARNING):
+                manager._record_diagnostic("input_latency", 60_000_000.0)
+                await asyncio.sleep(0.05)
+            release.set()
+            await still_running
+
+            assert "worker " in caplog.text
+            assert "scan_sysfs" in caplog.text
+            assert "load_macro_file running for" in caplog.text
+        finally:
+            release.set()
+            await manager.set_diagnostics(False)
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_record_gc_pauses_until_disabled(self) -> None:
+        callbacks_before = list(gc.callbacks)
+        manager = DeviceManager()
+        await manager.set_diagnostics(True, 60.0, ["stalls"])
+        try:
+            gc.collect()
+
+            assert manager.diagnostics_state.samples["gc_gen2"]
+        finally:
+            await manager.set_diagnostics(False)
+
+        assert gc.callbacks == callbacks_before
 
     @pytest.mark.asyncio
     async def test_topology_watch_loop_retries_when_live_and_reconciled_snapshots_differ(

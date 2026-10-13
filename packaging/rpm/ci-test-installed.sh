@@ -26,9 +26,9 @@ if command -v dnf >/dev/null 2>&1; then
     dnf install -y "$PACKAGE_PATH"
 elif command -v zypper >/dev/null 2>&1; then
     if [[ -n "$SIGNING_KEY_PATH" ]]; then
-        zypper --non-interactive install "$PACKAGE_PATH"
+        bash "$REPO_DIR/packaging/rpm/zypper-retry.sh" install "$PACKAGE_PATH"
     else
-        zypper --non-interactive install --allow-unsigned-rpm "$PACKAGE_PATH"
+        bash "$REPO_DIR/packaging/rpm/zypper-retry.sh" install --allow-unsigned-rpm "$PACKAGE_PATH"
     fi
 else
     echo "unsupported rpm test environment" >&2

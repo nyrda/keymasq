@@ -12,7 +12,7 @@ from typing import cast
 
 import evdev
 
-from keymasq.common.devices import classify_event_device_type, is_wheel_rel_code
+from keymasq.common.devices import classify_event_device_type
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.source_state import read_missing_source_axes
@@ -76,6 +76,7 @@ from keymasq.keymasqd.runtime.pointer_movement import (
     release_pointer_movement,
 )
 from keymasq.keymasqd.runtime.rollover import next_press_sequence
+from keymasq.keymasqd.runtime.wheel_codes import is_wheel_rel_code
 from keymasq.keymasqd.superkey_state import SuperkeyState
 from keymasq.keymasqd.task_helpers import fire_and_observe
 

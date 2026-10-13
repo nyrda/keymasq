@@ -19,6 +19,7 @@ from keymasq.common.model.actions import (
 )
 from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
+from keymasq.keymasqd.runtime.wheel_codes import is_wheel_rel_code
 
 REPEAT_HISTORY_LIMIT = 32
 SUPERKEY_SLOT_TAP = "tap"
@@ -392,9 +393,11 @@ def remember_passthrough_event(
         return
     event_type = int(event.type)
     event_code = int(event.code)
-    if event_type == int(evdev_mod.ecodes.EV_REL) and (
-        high_res_wheel_low_res_code(event_code) or event_code
-    ) not in (int(evdev_mod.ecodes.REL_WHEEL), int(evdev_mod.ecodes.REL_HWHEEL)):
+    if event_type == int(evdev_mod.ecodes.EV_REL) and not is_wheel_rel_code(
+        event_code,
+        rel_wheel=int(evdev_mod.ecodes.REL_WHEEL),
+        rel_hwheel=int(evdev_mod.ecodes.REL_HWHEEL),
+    ):
         return
     event_value = int(event.value)
     normalized_name = str(event_name or "").lower()

@@ -4,7 +4,6 @@ import gc
 import logging
 import os
 import time
-from collections import deque
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -24,6 +23,7 @@ from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import (
     adapters,
     device_path_resolver,
+    diagnostics,
     manager_cursor,
     outputs,
     source_hiding,
@@ -2720,7 +2720,10 @@ class TestListDevices:
         manager = DeviceManager()
         manager.diagnostics_state.enabled = True
         manager.broadcast_callback = AsyncMock()
-        manager.diagnostics_state.samples = {"passthrough_mapped": deque([1.0, 3.0])}
+        samples = diagnostics.SampleReservoir()
+        samples.add(1.0)
+        samples.add(3.0)
+        manager.diagnostics_state.samples = {"passthrough_mapped": samples}
         summaries: list[dict[str, dict[str, object]]] = []
         broadcasts: list[tuple[CommandType, dict[str, object]]] = []
         calls: list[tuple[object, tuple[object, ...]]] = []
@@ -2749,12 +2752,10 @@ class TestListDevices:
         }
         assert summaries == [expected_summary]
         assert calls == [
-            (
-                manager._summarize_diagnostics_snapshot,
-                ({"passthrough_mapped": [1.0, 3.0]},),
-            ),
+            (manager._summarize_diagnostics_snapshot, ({"passthrough_mapped": samples},)),
             (summaries.append, (expected_summary,)),
         ]
+        assert manager.diagnostics_state.samples == {}
         assert broadcasts == [
             (
                 CommandType.DIAGNOSTICS_SNAPSHOT,
@@ -2766,6 +2767,18 @@ class TestListDevices:
                 },
             )
         ]
+
+    def test_diagnostics_summary_counts_every_sample_and_bounds_percentile_work(self) -> None:
+        samples = diagnostics.SampleReservoir()
+        for value in range(10_000):
+            samples.add(float(value))
+
+        summary = diagnostics.summarize({"loop_lag": samples})["loop_lag"]
+
+        assert summary["n"] == 10_000
+        assert summary["max"] == 9999.0
+        assert len(samples) == diagnostics.RESERVOIR_SIZE
+        assert 4000.0 <= cast(float, summary["p50"]) <= 6000.0
 
     @pytest.mark.asyncio
     async def test_diagnostics_filters_to_mainline_by_default(self) -> None:
@@ -2818,14 +2831,40 @@ class TestListDevices:
         await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
         try:
             await asyncio.sleep(0.005)
-            time.sleep(0.01)
-            await asyncio.sleep(0.005)
             with caplog.at_level(logging.WARNING):
+                time.sleep(0.01)
                 manager._record_diagnostic("input_latency", 12_000.0)
+                await asyncio.sleep(0.05)
 
             assert max(manager.diagnostics_state.samples["loop_lag"]) >= 5000.0
             assert "input_latency spike 12.00 ms" in caplog.text
             assert "event loop blocked" in caplog.text
+        finally:
+            await manager.set_diagnostics(False)
+
+    @pytest.mark.asyncio
+    async def test_stall_diagnostics_name_worker_jobs_overlapping_an_input_spike(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        manager = DeviceManager()
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(
+            diagnostics.ObservedThreadPoolExecutor(manager.note_diagnostics_activity)
+        )
+
+        def scan_sysfs() -> None:
+            time.sleep(0.005)
+
+        await manager.set_diagnostics(True, 60.0, ["mainline", "stalls"])
+        try:
+            await asyncio.to_thread(scan_sysfs)
+            with caplog.at_level(logging.WARNING):
+                manager._record_diagnostic("input_latency", 20_000.0)
+                await asyncio.sleep(0.05)
+
+            assert "worker " in caplog.text
+            assert "scan_sysfs" in caplog.text
         finally:
             await manager.set_diagnostics(False)
 
@@ -2931,9 +2970,7 @@ class TestListDevices:
 
         assert scans == [1, 3, 5, 6, 7]
 
-    def test_input_topology_fingerprint_tracks_nodes_links_and_access(
-        self, tmp_path: Path
-    ) -> None:
+    def test_input_topology_fingerprint_tracks_nodes_links_and_access(self, tmp_path: Path) -> None:
         dev = tmp_path / "dev"
         (dev / "input/by-id").mkdir(parents=True)
         (dev / "input/event3").write_text("")
@@ -4220,6 +4257,7 @@ class TestReleaseScheduling:
     ):
         """One interface's failed cleanup must not skip its siblings' release."""
         manager = DeviceManager()
+
         def interface(path: str, release: AsyncMock) -> SimpleNamespace:
             return SimpleNamespace(
                 path=path,

@@ -829,7 +829,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
 
     def _summarize_diagnostics_snapshot(
         self,
-        snapshot: dict[str, list[float]],
+        snapshot: dict[str, diagnostics.SampleReservoir],
     ) -> dict[str, JsonObject]:
         return diagnostics.summarize(snapshot)
 

@@ -68,7 +68,9 @@ journalctl -u keymasqd -f
 ```
 
 This logs periodic latency percentiles (p50, p95, p99, max) for internal event
-processing. By default, diagnostics logs the main input paths most useful for
+processing. Each summary covers the events since the previous one. The count
+and maximum are exact; with more than 2048 events in an interval, the
+percentiles come from a random sample of 2048 of them. By default, diagnostics logs the main input paths most useful for
 everyday latency checks. You can add narrower categories when debugging combo
 behavior or daemon internals:
 
@@ -233,15 +235,18 @@ offer it yet.
 
 While this category is on, an `input_latency` above 2 ms also logs a warning
 that lists what overlapped the delayed frame: garbage collections over 0.5 ms,
-event-loop blocks over 2 ms, and daemon commands that were running. At most one
-warning is logged per 100 ms; the next one reports how many were skipped.
+event-loop blocks over 2 ms, and daemon commands and worker-thread jobs that
+were running. The warning is written about 20 ms after the frame, so blocks
+recorded after it are included. At most one warning is logged per 100 ms; the
+next one reports how many were skipped.
 
 ```text
 input_latency spike 4.21 ms, overlapping: gc gen2 3.80 ms; command set_mapping 2.10 ms
 ```
 
-A daemon command in the list was running at the time, but that alone does not
-mean it blocked input, because commands can wait without holding up the loop.
+A daemon command or worker job in the list was running at the time, but that
+alone does not mean it blocked input, because commands and many worker jobs can
+wait without holding up the loop.
 
 The stall category runs a 1 ms timer on the event loop while it is enabled.
 Turn diagnostics off when you are done.

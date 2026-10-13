@@ -311,9 +311,9 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
 
         self.reload_pending = True
         log.info("Received reload signal (SIGHUP)")
-        self.reload_task = asyncio.create_task(self.reload_profiles())
+        self.reload_task = asyncio.create_task(self.reload_profiles(force_runtime_refresh=True))
 
-    async def reload_profiles(self) -> bool:
+    async def reload_profiles(self, *, force_runtime_refresh: bool = False) -> bool:
         try:
             await asyncio.sleep(self.RELOAD_DEBOUNCE_S)
         finally:
@@ -338,7 +338,8 @@ class SessionManager(SessionServerMixin, ConfigWatcherMixin, DaemonConnectionMix
         log.info("Reloaded all superkeys, analog controls, profiles and hardware configs")
         self.broadcast_to_session_clients({"event": "config_reloaded", "status": "ok"})
         await self._sync_virtual_gamepads_to_daemon()
-        runtime_state.invalidate_runtime_payload_signatures(self)
+        if force_runtime_refresh:
+            runtime_state.invalidate_runtime_payload_signatures(self)
 
         configured_ids = set(self.hardware.list_hardware_ids())
         stale_ids = [

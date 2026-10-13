@@ -1,6 +1,7 @@
 """Profile-runtime orchestration across resolution and daemon application."""
 
 import asyncio
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from keymasq.session.profile.types import ResolvedDeviceProfile
@@ -77,9 +78,12 @@ def schedule_grab_retry(
     )
 
 
-async def refresh_macro_bindings(manager: "SessionManager") -> None:
-    runtime_state.invalidate_runtime_payload_signatures(manager)
-    await reevaluate_profiles(manager, reason="macro bindings refreshed")
+async def refresh_macro_bindings(manager: "SessionManager", macro_names: Iterable[str]) -> None:
+    invalidated = runtime_state.invalidate_macro_payload_signatures(manager, macro_names)
+    apply_task = manager.profile_state.apply_task
+    # Superseding an in-flight apply keeps a payload resolved with the old macro unacknowledged.
+    if invalidated or (apply_task is not None and not apply_task.done()):
+        await reevaluate_profiles(manager, reason="macro bindings refreshed")
 
 
 def schedule_topology_refresh(

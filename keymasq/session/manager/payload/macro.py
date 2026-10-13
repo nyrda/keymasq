@@ -1,5 +1,8 @@
 """Pure serialization helpers for macro mapping actions."""
 
+import json
+from typing import cast
+
 from keymasq.common.model.actions import MappingAction
 
 
@@ -37,3 +40,25 @@ def add_runtime_fields(
     data["macro_block_mouse_movement"] = bool(action.macro_block_mouse_movement)
     data["macro_block_keyboard"] = bool(action.macro_block_keyboard)
     return True
+
+
+def signature_references(signature: str, macro_names: set[str]) -> bool:
+    """Return whether a sent mapping or combo signature names one of the macros."""
+    if not signature:
+        return False
+    try:
+        payload = json.loads(signature)
+    except ValueError:
+        return True
+    return _payload_references(payload, macro_names)
+
+
+def _payload_references(value: object, macro_names: set[str]) -> bool:
+    if isinstance(value, dict):
+        payload = cast(dict[str, object], value)
+        if payload.get("macro_name") in macro_names:
+            return True
+        return any(_payload_references(item, macro_names) for item in payload.values())
+    if isinstance(value, list):
+        return any(_payload_references(item, macro_names) for item in cast(list[object], value))
+    return False

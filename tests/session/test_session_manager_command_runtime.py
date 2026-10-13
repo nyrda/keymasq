@@ -1233,7 +1233,7 @@ async def test_runtime_reset_event_invalidates_and_reevaluates(
 
 
 @pytest.mark.asyncio
-async def test_reevaluate_profiles_command_invalidates_runtime_payload_signatures(
+async def test_reevaluate_profiles_command_keeps_sent_payload_signatures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager = SessionManager()
@@ -1252,8 +1252,8 @@ async def test_reevaluate_profiles_command_invalidates_runtime_payload_signature
 
     assert result == {"status": "ok"}
     manager.reload_config_from_disk.assert_called_once_with()  # type: ignore[attr-defined]
-    assert manager.profile_state.last_sent_mapping_signatures == {}
-    assert manager.profile_state.last_sent_combo_signature == ""
+    assert manager.profile_state.last_sent_mapping_signatures == {"1234:5678": "mapping"}
+    assert manager.profile_state.last_sent_combo_signature == "combos"
     reevaluate_profiles.assert_awaited_once_with(
         manager,
         reason="session command reevaluate",
@@ -2800,7 +2800,7 @@ async def test_handle_session_request_create_macro_broadcasts_saved_event(
     )
 
     assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
-    refresh_macro_bindings.assert_awaited_once_with(manager)
+    refresh_macro_bindings.assert_awaited_once_with(manager, {"Speedrun"})
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_saved", "name": "Speedrun"}
     )
@@ -3154,7 +3154,7 @@ async def test_handle_session_request_update_macro_refreshes_runtime_bindings(
     )
 
     assert result == {"status": "ok", "macro": {"name": "Speedrun"}}
-    refresh_macro_bindings.assert_awaited_once_with(manager)
+    refresh_macro_bindings.assert_awaited_once_with(manager, {"Speedrun"})
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_saved", "name": "Speedrun"}
     )
@@ -3182,7 +3182,7 @@ async def test_handle_session_request_delete_macro_broadcasts_deleted_event(
     )
 
     assert result == {"status": "ok"}
-    refresh_macro_bindings.assert_awaited_once_with(manager)
+    refresh_macro_bindings.assert_awaited_once_with(manager, {"Speedrun"})
     manager.broadcast_to_session_clients.assert_called_once_with(  # type: ignore[attr-defined]
         {"event": "macro_deleted", "name": "Speedrun"}
     )
@@ -3456,7 +3456,10 @@ async def test_macro_commands_cover_remaining_daemon_variants(
         "replay_mouse_clicks": False,
         "speed": 1.5,
     }
-    assert refresh_macro_bindings.await_count == 2
+    assert refresh_macro_bindings.await_args_list == [
+        call(manager, {"Demo", "Renamed"}),
+        call(manager, {"Demo", "Renamed"}),
+    ]
     assert manager.broadcast_to_session_clients.call_args_list == [  # type: ignore[attr-defined]
         call({"event": "macro_deleted", "name": "Demo"}),
         call({"event": "macro_saved", "name": "Renamed"}),

@@ -60,7 +60,7 @@ class ProfileRepositoryMixin:
 
     def _on_profile_reevaluate_finished(self: Any, result: dict | None) -> bool:
         if not isinstance(result, dict) or result.get("status") != "ok":
-            self._notify_session_reload()
+            self._notify_session_reload_async()
         return False
 
     def _on_enabled_toggled(self: Any, check: Gtk.CheckButton) -> None:

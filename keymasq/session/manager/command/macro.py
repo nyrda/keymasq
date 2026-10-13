@@ -89,10 +89,9 @@ async def handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             created = json_object(result_data.get("macro")) or {}
-            await coordinator.refresh_macro_bindings(manager)
-            manager.broadcast_to_session_clients(
-                {"event": "macro_saved", "name": coerce_str(created.get("name"), "")}
-            )
+            created_name = coerce_str(created.get("name"), "")
+            await coordinator.refresh_macro_bindings(manager, {created_name})
+            manager.broadcast_to_session_clients({"event": "macro_saved", "name": created_name})
             return {"status": "ok", "macro": created}
         return {"status": "error", "message": result.error or "Failed to create macro"}
 
@@ -117,10 +116,9 @@ async def handle_macro_commands(
         result_data = json_object(result.data)
         if result.status == "ok" and result_data is not None:
             updated = json_object(result_data.get("macro")) or {}
-            await coordinator.refresh_macro_bindings(manager)
-            manager.broadcast_to_session_clients(
-                {"event": "macro_saved", "name": coerce_str(updated.get("name"), name)}
-            )
+            updated_name = coerce_str(updated.get("name"), name)
+            await coordinator.refresh_macro_bindings(manager, {name, updated_name})
+            manager.broadcast_to_session_clients({"event": "macro_saved", "name": updated_name})
             return {"status": "ok", "macro": updated}
         return {"status": "error", "message": result.error or "Failed to update macro"}
 
@@ -137,7 +135,7 @@ async def handle_macro_commands(
             return daemon_unavailable_response()
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to delete macro"}
-        await coordinator.refresh_macro_bindings(manager)
+        await coordinator.refresh_macro_bindings(manager, {name})
         manager.broadcast_to_session_clients({"event": "macro_deleted", "name": name})
         return {"status": "ok"}
 
@@ -156,7 +154,10 @@ async def handle_macro_commands(
             return daemon_unavailable_response()
         if result.status != "ok":
             return {"status": "error", "message": result.error or "Failed to rename macro"}
-        await coordinator.refresh_macro_bindings(manager)
+        await coordinator.refresh_macro_bindings(
+            manager,
+            {coerce_str(request.get("old"), ""), coerce_str(request.get("new"), "")},
+        )
         result_data = json_object(result.data)
         if result_data is not None:
             renamed = json_object(result_data.get("macro")) or {}

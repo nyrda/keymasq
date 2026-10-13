@@ -1,9 +1,10 @@
 """Tracked daemon output state, grab retries, and runtime-state cleanup."""
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING
 
+from ..payload import macro as macro_payload
 from ..payload import rollover as rollover_payload
 from ..payload.references import clear_all, retire_device
 
@@ -96,3 +97,23 @@ def clear_hardware_runtime_state(
 def invalidate_runtime_payload_signatures(manager: "SessionManager") -> None:
     manager.profile_state.last_sent_mapping_signatures.clear()
     manager.profile_state.last_sent_combo_signature = ""
+
+
+def invalidate_macro_payload_signatures(
+    manager: "SessionManager",
+    macro_names: Iterable[str],
+) -> bool:
+    """Forget sent payloads that keymasqd resolved against one of the macros."""
+    names = {name for name in macro_names if name}
+    if not names:
+        return False
+    state = manager.profile_state
+    invalidated = False
+    for hardware_id, signature in list(state.last_sent_mapping_signatures.items()):
+        if macro_payload.signature_references(signature, names):
+            state.last_sent_mapping_signatures.pop(hardware_id, None)
+            invalidated = True
+    if macro_payload.signature_references(state.last_sent_combo_signature, names):
+        state.last_sent_combo_signature = ""
+        invalidated = True
+    return invalidated

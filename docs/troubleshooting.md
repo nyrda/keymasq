@@ -439,6 +439,10 @@ systemctl --user kill --signal=HUP keymasq-session
 SIGHUP reloads use a 500 ms debounce. Additional SIGHUP requests received while
 the reload is pending or running are dropped instead of queued.
 
+A SIGHUP reload also resends every active mapping to `keymasqd`, including
+unchanged ones. Automatic reloads after a config change only resend mappings
+that changed.
+
 ### `keymasq-session` user service does not start
 
 Symptoms:

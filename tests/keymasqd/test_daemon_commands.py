@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -114,6 +115,9 @@ async def test_pending_recording_still_plays_when_policy_disallows_recording(dae
 
         def iter_events(self):
             yield {"type": 1, "code": 30, "value": 1, "t_us": 0}
+
+        def pin_events(self):
+            return SimpleNamespace(iter_events=self.iter_events, close=lambda: None)
 
     recording_manager.claim_pending_recording.return_value = Snapshot()
 

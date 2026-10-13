@@ -1,11 +1,13 @@
 import asyncio
 import logging
-from collections.abc import Callable, Iterable
+import weakref
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from typing import Protocol, cast
 
 from keymasq.common.coercion import coerce_bool, coerce_int, coerce_str
 from keymasq.common.ipc import CommandType
+from keymasq.common.macro_rapidfire import macro_event_end_us
 from keymasq.common.model.actions import normalize_macro_recording_slot
 from keymasq.common.types import JsonObject, JsonObjectList
 from keymasq.keymasqd.runtime.macro.options import (
@@ -14,6 +16,7 @@ from keymasq.keymasqd.runtime.macro.options import (
     macro_playback_options_from_mapping,
     macro_runtime_options,
 )
+from keymasq.keymasqd.runtime.macro.state import MacroEventSource
 
 type MacroEvent = dict[str, object]
 type ActionTransform = Callable[[JsonObject], JsonObject]
@@ -35,6 +38,8 @@ class _MacroCommandDeviceManager(Protocol):
     async def play_macro(
         self,
         playback_options: MacroPlaybackOptions,
+        *,
+        macro_event_source: MacroEventSource | None = None,
     ) -> JsonObject: ...
 
     async def cancel_macro_request(self, playback_id: str) -> JsonObject: ...
@@ -89,6 +94,12 @@ class _MacroCommandRecordingManager(Protocol):
     async def discard_pending_recording(self, recording_id: str) -> None: ...
 
 
+class _PinnedEvents(Protocol):
+    def iter_events(self) -> Iterator[MacroEvent]: ...
+
+    def close(self) -> None: ...
+
+
 class _PendingRecording(Protocol):
     recording_id: str
     duration_ms: int
@@ -96,6 +107,8 @@ class _PendingRecording(Protocol):
     event_count: int
 
     def iter_events(self) -> Iterable[MacroEvent]: ...
+
+    def pin_events(self) -> _PinnedEvents: ...
 
 
 class MacroCommandDaemon(Protocol):
@@ -297,23 +310,45 @@ async def play_pending_recording(
         await daemon.recording_manager.claim_pending_recording(recording_id),
     )
     try:
-        macro_events = await asyncio.to_thread(lambda: list(snapshot.iter_events()))
+        macro_event_source = await asyncio.to_thread(_pinned_recording_source, snapshot)
         macro_name = coerce_str(data.get("macro_name", ""))
         if not macro_name:
             macro_name = recording_id
         return await daemon.device_manager.play_macro(
             _macro_playback_options(
                 data,
-                macro_events,
+                [],
                 macro_name,
                 load_stored_macro=False,
             ),
+            macro_event_source=macro_event_source,
         )
     finally:
         await daemon.recording_manager.release_pending_recording_claim(
             recording_id,
             saved=False,
         )
+
+
+def _pinned_recording_source(snapshot: _PendingRecording) -> MacroEventSource:
+    # Streaming avoids freeing the whole decoded recording at once on the event loop.
+    pinned = snapshot.pin_events()
+    try:
+        event_count = 0
+        duration_us = 0
+        for event in pinned.iter_events():
+            event_count += 1
+            duration_us = max(duration_us, macro_event_end_us(event))
+    except BaseException:
+        pinned.close()
+        raise
+    source = MacroEventSource(
+        event_count=event_count,
+        duration_us=duration_us,
+        iter_events=pinned.iter_events,
+    )
+    weakref.finalize(source, pinned.close)
+    return source
 
 
 async def load_macro_definitions(

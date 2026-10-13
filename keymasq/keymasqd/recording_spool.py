@@ -5,10 +5,10 @@ import tempfile
 import threading
 import uuid
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
 type RecordingEvent = dict[str, object]
 
@@ -31,14 +31,12 @@ class RecordingSnapshot:
     def iter_events(self) -> Iterator[RecordingEvent]:
         if self.spool_path is not None:
             with self.spool_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    value = json.loads(stripped)
-                    if isinstance(value, dict):
-                        yield cast(RecordingEvent, value)
+                yield from _spool_events(f)
         yield from self.memory_events
+
+    def pin_events(self) -> "PinnedRecordingEvents":
+        handle = self.spool_path.open("rb") if self.spool_path is not None else None
+        return PinnedRecordingEvents(handle, self.memory_events)
 
     def cleanup(self) -> None:
         cleanup_paths: list[Path] = []
@@ -51,6 +49,34 @@ class RecordingSnapshot:
                 continue
             seen.add(path)
             path.unlink(missing_ok=True)
+
+
+class PinnedRecordingEvents:
+    def __init__(self, handle: BinaryIO | None, memory_events: tuple[RecordingEvent, ...]) -> None:
+        self._handle = handle
+        self._memory_events = memory_events
+
+    def iter_events(self) -> Iterator[RecordingEvent]:
+        if self._handle is not None:
+            # Stays readable after the claim ends and cleanup unlinks the spool file;
+            # reopening the descriptor gives each loop iteration its own offset.
+            with open(f"/proc/self/fd/{self._handle.fileno()}", encoding="utf-8") as f:
+                yield from _spool_events(f)
+        yield from self._memory_events
+
+    def close(self) -> None:
+        if self._handle is not None:
+            self._handle.close()
+
+
+def _spool_events(lines: Iterable[str]) -> Iterator[RecordingEvent]:
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        value = json.loads(stripped)
+        if isinstance(value, dict):
+            yield cast(RecordingEvent, value)
 
 
 class RecordingSpool:

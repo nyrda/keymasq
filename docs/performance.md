@@ -41,6 +41,8 @@ other work from holding up grabbed input:
 - A worker thread running Python hands the event loop back within about 0.2 ms.
 - The daemon's startup code is excluded from Python's full garbage
   collections.
+- Unsaved recordings play back in small batches, like saved macros, instead of
+  being loaded and freed all at once.
 
 Use the `input_latency` diagnostics label to see these delays on your system.
 

@@ -11,8 +11,10 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.security import SecurityPolicy
 from keymasq.keymasqd import capture_manager as capture_manager_module
 from keymasq.keymasqd import daemon as daemon_module
-from keymasq.keymasqd import daemon_capture_commands
+from keymasq.keymasqd import daemon_capture_commands, daemon_macro_commands
 from keymasq.keymasqd.capture_manager import CaptureManager
+from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.recording_spool import RecordingSpool
 from keymasq.keymasqd.runtime import device_path_resolver
 from keymasq.keymasqd.runtime.macro.options import MacroPlaybackOptions
 from tests.keymasqd.daemon_support import macro_meta
@@ -42,6 +44,9 @@ class _PendingRecordingSnapshot:
 
     def iter_events(self):
         yield from self._events
+
+    def pin_events(self):
+        return SimpleNamespace(iter_events=self.iter_events, close=lambda: None)
 
 
 @pytest.mark.asyncio
@@ -330,14 +335,44 @@ async def test_macro_play_recording_claims_snapshot_and_releases_without_saving(
     )
     device_manager.play_macro.assert_awaited_once()
     options = device_manager.play_macro.await_args.args[0]
+    source = device_manager.play_macro.await_args.kwargs["macro_event_source"]
     assert isinstance(options, MacroPlaybackOptions)
-    assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert list(source.iter_events()) == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert source.event_count == 1
     assert options.macro_name == "recording-slot-4"
     assert options.speed == 1.5
     assert options.source_device == "kbd"
     assert options.source_button == "key_f13"
     assert options.trigger_value == 1
     assert options.load_stored_macro is False
+
+
+@pytest.mark.asyncio
+async def test_macro_play_recording_replays_spilled_events_after_the_recording_is_discarded(
+    tmp_path: Path,
+):
+    recorder = RecordingManager(spool_dir=tmp_path)
+    spool = RecordingSpool(tmp_path, memory_event_limit=2)
+    for index in range(5):
+        spool.append(
+            {"device_type": "keyboard", "type": 1, "code": 30, "value": 1, "t_us": index * 1000}
+        )
+    snapshot = await spool.finish()
+    assert snapshot.spool_path is not None
+    recorder._pending_recordings[snapshot.recording_id] = snapshot
+    device_manager = SimpleNamespace(play_macro=AsyncMock(return_value={"status": "ok"}))
+    daemon = SimpleNamespace(device_manager=device_manager, recording_manager=recorder)
+
+    await daemon_macro_commands.play_pending_recording(
+        daemon, {"pending_recording_id": snapshot.recording_id}
+    )
+    await recorder.discard_pending_recording(snapshot.recording_id)
+
+    assert not snapshot.spool_path.exists()
+    source = device_manager.play_macro.await_args.kwargs["macro_event_source"]
+    assert (source.event_count, source.duration_us) == (5, 4000)
+    for _iteration in range(2):
+        assert [event["t_us"] for event in source.iter_events()] == [0, 1000, 2000, 3000, 4000]
 
 
 @pytest.mark.asyncio
@@ -357,8 +392,9 @@ async def test_macro_play_recording_does_not_create_start_move_on_play(daemon_te
 
     assert result == {"played": True}
     options = device_manager.play_macro.await_args.args[0]
+    source = device_manager.play_macro.await_args.kwargs["macro_event_source"]
     assert isinstance(options, MacroPlaybackOptions)
-    assert options.macro_events == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
+    assert list(source.iter_events()) == [{"type": 1, "code": 30, "value": 1, "t_us": 0}]
     assert options.load_stored_macro is False
 
 

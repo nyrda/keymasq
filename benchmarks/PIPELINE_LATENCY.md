@@ -72,13 +72,16 @@ A full collection of the 51,060 objects tracked after importing the daemon took
    the GIL for up to the 5 ms default switch interval, and full collections
    scanning the import-time heap.
 3. keymasqd now parses profile changes in slices, sets a 0.2 ms switch
-   interval, and freezes the import-time heap at startup.
+   interval, freezes the import-time heap at startup, and streams pending
+   recordings during playback.
+
+Freeing many objects at once cannot be interrupted, whichever thread does it:
+30,000 decoded macro events took 3.35 ms to free. Pending recordings used to be
+decoded into one list that was freed when playback ended. They now play back
+in batches of 128 events, as saved macros do.
 
 ## Known remaining stalls
 
-- Freeing many objects at once cannot be interrupted. Playing back a pending
-  recording decodes it into one list that is freed when playback ends: about
-  3.4 ms per 30,000 events.
 - Installing a new combo set blocks for about 1 ms with 40 combos.
 
 The `input_latency` diagnostics label measures from the kernel timestamp of

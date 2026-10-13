@@ -143,17 +143,28 @@ def remember_action(
 ) -> None:
     if repeat_state is None:
         return
+    _append_history(
+        repeat_state,
+        replace(action, rapidfire_enabled=False, tap_enabled=False),
+        source_device=source_device,
+        source_button=source_button,
+    )
+
+
+def _append_history(
+    repeat_state: RepeatRuntimeState,
+    action: MappingAction,
+    *,
+    source_device: str,
+    source_button: str,
+) -> None:
     category = repeat_category_for_action(action)
     if category is None:
         return
     repeat_state.history.append(
         RepeatHistoryEntry(
             category=category,
-            action=replace(
-                action,
-                rapidfire_enabled=False,
-                tap_enabled=False,
-            ),
+            action=action,
             source_device=str(source_device or ""),
             source_button=str(source_button or ""),
         )
@@ -417,7 +428,8 @@ def remember_passthrough_event(
                 action = MappingAction(action_type=ActionType.MOUSE, target=normalized_name)
         else:
             return
-        remember_action(
+        # The action was created here with rapidfire and tap disabled, so no copy is needed.
+        _append_history(
             repeat_state,
             action,
             source_device=getattr(device_runtime, "hardware_id", ""),

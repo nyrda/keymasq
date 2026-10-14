@@ -893,7 +893,7 @@ async def test_a_slow_member_action_holds_up_neither_other_groups_nor_other_devi
         {"key_a": axis(LEFT), "key_d": axis(RIGHT), "key_w": key("key_x")},
         [group("key_a", "key_d"), group(side, "key_w")],
         mouse_mapping={
-            "btn_side": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS)),
+            "btn_side": MappingAction(action_type=ActionType.MOUSE_MOVE_ABS),
         },
     )
     gate = asyncio.Event()
@@ -901,7 +901,7 @@ async def test_a_slow_member_action_holds_up_neither_other_groups_nor_other_devi
     async def slow_move(*_args: object) -> None:
         await gate.wait()
 
-    rig.mouse.natural_mouse_mover = slow_move
+    rig.mouse.cursor_position_setter = slow_move
     await rig.send((KEY_A, 1))
     moving = asyncio.create_task(rig.click_side(1))
     await asyncio.sleep(0)
@@ -951,7 +951,7 @@ async def test_a_queued_press_is_dropped_when_its_device_goes_away(monkeypatch) 
         {"key_w": key("key_x")},
         [group(side, "key_w")],
         mouse_mapping={
-            "btn_side": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS)),
+            "btn_side": MappingAction(action_type=ActionType.MOUSE_MOVE_ABS),
         },
     )
     gate = asyncio.Event()
@@ -959,7 +959,7 @@ async def test_a_queued_press_is_dropped_when_its_device_goes_away(monkeypatch) 
     async def slow_move(*_args: object) -> None:
         await gate.wait()
 
-    rig.mouse.natural_mouse_mover = slow_move
+    rig.mouse.cursor_position_setter = slow_move
     moving = asyncio.create_task(rig.click_side(1))
     await asyncio.sleep(0)
     await rig.send((KEY_W, 1))
@@ -1162,14 +1162,6 @@ async def test_group_updates_do_not_stall_a_device_behind_a_busy_group(monkeypat
     assert held_keys(rig.passthrough) == set()
 
 
-CURSOR_MOVE = MappingAction(
-    action_type=ActionType.MOUSE_MOVE_NATURAL_ABS,
-    move_x=1_000_000,
-    move_speed=100.0,
-    move_max_duration_ms=600_000,
-)
-
-
 async def cursor_member_setup(
     monkeypatch, mouse_mapping: dict[str, MappingAction], *, restore: bool = True
 ) -> SimpleNamespace:
@@ -1178,9 +1170,14 @@ async def cursor_member_setup(
         [],
         hardware_id=KEYBOARD,
         button_map=BUTTON_MAP,
-        mapping={"key_a": overload(CURSOR_MOVE)},
+        mapping={"key_a": MappingAction(action_type=ActionType.MOUSE_MOVE_ABS)},
     )
     manager, keyboard = setup.manager, setup.device
+
+    async def move_cursor_slowly(_x: int, _y: int) -> dict[str, object]:
+        return await manager.move_cursor_natural(1_000_000, 0, 100.0, 0.0, "natural", 1, 600_000)
+
+    keyboard.cursor_position_setter = move_cursor_slowly
     mouse = make_combo_grabbed_device(
         monkeypatch,
         manager,
@@ -1394,7 +1391,7 @@ async def test_the_release_of_a_forgotten_member_leaves_the_new_winner_alone(mon
 async def test_a_device_leaving_cancels_its_queued_member_action(monkeypatch) -> None:
     rig = Rig(
         monkeypatch,
-        {"key_w": overload(MappingAction(action_type=ActionType.MOUSE_MOVE_NATURAL_ABS))},
+        {"key_w": MappingAction(action_type=ActionType.MOUSE_MOVE_ABS)},
         [group("key_w", "key_d")],
     )
     gate = asyncio.Event()
@@ -1407,7 +1404,7 @@ async def test_a_device_leaving_cancels_its_queued_member_action(monkeypatch) ->
             cancelled.append("move")
             raise
 
-    rig.device.natural_mouse_mover = slow_move
+    rig.device.cursor_position_setter = slow_move
     async with rig.rollover.states[0].lock:
         await rig.send((KEY_W, 1))
     await settle_tasks()

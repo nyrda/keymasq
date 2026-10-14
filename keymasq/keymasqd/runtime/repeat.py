@@ -18,6 +18,7 @@ from keymasq.common.model.actions import (
     normalize_repeat_categories,
 )
 from keymasq.common.model.core import ActionType, SuperkeyMode
+from keymasq.keymasqd.runtime.action.sequences import runs_natural_move
 from keymasq.keymasqd.runtime.mouse_actions import resolve_mouse_output_target
 from keymasq.keymasqd.runtime.wheel_codes import is_wheel_rel_code
 
@@ -280,6 +281,13 @@ def _superkey_slot_action_lists(config: Any, slot: str | None) -> Iterable[Itera
         yield config.overload_actions
         yield config.overload_down_actions
         yield config.overload_up_actions
+
+
+def superkey_slot_runs_natural_move(entry: RepeatHistoryEntry) -> bool:
+    config = entry.action.superkey_config
+    return config is not None and runs_natural_move(
+        *_superkey_slot_action_lists(config, entry.superkey_slot)
+    )
 
 
 def _superkey_slot_contains_exec_action(action: MappingAction, slot: str | None) -> bool:

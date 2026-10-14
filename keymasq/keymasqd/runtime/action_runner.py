@@ -11,6 +11,7 @@ from keymasq.keymasqd.runtime.action.outputs import (
     execute_mouse_action,
     execute_move_action,
 )
+from keymasq.keymasqd.runtime.action.sequences import SequenceSource
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     CancelMacroPlayback,
@@ -417,6 +418,13 @@ async def _execute_repeat_action(
                     execution_handle=execution_handle,
                     cancel_macro_playback=cancel_macro_playback,
                     resolve_code_fn=resolve_code_fn,
+                    sequence_source=SequenceSource(
+                        int(event.type),
+                        int(event.code),
+                        int(event.value),
+                        event_name,
+                        action,
+                    ),
                 )
                 refresh_repeated_exec_source(repeat_state, repeated_entry)
             mark_action_started(execution_handle)

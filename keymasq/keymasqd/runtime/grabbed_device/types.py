@@ -20,6 +20,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig
 from keymasq.keymasqd.combo_engine import ComboDecision
 from keymasq.keymasqd.recording import RecordingManager
+from keymasq.keymasqd.runtime.action.sequences import ActionSequences
 from keymasq.keymasqd.runtime.adapters import (
     AsyncioEvent,
     AsyncioLoop,
@@ -201,6 +202,7 @@ class GrabbedDeviceState:
     rapidfire_outputs: dict[str, RapidfireOutputState] = field(default_factory=dict)
     tap_active: dict[str, bool] = field(default_factory=dict)
     cursor_move_tasks: set[asyncio.Task[object]] = field(default_factory=set)
+    action_sequences: ActionSequences = field(default_factory=ActionSequences)
     tap_tasks: dict[str, asyncio.Task[object]] = field(default_factory=dict)
     superkey_machines: dict[str, "SuperkeyMachine"] = field(default_factory=dict)
     repeat_active_actions: dict[str, MappingAction] = field(default_factory=dict)

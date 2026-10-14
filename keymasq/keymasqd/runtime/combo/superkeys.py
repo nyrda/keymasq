@@ -144,6 +144,7 @@ async def build_machine(
         await_action_tasks=False,
         repeat_path_recorder=repeat_path_recorder,
         keyboard_block_getter=manager.macro_keyboard_blocked,
+        sequences=manager.combo_state.action_sequences,
     )
     manager.combo_state.superkey_machines[combo_id] = machine
     manager.combo_state.superkey_machine_bindings[combo_id] = machine_bindings

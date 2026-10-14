@@ -3475,7 +3475,7 @@ class TestGrabbedDeviceHelpers:
         await actions.execute_action(
             device,
             superkey_action,
-            SimpleNamespace(value=1),
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=1),
             "super_btn",
             deps=pipeline.build_action_execution_deps(
                 fire_and_observe_fn=pipeline.fire_and_observe
@@ -3485,7 +3485,7 @@ class TestGrabbedDeviceHelpers:
         await actions.execute_action(
             device,
             superkey_action,
-            SimpleNamespace(value=0),
+            SimpleNamespace(type=evdev.ecodes.EV_KEY, code=evdev.ecodes.KEY_A, value=0),
             "super_btn",
             deps=pipeline.build_action_execution_deps(
                 fire_and_observe_fn=pipeline.fire_and_observe

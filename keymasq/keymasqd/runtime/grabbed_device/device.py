@@ -28,10 +28,12 @@ from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters, device_path_resolver, force_feedback, source_hiding
+from keymasq.keymasqd.runtime.action.sequences import SequenceSource
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
 from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
 from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
+from keymasq.keymasqd.runtime.analog.thresholds import is_threshold_sequence_key
 from keymasq.keymasqd.runtime.default_controller_route import (
     DefaultControllerRoute,
     source_axis_ranges,
@@ -39,6 +41,7 @@ from keymasq.keymasqd.runtime.default_controller_route import (
 from keymasq.keymasqd.runtime.feedback_device import EvdevFeedbackDevice, EvdevFeedbackSource
 from keymasq.keymasqd.runtime.grabbed_device import grab, outputs
 from keymasq.keymasqd.runtime.grabbed_device.event import pipeline
+from keymasq.keymasqd.runtime.grabbed_device.event.classification import find_action_for_code
 from keymasq.keymasqd.runtime.grabbed_device.event.rollover import (
     recall_rollover_member,
     restore_rollover_member,
@@ -642,8 +645,24 @@ class GrabbedDevice:
         self.reset_motion_controls()
         initialize_motion_state(self, self.mapping_getter())
         if previous_mapping is None:
+            self.state.action_sequences.cancel_all()
             await self.reset_superkeys()
         else:
+            if self.state.action_sequences.keys:
+                mapping = self.mapping_getter()
+                self.state.action_sequences.cancel_owned_where(
+                    lambda key, owner: isinstance(owner, SequenceSource)
+                    and not is_threshold_sequence_key(key)
+                    and find_action_for_code(
+                        self,
+                        owner.event_type,
+                        owner.event_code,
+                        owner.event_value,
+                        owner.event_name,
+                        mapping,
+                    )
+                    != owner.action
+                )
             for event_name, machine in list(self.state.superkey_machines.items()):
 
                 def forget_machine(name: str = event_name) -> None:

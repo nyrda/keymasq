@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import cast
@@ -8,6 +9,11 @@ from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import action_runner
+from keymasq.keymasqd.runtime.action.sequences import (
+    ActionSequences,
+    SequenceSource,
+    runs_natural_move,
+)
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     CancelMacroPlayback,
@@ -34,6 +40,7 @@ from keymasq.keymasqd.runtime.repeat import (
     RepeatHistoryEntry,
     execute_repeated_superkey_path,
     remember_superkey_path,
+    superkey_slot_runs_natural_move,
 )
 from keymasq.keymasqd.superkey_state import SuperkeyConfig, SuperkeyMachine
 
@@ -48,6 +55,8 @@ def _build_superkey_machine(
     deps: ActionExecutionDeps,
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
+    sequences: ActionSequences | None = None,
+    sequence_owner: SequenceSource | None = None,
 ) -> SuperkeyMachine:
     async def superkey_broadcast(data: dict[str, object]) -> None:
         if device_runtime.broadcast_callback:
@@ -112,6 +121,8 @@ def _build_superkey_machine(
         action_deps=deps,
         repeat_path_recorder=repeat_path_recorder,
         keyboard_block_getter=device_runtime.keyboard_block_getter,
+        sequences=sequences,
+        sequence_owner=sequence_owner,
     )
     machine.source_action = action
     return machine
@@ -220,13 +231,20 @@ async def _execute_superkey_action(
         return
 
     if action.superkey_config.mode == SuperkeyMode.OVERLOAD:
-        await _execute_overload_superkey(
+        if not _queue_overload_superkey(
             device_runtime,
             action,
             event,
             event_name,
             deps=deps,
-        )
+        ):
+            await _execute_overload_superkey(
+                device_runtime,
+                action,
+                event,
+                event_name,
+                deps=deps,
+            )
         mark_action_started(execution_handle)
         return
 
@@ -239,6 +257,8 @@ async def _execute_superkey_action(
             deps=deps,
             execution_handle=execution_handle,
             cancel_macro_playback=cancel_macro_playback,
+            sequences=device_runtime.state.action_sequences,
+            sequence_owner=_sequence_source(event, event_name, action),
         )
         device_runtime.state.superkey_machines[event_name] = machine
 
@@ -247,6 +267,50 @@ async def _execute_superkey_action(
     elif int(event.value) == 0 and machine is not None:
         await machine.on_up()
     mark_action_started(execution_handle)
+
+
+def _queue_overload_superkey(
+    device_runtime: GrabbedDeviceRuntime,
+    action: MappingAction,
+    event: InputEventLike,
+    event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+) -> bool:
+    config = cast(SuperkeyConfig, action.superkey_config)
+    sequences = device_runtime.state.action_sequences
+    value = int(event.value)
+    if value == 1:
+        detach = runs_natural_move(config.overload_actions, config.overload_down_actions)
+    elif value == 0:
+        detach = runs_natural_move(config.overload_up_actions)
+    else:
+        return sequences.pending(event_name)
+    if not detach and not sequences.pending(event_name):
+        return False
+    queued_event = SyntheticInputEvent(int(event.type), int(event.code), value)
+    return sequences.run(
+        event_name,
+        lambda: _execute_overload_superkey(
+            device_runtime,
+            action,
+            queued_event,
+            event_name,
+            deps=deps,
+        ),
+        detach=detach,
+        fire_and_observe_fn=deps.fire_and_observe_fn,
+        label=f"overload sequence {event_name}",
+        owner=_sequence_source(event, event_name, action),
+    )
+
+
+def _sequence_source(
+    event: InputEventLike,
+    event_name: str,
+    action: MappingAction,
+) -> SequenceSource:
+    return SequenceSource(int(event.type), int(event.code), int(event.value), event_name, action)
 
 
 async def _execute_overload_superkey(
@@ -285,17 +349,55 @@ async def _execute_overload_superkey(
             value,
         )
 
-    if int(event.value) == 0:
-        for index, child_action in enumerate(config.overload_up_actions):
+    value = int(event.value)
+    pressed: list[tuple[str, MappingAction]] = (
+        [
+            (f"{event_name}#overload#{index}", child_action)
+            for index, child_action in enumerate(config.overload_actions)
+            if child_action.action_type != ActionType.SUPERKEY
+        ]
+        if value == 0
+        else []
+    )
+    try:
+        if value == 0:
+            await _pulse_overload_children(
+                device_runtime,
+                config.name,
+                config.overload_up_actions,
+                event,
+                f"{event_name}#overload_up",
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
+            )
+
+        for index, child_action in enumerate(config.overload_actions):
             if child_action.action_type == ActionType.SUPERKEY:
-                log.warning(
-                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                    config.name,
-                    index,
+                _warn_nested_superkey(config.name, index)
+                continue
+            child_event_name = f"{event_name}#overload#{index}"
+            if value == 0:
+                pressed.pop(0)
+                await _release_overload_child(
+                    device_runtime,
+                    child_action,
+                    event,
+                    child_event_name,
+                    deps=deps,
+                    shared_output_tracker=overload_output_tracker,
+                    shared_abs_output_tracker=overload_abs_output_tracker,
                 )
                 continue
-            child_event_name = f"{event_name}#overload_up#{index}"
-            await execute_action_pulse(
+            if value == 1:
+                pressed.append((child_event_name, child_action))
+                device_runtime.state.held_profile_trigger_events.add(child_event_name)
+                _observe_overload_profile_trigger(
+                    device_runtime,
+                    child_event_name,
+                    active=True,
+                )
+            await execute_action(
                 device_runtime,
                 child_action,
                 event,
@@ -306,60 +408,93 @@ async def _execute_overload_superkey(
                 record_repeat=False,
             )
 
-    for index, child_action in enumerate(config.overload_actions):
-        if child_action.action_type == ActionType.SUPERKEY:
-            log.warning(
-                "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                config.name,
-                index,
-            )
-            continue
-        child_event_name = f"{event_name}#overload#{index}"
-        if int(event.value) == 1:
-            device_runtime.state.held_profile_trigger_events.add(child_event_name)
-            _observe_overload_profile_trigger(
+        if value == 1:
+            await _pulse_overload_children(
                 device_runtime,
-                child_event_name,
-                active=True,
+                config.name,
+                config.overload_down_actions,
+                event,
+                f"{event_name}#overload_down",
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
             )
-        await execute_action(
+    except asyncio.CancelledError:
+        release_event = SyntheticInputEvent(int(event.type), int(event.code), 0)
+        for child_event_name, child_action in reversed(pressed):
+            await _release_overload_child(
+                device_runtime,
+                child_action,
+                release_event,
+                child_event_name,
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
+            )
+        raise
+
+
+def _warn_nested_superkey(superkey_name: str, index: int) -> None:
+    log.warning(
+        "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
+        superkey_name,
+        index,
+    )
+
+
+async def _pulse_overload_children(
+    device_runtime: GrabbedDeviceRuntime,
+    superkey_name: str,
+    children: list[MappingAction],
+    event: InputEventLike,
+    event_name_prefix: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: Callable[[str, int, int], bool],
+    shared_abs_output_tracker: Callable[[str, int, int], bool],
+) -> None:
+    for index, child_action in enumerate(children):
+        if child_action.action_type == ActionType.SUPERKEY:
+            _warn_nested_superkey(superkey_name, index)
+            continue
+        await execute_action_pulse(
             device_runtime,
             child_action,
             event,
-            child_event_name,
+            f"{event_name_prefix}#{index}",
             deps=deps,
-            shared_output_tracker=overload_output_tracker,
-            shared_abs_output_tracker=overload_abs_output_tracker,
+            shared_output_tracker=shared_output_tracker,
+            shared_abs_output_tracker=shared_abs_output_tracker,
             record_repeat=False,
         )
-        if int(event.value) == 0:
-            device_runtime.state.held_profile_trigger_events.discard(child_event_name)
-            _observe_overload_profile_trigger(
-                device_runtime,
-                child_event_name,
-                active=False,
-            )
 
-    if int(event.value) == 1:
-        for index, child_action in enumerate(config.overload_down_actions):
-            if child_action.action_type == ActionType.SUPERKEY:
-                log.warning(
-                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                    config.name,
-                    index,
-                )
-                continue
-            child_event_name = f"{event_name}#overload_down#{index}"
-            await execute_action_pulse(
-                device_runtime,
-                child_action,
-                event,
-                child_event_name,
-                deps=deps,
-                shared_output_tracker=overload_output_tracker,
-                shared_abs_output_tracker=overload_abs_output_tracker,
-                record_repeat=False,
-            )
+
+async def _release_overload_child(
+    device_runtime: GrabbedDeviceRuntime,
+    child_action: MappingAction,
+    event: InputEventLike,
+    child_event_name: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: Callable[[str, int, int], bool],
+    shared_abs_output_tracker: Callable[[str, int, int], bool],
+) -> None:
+    await execute_action(
+        device_runtime,
+        child_action,
+        event,
+        child_event_name,
+        deps=deps,
+        shared_output_tracker=shared_output_tracker,
+        shared_abs_output_tracker=shared_abs_output_tracker,
+        record_repeat=False,
+    )
+    device_runtime.state.held_profile_trigger_events.discard(child_event_name)
+    _observe_overload_profile_trigger(
+        device_runtime,
+        child_event_name,
+        active=False,
+    )
 
 
 async def _execute_repeated_superkey_path(
@@ -371,6 +506,7 @@ async def _execute_repeated_superkey_path(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    sequence_source: SequenceSource | None = None,
 ) -> None:
     del execution_handle, cancel_macro_playback, resolve_code_fn
     device_runtime = cast(GrabbedDeviceRuntime, device_runtime)
@@ -397,12 +533,23 @@ async def _execute_repeated_superkey_path(
         await machine.execute_repeat_slot(slot)
         await machine.stop()
 
-    await execute_repeated_superkey_path(
-        repeated_entry,
-        event_name,
-        execute_overload_once=execute_overload_once,
-        execute_pattern_slot_once=execute_pattern_slot_once,
-    )
+    async def execute_path() -> None:
+        await execute_repeated_superkey_path(
+            repeated_entry,
+            event_name,
+            execute_overload_once=execute_overload_once,
+            execute_pattern_slot_once=execute_pattern_slot_once,
+        )
+
+    if not device_runtime.state.action_sequences.run(
+        f"{event_name}#repeat",
+        execute_path,
+        detach=superkey_slot_runs_natural_move(repeated_entry),
+        fire_and_observe_fn=deps.fire_and_observe_fn,
+        label=f"repeated superkey sequence {event_name}",
+        owner=sequence_source,
+    ):
+        await execute_path()
 
 
 async def _execute_overload_slot_once(

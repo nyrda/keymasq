@@ -39,6 +39,12 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.21.0" date="2026-10-14">
+      <description>
+        <p>Adds rollover groups, pointer movement for mice, Steam Deck stick and trackpad touch inputs, hardware masking from the CLI, a macro option that blocks the physical keyboard, and Sway compositor actions.</p>
+        <p>Cuts input latency and stalls in the daemon, and fixes stuck keys in rollover handovers and AppImage updates after a full disk.</p>
+      </description>
+    </release>
     <release version="0.20.0" date="2026-09-24">
       <description>
         <p>Adds hardware masking for controllers, gyro and tilt motion controls, virtual controller templates with a flight stick layout, and nested macros with pause on release and rapidfire blocks.</p>

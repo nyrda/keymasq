@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.21.0 - 2026-10-14
+
+### Added
+
+- Added rollover groups: keys or buttons, on one or more devices, where only
+  the winning held member drives its mapping. Covers SOCD (Snap Tap) modes and
+  two keys on one stick axis, with last pressed, first pressed, cancel out, and
+  fixed priority winners.
+- Added per-profile pointer movement for mice: scale, invert, or swap mouse
+  movement, or drive controller axes from it in velocity or position mode.
+- Added Steam Deck stick and trackpad touch inputs through a new HID-BPF native
+  input backend. They work as buttons in mappings, combos, and superkeys.
+- Added `keymasq masking` to manage hardware masks from the CLI, with
+  `--json` output.
+- Added a **Block physical keyboard** macro option that holds back keyboard
+  keys from physical input while the macro plays.
+- Added the `<macro:NAME>` inline control to type macros, which runs a saved
+  macro and waits for it before typing on.
+- Added Sway compositor actions and window tracking over Sway IPC.
+- Added layer-shell focus tracking on Hyprland and a `layer` window rule
+  field, so profiles can react to launchers such as fuzzel and walker.
+- Added an admin policy key, `[recording_guard] macro_recording_allowed`, to
+  turn off the macro recorder.
+- Added `input_latency` and a `stalls` diagnostics category
+  (`keymasq diagnostics on --include stalls`) that attributes input delays to
+  garbage collection, event-loop blocks, daemon commands, and worker jobs.
+
+### Improved
+
+- `keymasqd` now handles grabbed input with about half the per-event work, and
+  profile changes, combo updates, worker threads, garbage collection, recording
+  playback, and diagnostics no longer hold up input for several milliseconds.
+- Config and macro edits only reapply mappings to devices whose mapping
+  changed, so held keys, analog state, and motion state on other devices are
+  kept. The GUI no longer stalls after remaps and saves.
+- Natural cursor moves run in the background, including inside Super Keys,
+  analog thresholds, and combos, so other keys and the emergency reset keep
+  working during the move. Actions after the move in the same list still wait
+  for it.
+- Keymasq regrabs a device after a read error or a fast replug at the same
+  node instead of leaving it released.
+- Hardware masking no longer requires the capture unlock.
+- The key selector labels its keyboard with the configured layout and uses
+  the layout's ANSI or ISO geometry.
+- Profile loading now rejects malformed pointer movement and rollover groups
+  instead of silently replacing them with defaults.
+
+### Fixed
+
+- Fixed an AppImage update leaving an incomplete runtime when the disk ran
+  full. Systems where a 0.20.0 update already failed this way need one
+  `--install` from the new AppImage.
+- Fixed the Brotway GUI crashing on start in AppImages built against newer
+  GTK and libadwaita.
+- Fixed a profile reload hang when a profile had a missing or malformed
+  `created_at`.
+- Fixed stuck keys when rollover members hand over a key while a
+  keyboard-blocking macro plays, and losing taps cutting off the winner's key.
+- Fixed Keymasq treating other programs' uinput devices as its own outputs.
+- Fixed `keymasq masking resume` re-evaluating profiles when remapping was not
+  paused.
+- Fixed layer focus tracking on Hyprland builds that renamed the layer
+  `interactivity` field.
+
+### Changed
+
+- Renamed the root helper `keymasq-record` to `keymasq-helper`. AppImage
+  upgrades from earlier releases keep working.
+- Removed the capture unlock and the macro recording opt-in. Old
+  `unlock_required` and `macro_edit_requires_unlock` policy keys are ignored
+  with a warning.
+- Macro loop, pause, and keyboard and mouse blocking settings now belong to
+  the saved macro only. Copies in profile, superkey, and analog control files
+  are ignored and dropped on the next save.
+
 ## 0.20.0 - 2026-09-24
 
 ### Added

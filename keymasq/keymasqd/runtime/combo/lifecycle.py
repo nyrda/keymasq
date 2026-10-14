@@ -31,7 +31,7 @@ async def clear_combo_runtime_unlocked(
     manager.combo_state.action_sequences.cancel_all()
     for combo_id in list(manager.combo_state.active_actions):
         try:
-            await stop_combo_action(manager, combo_id, deps=deps)
+            await stop_combo_action(manager, combo_id, deps=deps, release_only=True)
         except Exception as exc:
             errors.append(exc)
             log.exception("Failed to stop combo action %s during runtime cleanup", combo_id)
@@ -72,7 +72,7 @@ async def clear_combo_runtime_except_unlocked(
     for combo_id in list(manager.combo_state.active_actions):
         root_combo_id = combo_id.split("#", 1)[0]
         if root_combo_id not in preserved:
-            await stop_combo_action(manager, combo_id, deps=deps)
+            await stop_combo_action(manager, combo_id, deps=deps, release_only=True)
 
     for combo_id, machine in list(manager.combo_state.superkey_machines.items()):
         if combo_id in preserved:
@@ -135,7 +135,7 @@ async def clear_combo_runtime_for_binding_scope_unlocked(
             active_combo_ids.add(combo_id)
     for combo_id in active_combo_ids:
         sequences.cancel(combo_id)
-        await stop_combo_action(manager, combo_id, deps=deps)
+        await stop_combo_action(manager, combo_id, deps=deps, release_only=True)
 
     matching_machine_ids: list[str] = []
     for combo_id in manager.combo_state.superkey_machines:

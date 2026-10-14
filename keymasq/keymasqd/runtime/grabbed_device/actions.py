@@ -9,7 +9,11 @@ from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.common.types import SyntheticInputEvent
 from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.runtime import action_runner
-from keymasq.keymasqd.runtime.action.sequences import ActionSequences, runs_natural_move
+from keymasq.keymasqd.runtime.action.sequences import (
+    ActionSequences,
+    SequenceSource,
+    runs_natural_move,
+)
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     CancelMacroPlayback,
@@ -52,6 +56,7 @@ def _build_superkey_machine(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     sequences: ActionSequences | None = None,
+    sequence_owner: SequenceSource | None = None,
 ) -> SuperkeyMachine:
     async def superkey_broadcast(data: dict[str, object]) -> None:
         if device_runtime.broadcast_callback:
@@ -117,6 +122,7 @@ def _build_superkey_machine(
         repeat_path_recorder=repeat_path_recorder,
         keyboard_block_getter=device_runtime.keyboard_block_getter,
         sequences=sequences,
+        sequence_owner=sequence_owner,
     )
     machine.source_action = action
     return machine
@@ -252,6 +258,7 @@ async def _execute_superkey_action(
             execution_handle=execution_handle,
             cancel_macro_playback=cancel_macro_playback,
             sequences=device_runtime.state.action_sequences,
+            sequence_owner=_sequence_source(event, event_name, action),
         )
         device_runtime.state.superkey_machines[event_name] = machine
 
@@ -294,8 +301,16 @@ def _queue_overload_superkey(
         detach=detach,
         fire_and_observe_fn=deps.fire_and_observe_fn,
         label=f"overload sequence {event_name}",
-        owner=action,
+        owner=_sequence_source(event, event_name, action),
     )
+
+
+def _sequence_source(
+    event: InputEventLike,
+    event_name: str,
+    action: MappingAction,
+) -> SequenceSource:
+    return SequenceSource(int(event.type), int(event.code), int(event.value), event_name, action)
 
 
 async def _execute_overload_superkey(
@@ -491,6 +506,7 @@ async def _execute_repeated_superkey_path(
     execution_handle: ActionExecutionHandle | None = None,
     cancel_macro_playback: CancelMacroPlayback | None = None,
     resolve_code_fn: ResolveCodeFn = resolve_output_code,
+    sequence_source: SequenceSource | None = None,
 ) -> None:
     del execution_handle, cancel_macro_playback, resolve_code_fn
     device_runtime = cast(GrabbedDeviceRuntime, device_runtime)
@@ -531,6 +547,7 @@ async def _execute_repeated_superkey_path(
         detach=superkey_slot_runs_natural_move(repeated_entry),
         fire_and_observe_fn=deps.fire_and_observe_fn,
         label=f"repeated superkey sequence {event_name}",
+        owner=sequence_source,
     ):
         await execute_path()
 

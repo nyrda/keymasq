@@ -485,6 +485,11 @@ SLOW_SUPERKEY_MOVES = {
     "analog threshold": scenario(
         [AXIS_PRESSED], {"trigger": threshold(SLOW_MOVE)}, analog_inputs=TRIGGER_AXIS
     ),
+    "analog threshold repeating a move": scenario(
+        [(KEY_S, 1), (KEY_S, 0), AXIS_PRESSED],
+        {"key_s": SLOW_MOVE, "trigger": threshold(MappingAction(action_type=ActionType.REPEAT))},
+        analog_inputs=TRIGGER_AXIS,
+    ),
     "combo tap": scenario(
         COMBO_TAP,
         combos=combo_superkey({"mode": "pattern", "tap_actions": [move_data(1_000_000)]}),
@@ -642,3 +647,89 @@ async def test_cancelling_a_superkey_sequence_stops_its_move_and_releases_what_i
     await asyncio.sleep(0.05)
     assert rig.key_values(KEY_X) == [1, 0]
     assert rig.key_values(KEY_Y) == []
+
+
+def overload_data(*actions: dict[str, object]) -> dict[str, object]:
+    return {
+        "action": "superkey",
+        "superkey": {"name": "shared", "mode": "overload", "overload_actions": list(actions)},
+    }
+
+
+X_SLOW_MOVE_Y_DATA = overload_data(
+    {"action": "keyboard", "target": "key_x"},
+    move_data(1_000_000),
+    {"action": "keyboard", "target": "key_y"},
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("remapped", "stops"), [("key_a", True), ("key_s", False)])
+async def test_a_remap_stops_a_sequence_only_when_its_own_key_changes(
+    monkeypatch,
+    remapped: str,
+    stops: bool,
+) -> None:
+    rig = await cursor_rig(monkeypatch, {})
+    shared = {"key_a": X_SLOW_MOVE_Y_DATA, "key_s": X_SLOW_MOVE_Y_DATA}
+    await rig.manager.set_mapping(KEYBOARD, shared)
+    rig.feed((KEY_A, 1))
+    await wait_until(lambda: bool(rig.rel_writes()))
+
+    await rig.manager.set_mapping(
+        KEYBOARD, {**shared, remapped: {"action": "keyboard", "target": "key_c"}}
+    )
+
+    assert await rig.moving() is not stops
+    assert rig.key_values(KEY_X) == ([1, 0] if stops else [1])
+    await rig.manager.emergency_reset()
+
+
+@pytest.mark.asyncio
+async def test_remapping_a_repeat_key_stops_the_superkey_path_it_replays(monkeypatch) -> None:
+    rig = await cursor_rig(
+        monkeypatch,
+        {
+            "key_a": overload(held=[key("key_x"), SLOW_MOVE, key("key_y")]),
+            "key_s": MappingAction(action_type=ActionType.REPEAT),
+        },
+    )
+    rig.feed((KEY_A, 1))
+    await wait_until(lambda: bool(rig.rel_writes()))
+    await rig.manager.cancel_cursor_move()
+    rig.feed((KEY_A, 0))
+    await wait_until(lambda: rig.key_values(KEY_Y) == [1, 0])
+    moved = len(rig.rel_writes())
+    rig.feed((KEY_S, 1))
+    await wait_until(lambda: len(rig.rel_writes()) > moved)
+
+    await rig.manager.set_mapping(KEYBOARD, {"key_s": {"action": "keyboard", "target": "key_c"}})
+
+    assert not await rig.moving()
+    assert rig.key_values(KEY_X) == [1, 0, 1, 0]
+    assert rig.key_values(KEY_Y) == [1, 0]
+
+
+@pytest.mark.asyncio
+async def test_clearing_combos_releases_a_held_combo_overload_without_its_release_actions(
+    monkeypatch,
+) -> None:
+    rig = await cursor_rig(
+        monkeypatch,
+        {},
+        combo_superkey(
+            {
+                "mode": "overload",
+                "overload_actions": [{"action": "keyboard", "target": "key_x"}],
+                "overload_up_actions": [move_data(1_000_000)],
+            }
+        ),
+    )
+    rig.feed(*COMBO_PRESS)
+    await wait_until(lambda: rig.key_values(KEY_X) == [1])
+
+    await asyncio.wait_for(rig.manager.set_combos([]), timeout=1)
+
+    assert rig.key_values(KEY_X) == [1, 0]
+    assert not await rig.moving()
+    assert rig.rel_writes() == []

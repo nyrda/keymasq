@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Awaitable, Callable, Collection, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -13,9 +14,12 @@ from keymasq.common.model.core import ActionType
 type FireAndObserve = Callable[[Awaitable[object], str], asyncio.Task[object]]
 type SequenceStep = Callable[[], Coroutine[Any, Any, object]]
 
+# Repeat can replay a natural move recalled only when it runs.
 _NATURAL_MOVE_TYPES = (
     ActionType.MOUSE_MOVE_NATURAL_ABS,
     ActionType.MOUSE_MOVE_NATURAL_ABS.value,
+    ActionType.REPEAT,
+    ActionType.REPEAT.value,
 )
 
 
@@ -25,6 +29,17 @@ def runs_natural_move(*action_lists: Iterable[object]) -> bool:
         for actions in action_lists
         for action in actions
     )
+
+
+@dataclass(frozen=True)
+class SequenceSource:
+    """The input whose mapped action started a sequence."""
+
+    event_type: int
+    event_code: int
+    event_value: int
+    event_name: str
+    action: object
 
 
 class ActionSequences:
@@ -80,7 +95,7 @@ class ActionSequences:
         if not task.done():
             self._lanes.setdefault(key, []).append(task)
             if owner is not None:
-                self._owners[key] = owner
+                self._owners.setdefault(key, owner)
             task.add_done_callback(partial(self._forget, key))
         return True
 
@@ -93,9 +108,9 @@ class ActionSequences:
         for key in list(self._lanes):
             self.cancel(key)
 
-    def cancel_unless_owned_by(self, owners: Collection[object]) -> None:
+    def cancel_owned_where(self, retired: Callable[[str, object], bool]) -> None:
         for key, owner in list(self._owners.items()):
-            if not any(owner == current for current in owners):
+            if retired(key, owner):
                 self.cancel(key)
 
     def _forget(self, key: str, task: asyncio.Task[object]) -> None:

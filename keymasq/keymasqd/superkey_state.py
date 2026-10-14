@@ -200,6 +200,7 @@ class SuperkeyMachine:
         keyboard_block_getter: Callable[[], bool] | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         sequences: ActionSequences | None = None,
+        sequence_owner: object | None = None,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -221,6 +222,7 @@ class SuperkeyMachine:
         self.repeat_path_recorder = repeat_path_recorder
         self._monotonic_clock = monotonic_clock
         self.sequences = sequences
+        self.sequence_owner = sequence_owner
 
         self.state = SuperkeyState.IDLE
         self.source_action: MappingAction | None = None
@@ -469,7 +471,7 @@ class SuperkeyMachine:
             detach=runs_natural_move(actions),
             fire_and_observe_fn=self.action_deps.fire_and_observe_fn,
             label=f"superkey sequence {self.event_name}",
-            owner=self.source_action,
+            owner=self.sequence_owner,
         ):
             return
         await execute()

@@ -71,7 +71,6 @@ async def evaluate_thresholds(
             detach=False,
             fire_and_observe_fn=deps.fire_and_observe_fn,
             label=f"analog threshold release {source_id}",
-            owner=transition.threshold,
         ):
             await release()
         device_runtime.state.analog_active_threshold_actions.pop(
@@ -150,7 +149,6 @@ async def activate_threshold_actions(
         detach=runs_natural_move(action for _, action in executable_actions),
         fire_and_observe_fn=deps.fire_and_observe_fn,
         label=f"analog threshold actions {source_id}",
-        owner=threshold,
     ):
         await execute()
 
@@ -277,9 +275,21 @@ def track_threshold_abs_output(
     )
 
 
+_THRESHOLD_SEQUENCE_MARKER = "#analog_threshold#"
+
+
 def threshold_sequence_key(source_id: str, threshold_index: int) -> str:
-    return f"{source_id}#analog_threshold#{threshold_index}"
+    return f"{source_id}{_THRESHOLD_SEQUENCE_MARKER}{threshold_index}"
+
+
+def is_threshold_sequence_key(key: str) -> bool:
+    return _THRESHOLD_SEQUENCE_MARKER in key
+
+
+def threshold_sequence_source(key: str) -> str | None:
+    source_id, marker, _rest = key.partition(_THRESHOLD_SEQUENCE_MARKER)
+    return source_id if marker else None
 
 
 def _child_event_name(source_id: str, threshold_index: int, action_index: int) -> str:
-    return f"{source_id}#analog_threshold#{threshold_index}#{action_index}"
+    return f"{threshold_sequence_key(source_id, threshold_index)}#{action_index}"

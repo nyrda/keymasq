@@ -13,7 +13,7 @@ from keymasq.keymasqd.combo_engine import (
     RuntimeComboBinding,
 )
 from keymasq.keymasqd.runtime import action_runner
-from keymasq.keymasqd.runtime.action.sequences import runs_natural_move
+from keymasq.keymasqd.runtime.action.sequences import SequenceSource, runs_natural_move
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     CancelMacroPlayback,
@@ -502,8 +502,10 @@ async def _start_combo_action_instance(
         execution_handle: ActionExecutionHandle | None = None,
         cancel_macro_playback: CancelMacroPlayback | None = None,
         resolve_code_fn: ResolveCodeFn | None = None,
+        sequence_source: SequenceSource | None = None,
     ) -> None:
         del device_runtime, deps, execution_handle, cancel_macro_playback, resolve_code_fn
+        del sequence_source
         repeat_combo_id = event_name.removeprefix("combo:")
         repeat_path = partial(
             _start_combo_superkey_repeat_path,
@@ -624,6 +626,7 @@ async def stop_combo_action(
     combo_id: str,
     *,
     deps: ComboRuntimeDeps,
+    release_only: bool = False,
 ) -> None:
     state = manager.combo_state.active_actions.pop(combo_id, None)
     if not state:
@@ -645,6 +648,7 @@ async def stop_combo_action(
                 manager,
                 child_combo_id,
                 deps=deps,
+                release_only=release_only,
             )
         restore_combo_trigger_bindings(manager, restore_bindings)
         return
@@ -653,7 +657,7 @@ async def stop_combo_action(
         trigger_binding = state.trigger_binding
         config = cast(SuperkeyConfig | None, action.superkey_config) if action else None
         try:
-            if trigger_binding is not None and config is not None:
+            if trigger_binding is not None and config is not None and not release_only:
                 trigger_name = str(state.source_button or f"combo:{combo_id}")
                 for index, child_action in enumerate(config.overload_up_actions):
                     if child_action.action_type == ActionType.SUPERKEY:
@@ -679,6 +683,7 @@ async def stop_combo_action(
                     manager,
                     child_combo_id,
                     deps=deps,
+                    release_only=release_only,
                 )
             restore_combo_trigger_bindings(manager, restore_bindings)
         return

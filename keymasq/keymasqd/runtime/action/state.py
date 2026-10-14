@@ -9,6 +9,7 @@ from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.types import JsonObject
 from keymasq.keymasqd.output_helpers import resolve_output_code
+from keymasq.keymasqd.runtime.action.sequences import SequenceSource
 from keymasq.keymasqd.runtime.adapters import AsyncioEvent
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
@@ -56,6 +57,7 @@ class RepeatSuperkeyExecutor(Protocol):
         execution_handle: ActionExecutionHandle | None = None,
         cancel_macro_playback: CancelMacroPlayback | None = None,
         resolve_code_fn: ResolveCodeFn = resolve_output_code,
+        sequence_source: SequenceSource | None = None,
     ) -> None: ...
 
 

@@ -71,6 +71,7 @@ async def evaluate_thresholds(
             detach=False,
             fire_and_observe_fn=deps.fire_and_observe_fn,
             label=f"analog threshold release {source_id}",
+            owner=transition.threshold,
         ):
             await release()
         device_runtime.state.analog_active_threshold_actions.pop(
@@ -100,12 +101,14 @@ async def activate_threshold_actions(
             ActionType.ANALOG_CONTROL,
         }
     )
-    device_runtime.state.analog_active_threshold_actions[threshold_key(source_id, index)] = (
-        executable_actions
-    )
+    key = threshold_key(source_id, index)
+    active_actions = device_runtime.state.analog_active_threshold_actions
+    active_actions[key] = ()
 
     async def execute() -> None:
         for position, (action_index, action) in enumerate(executable_actions):
+            if active_actions.get(key) is not None:
+                active_actions[key] = executable_actions[: position + 1]
             if position == 0:
                 _record_threshold_profile_action(
                     device_runtime,
@@ -147,6 +150,7 @@ async def activate_threshold_actions(
         detach=runs_natural_move(action for _, action in executable_actions),
         fire_and_observe_fn=deps.fire_and_observe_fn,
         label=f"analog threshold actions {source_id}",
+        owner=threshold,
     ):
         await execute()
 

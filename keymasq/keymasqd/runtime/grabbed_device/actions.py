@@ -279,6 +279,8 @@ def _queue_overload_superkey(
         detach = runs_natural_move(config.overload_up_actions)
     else:
         return sequences.pending(event_name)
+    if not detach and not sequences.pending(event_name):
+        return False
     queued_event = SyntheticInputEvent(int(event.type), int(event.code), value)
     return sequences.run(
         event_name,
@@ -332,39 +334,36 @@ async def _execute_overload_superkey(
             value,
         )
 
-    if int(event.value) == 0:
-        for index, child_action in enumerate(config.overload_up_actions):
-            if child_action.action_type == ActionType.SUPERKEY:
-                log.warning(
-                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                    config.name,
-                    index,
-                )
-                continue
-            child_event_name = f"{event_name}#overload_up#{index}"
-            await execute_action_pulse(
+    value = int(event.value)
+    pressed: list[tuple[str, MappingAction]] = (
+        [
+            (f"{event_name}#overload#{index}", child_action)
+            for index, child_action in enumerate(config.overload_actions)
+            if child_action.action_type != ActionType.SUPERKEY
+        ]
+        if value == 0
+        else []
+    )
+    try:
+        if value == 0:
+            await _pulse_overload_children(
                 device_runtime,
-                child_action,
+                config.name,
+                config.overload_up_actions,
                 event,
-                child_event_name,
+                f"{event_name}#overload_up",
                 deps=deps,
                 shared_output_tracker=overload_output_tracker,
                 shared_abs_output_tracker=overload_abs_output_tracker,
-                record_repeat=False,
             )
 
-    pressed: list[tuple[str, MappingAction]] = []
-    try:
         for index, child_action in enumerate(config.overload_actions):
             if child_action.action_type == ActionType.SUPERKEY:
-                log.warning(
-                    "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
-                    config.name,
-                    index,
-                )
+                _warn_nested_superkey(config.name, index)
                 continue
             child_event_name = f"{event_name}#overload#{index}"
-            if int(event.value) == 0:
+            if value == 0:
+                pressed.pop(0)
                 await _release_overload_child(
                     device_runtime,
                     child_action,
@@ -375,7 +374,7 @@ async def _execute_overload_superkey(
                     shared_abs_output_tracker=overload_abs_output_tracker,
                 )
                 continue
-            if int(event.value) == 1:
+            if value == 1:
                 pressed.append((child_event_name, child_action))
                 device_runtime.state.held_profile_trigger_events.add(child_event_name)
                 _observe_overload_profile_trigger(
@@ -394,27 +393,17 @@ async def _execute_overload_superkey(
                 record_repeat=False,
             )
 
-        if int(event.value) == 1:
-            for index, child_action in enumerate(config.overload_down_actions):
-                if child_action.action_type == ActionType.SUPERKEY:
-                    log.warning(
-                        "Skipping unexpected nested superkey in overload fanout "
-                        "for '%s' at child %d",
-                        config.name,
-                        index,
-                    )
-                    continue
-                child_event_name = f"{event_name}#overload_down#{index}"
-                await execute_action_pulse(
-                    device_runtime,
-                    child_action,
-                    event,
-                    child_event_name,
-                    deps=deps,
-                    shared_output_tracker=overload_output_tracker,
-                    shared_abs_output_tracker=overload_abs_output_tracker,
-                    record_repeat=False,
-                )
+        if value == 1:
+            await _pulse_overload_children(
+                device_runtime,
+                config.name,
+                config.overload_down_actions,
+                event,
+                f"{event_name}#overload_down",
+                deps=deps,
+                shared_output_tracker=overload_output_tracker,
+                shared_abs_output_tracker=overload_abs_output_tracker,
+            )
     except asyncio.CancelledError:
         release_event = SyntheticInputEvent(int(event.type), int(event.code), 0)
         for child_event_name, child_action in reversed(pressed):
@@ -428,6 +417,41 @@ async def _execute_overload_superkey(
                 shared_abs_output_tracker=overload_abs_output_tracker,
             )
         raise
+
+
+def _warn_nested_superkey(superkey_name: str, index: int) -> None:
+    log.warning(
+        "Skipping unexpected nested superkey in overload fanout for '%s' at child %d",
+        superkey_name,
+        index,
+    )
+
+
+async def _pulse_overload_children(
+    device_runtime: GrabbedDeviceRuntime,
+    superkey_name: str,
+    children: list[MappingAction],
+    event: InputEventLike,
+    event_name_prefix: str,
+    *,
+    deps: ActionExecutionDeps,
+    shared_output_tracker: Callable[[str, int, int], bool],
+    shared_abs_output_tracker: Callable[[str, int, int], bool],
+) -> None:
+    for index, child_action in enumerate(children):
+        if child_action.action_type == ActionType.SUPERKEY:
+            _warn_nested_superkey(superkey_name, index)
+            continue
+        await execute_action_pulse(
+            device_runtime,
+            child_action,
+            event,
+            f"{event_name_prefix}#{index}",
+            deps=deps,
+            shared_output_tracker=shared_output_tracker,
+            shared_abs_output_tracker=shared_abs_output_tracker,
+            record_repeat=False,
+        )
 
 
 async def _release_overload_child(

@@ -29,7 +29,10 @@ from keymasq.keymasqd.output_helpers import resolve_output_code
 from keymasq.keymasqd.recording import RecordingManager
 from keymasq.keymasqd.runtime import adapters, device_path_resolver, force_feedback, source_hiding
 from keymasq.keymasqd.runtime.adapters import identity_uinput_writer
-from keymasq.keymasqd.runtime.analog.binding_state import preserved_analog_state_keys
+from keymasq.keymasqd.runtime.analog.binding_state import (
+    action_analog_control_configs,
+    preserved_analog_state_keys,
+)
 from keymasq.keymasqd.runtime.analog.reset import reset_analog_controls
 from keymasq.keymasqd.runtime.analog.source_fuzz import update_touchpad_fuzz
 from keymasq.keymasqd.runtime.default_controller_route import (
@@ -646,11 +649,8 @@ class GrabbedDevice:
             await self.reset_superkeys()
         else:
             if self.state.action_sequences.keys:
-                mapping = self.mapping_getter()
-                self.state.action_sequences.cancel_owned_by(
-                    action
-                    for button_id, action in previous_mapping.items()
-                    if mapping.get(button_id) != action
+                self.state.action_sequences.cancel_unless_owned_by(
+                    _sequence_owners(self.mapping_getter())
                 )
             for event_name, machine in list(self.state.superkey_machines.items()):
 
@@ -1226,6 +1226,18 @@ class GrabbedDevice:
             maximum_value = calibration.get("maximum", maximum)
             if isinstance(minimum_value, int) and isinstance(maximum_value, int):
                 self.analog_axis_ranges[key] = (minimum_value, maximum_value)
+
+
+def _sequence_owners(mapping: dict[str, MappingAction]) -> list[object]:
+    owners: list[object] = []
+    for action in mapping.values():
+        owners.append(action)
+        for config in action_analog_control_configs(action):
+            owners.append(config)
+            for threshold in config.thresholds:
+                owners.append(threshold)
+                owners.extend(threshold.actions)
+    return owners
 
 
 def _axis_code(axis: dict[str, object]) -> int | None:

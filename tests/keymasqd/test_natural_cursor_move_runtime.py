@@ -493,6 +493,12 @@ SLOW_SUPERKEY_MOVES = {
         COMBO_PRESS,
         combos=combo_superkey({"mode": "overload", "overload_actions": [move_data(1_000_000)]}),
     ),
+    "combo overload on release": scenario(
+        COMBO_TAP,
+        combos=combo_superkey(
+            {"mode": "overload", "overload_up_actions": [move_data(1_000_000)]}
+        ),
+    ),
 }
 
 
@@ -597,6 +603,9 @@ async def remap_the_superkey(rig: SimpleNamespace) -> None:
 HOLDING_X_DURING_A_SLOW_MOVE = {
     "overload": scenario(
         PRESS, {"key_a": overload(held=[key("key_x"), SLOW_MOVE, key("key_y")])}
+    ),
+    "overload on release": scenario(
+        TAP, {"key_a": overload(held=[key("key_x")], on_release=[SLOW_MOVE, key("key_y")])}
     ),
     "tap": scenario(TAP, {"key_a": pattern(tap=X_SLOW_MOVE_Y)}),
     "hold": scenario(PRESS, {"key_a": pattern(hold=X_SLOW_MOVE_Y)}),

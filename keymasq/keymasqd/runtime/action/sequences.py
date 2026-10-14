@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Awaitable, Callable, Coroutine, Iterable
+from collections.abc import Awaitable, Callable, Collection, Coroutine, Iterable
 from functools import partial
 from typing import Any
 
@@ -93,10 +93,9 @@ class ActionSequences:
         for key in list(self._lanes):
             self.cancel(key)
 
-    def cancel_owned_by(self, owners: Iterable[object]) -> None:
-        retired = {id(owner) for owner in owners}
+    def cancel_unless_owned_by(self, owners: Collection[object]) -> None:
         for key, owner in list(self._owners.items()):
-            if id(owner) in retired:
+            if not any(owner == current for current in owners):
                 self.cancel(key)
 
     def _forget(self, key: str, task: asyncio.Task[object]) -> None:

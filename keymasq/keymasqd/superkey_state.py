@@ -532,9 +532,8 @@ class SuperkeyMachine:
             )
 
     async def _execute_held_actions_up(self) -> None:
-        held = self._held_actions
-        self._held_actions = []
-        for index, action in reversed(held):
+        while self._held_actions:
+            index, action = self._held_actions.pop()
             await self._execute_action_up(
                 action,
                 action_event_name=self._child_event_name(action, index),

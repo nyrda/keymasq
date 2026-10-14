@@ -4,9 +4,10 @@ import logging
 import os
 import tempfile
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import replace
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -35,6 +36,7 @@ type RecordingEvent = dict[str, object]
 type RecordingPayload = dict[str, object]
 type RecordingDevice = dict[str, object]
 PENDING_RECORDING_TTL_S = 30 * 60
+EXTRA_READER_STOP_TIMEOUT_S = 1.0
 START_MOUSE_MOVE_SPEED = 100_000.0
 START_MOUSE_MOVE_JITTER = 0.0
 START_MOUSE_MOVE_CURVE = "linear"
@@ -44,7 +46,12 @@ log = logging.getLogger("keymasqd.recording")
 class _RecordingInputDevice(Protocol):
     def close(self) -> None: ...
 
-    def async_read_loop(self) -> AsyncIterator[evdev.InputEvent]: ...
+    def fileno(self) -> int: ...
+
+    def read(self) -> Iterator[evdev.InputEvent]: ...
+
+
+type _ExtraReader = tuple[_RecordingInputDevice, asyncio.Task[None]]
 
 
 async def _await_cleanup(awaitable: Awaitable[object]) -> None:
@@ -91,8 +98,7 @@ class RecordingManager:
         self._pending_recording_lock = asyncio.Lock()
         self._stop_lock = asyncio.Lock()
         self._start_time_us: int | None = None
-        self._extra_devices: list[_RecordingInputDevice] = []
-        self._monitoring_tasks: list[asyncio.Task[None]] = []
+        self._extra_readers: list[_ExtraReader] = []
         self._progress_task: asyncio.Task[None] | None = None
         self._stopped = True
         self._include_mouse_movement = False
@@ -131,8 +137,7 @@ class RecordingManager:
 
         self._spool = RecordingSpool(self._spool_dir)
         self._start_time_us = None
-        self._extra_devices = []
-        self._monitoring_tasks = []
+        self._extra_readers = []
         self._stopped = False
         self._recording_started_at = asyncio.get_running_loop().time()
         self._include_mouse_movement = bool(include_mouse_movement)
@@ -147,6 +152,17 @@ class RecordingManager:
                 path_value = dev.get("open_path", dev.get("path"))
                 if not isinstance(path_value, str) or not path_value:
                     continue
+                raw_classes = dev.get("device_types")
+                classes = (
+                    [str(value) for value in cast(list[object], raw_classes)]
+                    if isinstance(raw_classes, list)
+                    else None
+                )
+                primary = dev.get("device_type", "other")
+                device_types = normalize_input_classes(
+                    classes,
+                    primary if isinstance(primary, str) else "other",
+                )
                 open_task = asyncio.create_task(
                     asyncio.to_thread(_open_recording_input_device, path_value)
                 )
@@ -170,20 +186,12 @@ class RecordingManager:
                     input_dev = None
                 if input_dev is None:
                     continue
-                self._extra_devices.append(input_dev)
-                raw_classes = dev.get("device_types")
-                classes = (
-                    [str(value) for value in cast(list[object], raw_classes)]
-                    if isinstance(raw_classes, list)
-                    else None
-                )
-                primary = dev.get("device_type", "other")
-                device_types = normalize_input_classes(
-                    classes,
-                    primary if isinstance(primary, str) else "other",
-                )
-                task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
-                self._monitoring_tasks.append(task)
+                try:
+                    task = asyncio.create_task(self._read_extra_device(input_dev, device_types))
+                except BaseException:
+                    _close_recording_input_device(input_dev)
+                    raise
+                self._extra_readers.append((input_dev, task))
 
             self._progress_task = asyncio.create_task(self._monitor_progress())
 
@@ -203,20 +211,16 @@ class RecordingManager:
         """Discard every resource acquired by an uncommitted start transition."""
 
         self._stopped = True
-        tasks = list(self._monitoring_tasks)
-        self._monitoring_tasks = []
+        readers = self._extra_readers
+        self._extra_readers = []
         progress_task = self._progress_task
         self._progress_task = None
         if progress_task is not None:
-            tasks.append(progress_task)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            progress_task.cancel()
+        await _stop_extra_readers(readers)
+        if progress_task is not None:
+            await asyncio.gather(progress_task, return_exceptions=True)
 
-        for device in self._extra_devices:
-            _close_recording_input_device(device)
-        self._extra_devices = []
         self._record_grabbed_source_keys = set()
         self._recording_slot = 0
         self._start_time_us = None
@@ -279,9 +283,25 @@ class RecordingManager:
     async def _read_extra_device(
         self, device: _RecordingInputDevice, device_types: list[str]
     ) -> None:
+        # Not evdev's async_read_loop: its callback can read the fd after cancellation.
+        loop = asyncio.get_running_loop()
+        readable = asyncio.Event()
         try:
-            async for event in device.async_read_loop():
-                self.record_event(classify_event_device_type(event, device_types), event)
+            fd = device.fileno()
+            loop.add_reader(fd, readable.set)
+            try:
+                while True:
+                    await readable.wait()
+                    readable.clear()
+                    try:
+                        for event in device.read():
+                            self.record_event(
+                                classify_event_device_type(event, device_types), event
+                            )
+                    except BlockingIOError:
+                        continue
+            finally:
+                loop.remove_reader(fd)
         except OSError:
             log.debug("Extra recording device reader stopped after device error", exc_info=True)
         except Exception:
@@ -295,22 +315,18 @@ class RecordingManager:
         was_recording = not self._stopped
         self._stopped = True
         self._recording_started_at = None
-
-        for task in self._monitoring_tasks:
-            task.cancel()
-        self._monitoring_tasks = []
+        readers = self._extra_readers
+        self._extra_readers = []
 
         progress_task = self._progress_task
         self._progress_task = None
         if progress_task is not None and progress_task is not asyncio.current_task():
             progress_task.cancel()
 
-        for device in self._extra_devices:
-            _close_recording_input_device(device)
-        self._extra_devices = []
         self._record_grabbed_source_keys = set()
         recording_slot = int(self._recording_slot)
         self._recording_slot = 0
+        await _stop_extra_readers(readers)
 
         spool = self._spool
         if spool is None:
@@ -822,6 +838,28 @@ def _open_recording_input_device(path: str) -> _RecordingInputDevice:
     device = cast(object, evdev.InputDevice(path))
     set_evdev_clock_monotonic(device, device_path=path, logger=log)
     return cast(_RecordingInputDevice, device)
+
+
+async def _stop_extra_readers(readers: list[_ExtraReader]) -> None:
+    current = asyncio.current_task()
+    waiting = [task for _device, task in readers if task is not current]
+    for task in waiting:
+        task.cancel()
+    try:
+        if waiting:
+            await asyncio.wait(waiting, timeout=EXTRA_READER_STOP_TIMEOUT_S)
+    finally:
+        for device, task in readers:
+            if task.done():
+                _close_after_extra_reader(device, task)
+            else:
+                task.add_done_callback(partial(_close_after_extra_reader, device))
+
+
+def _close_after_extra_reader(device: _RecordingInputDevice, task: asyncio.Task[None]) -> None:
+    if not task.cancelled() and (error := task.exception()) is not None:
+        log.error("Extra recording device reader failed while stopping", exc_info=error)
+    _close_recording_input_device(device)
 
 
 def _close_recording_input_device(device: _RecordingInputDevice) -> None:

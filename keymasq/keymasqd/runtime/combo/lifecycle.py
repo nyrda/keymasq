@@ -28,6 +28,7 @@ async def clear_combo_runtime_unlocked(
 ) -> None:
     errors: list[Exception] = []
     manager.combo_state.progression.engine.reset()
+    manager.combo_state.action_sequences.cancel_all()
     for combo_id in list(manager.combo_state.active_actions):
         try:
             await stop_combo_action(manager, combo_id, deps=deps)
@@ -64,6 +65,10 @@ async def clear_combo_runtime_except_unlocked(
     deps: ComboRuntimeDeps,
 ) -> None:
     preserved = set(preserve_combo_ids)
+    sequences = manager.combo_state.action_sequences
+    for key in sequences.keys:
+        if _root_combo_id(key) not in preserved:
+            sequences.cancel(key)
     for combo_id in list(manager.combo_state.active_actions):
         root_combo_id = combo_id.split("#", 1)[0]
         if root_combo_id not in preserved:
@@ -115,7 +120,21 @@ async def clear_combo_runtime_for_binding_scope_unlocked(
         normalized_hardware_id,
         normalized_source,
     )
+    sequences = manager.combo_state.action_sequences
+    for combo_id in sequences.keys:
+        state = manager.combo_state.active_actions.get(combo_id)
+        if (
+            state is not None
+            and state.trigger_binding is not None
+            and binding_matches_scope(
+                state.trigger_binding,
+                normalized_hardware_id,
+                normalized_source,
+            )
+        ):
+            active_combo_ids.add(combo_id)
     for combo_id in active_combo_ids:
+        sequences.cancel(combo_id)
         await stop_combo_action(manager, combo_id, deps=deps)
 
     matching_machine_ids: list[str] = []
@@ -175,6 +194,10 @@ async def combo_timeout_watchdog(
                 refresh_combo_timeout_watchdog(manager, deps=deps)
     except deps.asyncio_mod.CancelledError:
         raise
+
+
+def _root_combo_id(sequence_key: str) -> str:
+    return sequence_key.removeprefix("combo:").split("#", 1)[0]
 
 
 def _clear_tracked_outputs(manager: ComboManager) -> None:

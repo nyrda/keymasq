@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 import evdev
@@ -23,6 +24,7 @@ from keymasq.common.model.actions import (
 from keymasq.common.model.core import ActionType, SuperkeyMode
 from keymasq.common.model.superkeys import superkey_action_shared_kwargs
 from keymasq.common.types import SyntheticInputEvent
+from keymasq.keymasqd.runtime.action.sequences import ActionSequences, runs_natural_move
 from keymasq.keymasqd.runtime.adapters import WritableUInput, identity_uinput_writer
 from keymasq.keymasqd.runtime.repeat import (
     SUPERKEY_SLOT_DOUBLE_TAP,
@@ -36,6 +38,8 @@ if TYPE_CHECKING:
     from keymasq.keymasqd.runtime.grabbed_device.types import ActionExecutionDeps
 
 log = logging.getLogger("keymasqd.superkey")
+
+_EMERGENCY_RESET_TYPES = (ActionType.EMERGENCY_RESET, ActionType.EMERGENCY_RESET.value)
 
 
 class SuperkeyState(Enum):
@@ -195,6 +199,7 @@ class SuperkeyMachine:
         repeat_path_recorder: Callable[[str], None] | None = None,
         keyboard_block_getter: Callable[[], bool] | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
+        sequences: ActionSequences | None = None,
     ) -> None:
         self.config = config
         self.event_name = event_name
@@ -215,6 +220,7 @@ class SuperkeyMachine:
         self.await_action_tasks = await_action_tasks
         self.repeat_path_recorder = repeat_path_recorder
         self._monotonic_clock = monotonic_clock
+        self.sequences = sequences
 
         self.state = SuperkeyState.IDLE
         self.source_action: MappingAction | None = None
@@ -222,6 +228,7 @@ class SuperkeyMachine:
         self._press_started_at: float | None = None
         self._hold_task: asyncio.Task[None] | None = None
         self._double_tap_task: asyncio.Task[None] | None = None
+        self._held_actions: list[tuple[int, SuperkeyActionData]] = []
         self._running = True
         from keymasq.keymasqd.runtime.action.state import ActionRuntimeContext
 
@@ -271,11 +278,10 @@ class SuperkeyMachine:
         if self._double_tap_task:
             self._double_tap_task.cancel()
             self._double_tap_task = None
+        if self.sequences is not None:
+            self.sequences.cancel(self.event_name)
 
-        if self.state == SuperkeyState.HOLDING:
-            await self._emit_hold_up()
-        elif self.state == SuperkeyState.TAP_HOLDING:
-            await self._emit_tap_hold_up()
+        await self._execute_held_actions_up()
         self._become_idle()
 
     async def on_down(self) -> None:
@@ -414,37 +420,77 @@ class SuperkeyMachine:
     async def _emit_tap(self) -> None:
         if self.config.tap_actions:
             self._record_repeat_path(SUPERKEY_SLOT_TAP)
-            await self._execute_actions_tap(self.config.tap_actions)
+            await self._run_sequence(
+                self.config.tap_actions,
+                partial(self._execute_actions_tap, self.config.tap_actions),
+            )
 
     async def _emit_double_tap(self) -> None:
         if self.config.double_tap_actions:
             self._record_repeat_path(SUPERKEY_SLOT_DOUBLE_TAP)
-            await self._execute_actions_tap(self.config.double_tap_actions)
+            await self._run_sequence(
+                self.config.double_tap_actions,
+                partial(self._execute_actions_tap, self.config.double_tap_actions),
+            )
 
     async def _emit_hold_down(self) -> None:
         if self.config.hold_actions:
             self._record_repeat_path(SUPERKEY_SLOT_HOLD)
-            await self._execute_actions_down(self.config.hold_actions)
+            await self._run_sequence(
+                self.config.hold_actions,
+                partial(self._execute_actions_down, self.config.hold_actions),
+            )
 
     async def _emit_hold_up(self) -> None:
         if self.config.hold_actions:
-            await self._execute_actions_up(self.config.hold_actions)
+            await self._run_sequence((), self._execute_held_actions_up)
 
     async def _emit_tap_hold_down(self) -> None:
         if self.config.tap_hold_actions:
             self._record_repeat_path(SUPERKEY_SLOT_TAP_HOLD)
-            await self._execute_actions_down(self.config.tap_hold_actions)
+            await self._run_sequence(
+                self.config.tap_hold_actions,
+                partial(self._execute_actions_down, self.config.tap_hold_actions),
+            )
 
     async def _emit_tap_hold_up(self) -> None:
         if self.config.tap_hold_actions:
-            await self._execute_actions_up(self.config.tap_hold_actions)
+            await self._run_sequence((), self._execute_held_actions_up)
+
+    async def _run_sequence(
+        self,
+        actions: Iterable[SuperkeyActionData],
+        execute: Callable[[], Awaitable[None]],
+    ) -> None:
+        sequences = self.sequences
+        if sequences is not None and sequences.run(
+            self.event_name,
+            lambda: self._execute_sequence_step(execute()),
+            detach=runs_natural_move(actions),
+            fire_and_observe_fn=self.action_deps.fire_and_observe_fn,
+            label=f"superkey sequence {self.event_name}",
+            owner=self.source_action,
+        ):
+            return
+        await execute()
+
+    async def _execute_sequence_step(self, step: Awaitable[None]) -> None:
+        try:
+            await step
+        except asyncio.CancelledError:
+            await self._execute_held_actions_up()
+            raise
 
     async def execute_repeat_slot(self, slot: str) -> None:
         if slot == SUPERKEY_SLOT_TAP:
-            await self._emit_tap()
+            if self.config.tap_actions:
+                self._record_repeat_path(SUPERKEY_SLOT_TAP)
+                await self._execute_actions_tap(self.config.tap_actions)
             return
         if slot == SUPERKEY_SLOT_DOUBLE_TAP:
-            await self._emit_double_tap()
+            if self.config.double_tap_actions:
+                self._record_repeat_path(SUPERKEY_SLOT_DOUBLE_TAP)
+                await self._execute_actions_tap(self.config.double_tap_actions)
             return
         if slot == SUPERKEY_SLOT_HOLD:
             if self.config.hold_actions:
@@ -461,29 +507,34 @@ class SuperkeyMachine:
             self.repeat_path_recorder(slot)
 
     async def _execute_actions_tap(self, actions: list[SuperkeyActionData]) -> None:
-        indexed_actions = list(enumerate(actions))
-        for index, action in indexed_actions:
-            await self._execute_action_down(
-                action,
-                action_event_name=self._child_event_name(action, index),
-            )
-        await asyncio.sleep(0.01)
-        for index, action in reversed(indexed_actions):
-            await self._execute_action_up(
-                action,
-                action_event_name=self._child_event_name(action, index),
-            )
+        pressed: list[tuple[int, SuperkeyActionData]] = []
+        try:
+            for index, action in enumerate(actions):
+                pressed.append((index, action))
+                await self._execute_action_down(
+                    action,
+                    action_event_name=self._child_event_name(action, index),
+                )
+            await asyncio.sleep(0.01)
+        finally:
+            for index, action in reversed(pressed):
+                await self._execute_action_up(
+                    action,
+                    action_event_name=self._child_event_name(action, index),
+                )
 
     async def _execute_actions_down(self, actions: list[SuperkeyActionData]) -> None:
         for index, action in enumerate(actions):
+            self._held_actions.append((index, action))
             await self._execute_action_down(
                 action,
                 action_event_name=self._child_event_name(action, index),
             )
 
-    async def _execute_actions_up(self, actions: list[SuperkeyActionData]) -> None:
-        indexed_actions = list(enumerate(actions))
-        for index, action in reversed(indexed_actions):
+    async def _execute_held_actions_up(self) -> None:
+        held = self._held_actions
+        self._held_actions = []
+        for index, action in reversed(held):
             await self._execute_action_up(
                 action,
                 action_event_name=self._child_event_name(action, index),
@@ -533,7 +584,8 @@ class SuperkeyMachine:
             cancel_macro_playback=self.cancel_macro_playback,
         )
         await started.wait()
-        if self.await_action_tasks:
+        # An emergency reset cancels this sequence, which must not cancel the reset.
+        if self.await_action_tasks and action.action_type not in _EMERGENCY_RESET_TYPES:
             await drain_action_tasks(handle)
 
     def _child_event_name(self, action: SuperkeyActionData, index: int) -> str:

@@ -14,7 +14,10 @@ from keymasq.keymasqd.runtime.analog.threshold_state import (
     threshold_index,
     threshold_source_key,
 )
-from keymasq.keymasqd.runtime.analog.thresholds import release_threshold_actions
+from keymasq.keymasqd.runtime.analog.thresholds import (
+    release_threshold_actions,
+    threshold_sequence_key,
+)
 from keymasq.keymasqd.runtime.grabbed_device.types import (
     ActionExecutionDeps,
     GrabbedDeviceRuntime,
@@ -62,6 +65,7 @@ async def reset_analog_controls(
             )
             if index is None or (threshold is None and actions is None):
                 continue
+            device_runtime.state.action_sequences.cancel(threshold_sequence_key(state_key, index))
             await release_threshold_actions(
                 device_runtime,
                 state_key,

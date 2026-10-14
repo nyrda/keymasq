@@ -642,8 +642,16 @@ class GrabbedDevice:
         self.reset_motion_controls()
         initialize_motion_state(self, self.mapping_getter())
         if previous_mapping is None:
+            self.state.action_sequences.cancel_all()
             await self.reset_superkeys()
         else:
+            if self.state.action_sequences.keys:
+                mapping = self.mapping_getter()
+                self.state.action_sequences.cancel_owned_by(
+                    action
+                    for button_id, action in previous_mapping.items()
+                    if mapping.get(button_id) != action
+                )
             for event_name, machine in list(self.state.superkey_machines.items()):
 
                 def forget_machine(name: str = event_name) -> None:

@@ -9,6 +9,7 @@ from typing import Any
 from keymasq.common.model.actions import MappingAction
 from keymasq.keymasqd.combo_engine import RuntimeCombo, RuntimeComboBinding
 from keymasq.keymasqd.runtime import adapters
+from keymasq.keymasqd.runtime.action.sequences import ActionSequences
 from keymasq.keymasqd.runtime.action.state import (
     ActionExecutionHandle,
     ActionRuntimeContext,
@@ -61,6 +62,7 @@ class ComboRuntimeState:
     runtime_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     timeout_task: asyncio.Task[None] | None = None
     active_actions: dict[str, ComboActionState] = field(default_factory=dict)
+    action_sequences: ActionSequences = field(default_factory=ActionSequences)
     superkey_machines: dict[str, SuperkeyMachine] = field(default_factory=dict)
     superkey_machine_bindings: dict[str, tuple[RuntimeComboBinding, ...]] = field(
         default_factory=dict

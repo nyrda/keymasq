@@ -53,6 +53,7 @@ from keymasq.keymasqd.runtime import (
     topology,
     virtual_gamepads,
 )
+from keymasq.keymasqd.runtime.action.sequences import ActionSequences
 from keymasq.keymasqd.runtime.combo import lifecycle
 from keymasq.keymasqd.runtime.grab import support
 from keymasq.keymasqd.runtime.grab.acquisition import grab_device_unlocked
@@ -480,6 +481,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                     "clearing combo runtime",
                     lambda: lifecycle.clear_combo_runtime(self, deps=combo_deps),
                 )
+                attempt_sync("cancelling action sequences", self._cancel_action_sequences)
                 await attempt("cancelling cursor movement", self.cancel_cursor_move)
 
                 for device in devices:
@@ -730,6 +732,7 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
             for device in devices:
                 device.cancel_event_loop()
             self._cancel_rollover_work()
+            self._cancel_action_sequences()
             await self.cancel_cursor_move()
             for device in devices:
                 try:
@@ -741,6 +744,15 @@ class DeviceManager(CursorManagerMixin, MacroManagerMixin, ComboManagerMixin):
                 yield
         finally:
             self._rollover_drops -= 1
+
+    def _cancel_action_sequences(self) -> None:
+        # A sequence would otherwise run its next action once its move is cancelled.
+        self.combo_state.action_sequences.cancel_all()
+        for devices in self.grabbed_devices.values():
+            for device in devices:
+                sequences = getattr(getattr(device, "state", None), "action_sequences", None)
+                if isinstance(sequences, ActionSequences):
+                    sequences.cancel_all()
 
     def _cancel_rollover_work(self) -> None:
         for devices in self.grabbed_devices.values():

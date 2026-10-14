@@ -1,5 +1,7 @@
 """Digital-threshold transition handling and child-action execution."""
 
+from functools import partial
+
 from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import (
     AnalogActionThreshold,
@@ -7,6 +9,7 @@ from keymasq.common.model.analog import (
 )
 from keymasq.common.model.core import ActionType
 from keymasq.common.types import SyntheticInputEvent
+from keymasq.keymasqd.runtime.action.sequences import runs_natural_move
 from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.analog.threshold_state import (
     DigitalThresholdStateMachine,
@@ -52,7 +55,8 @@ async def evaluate_thresholds(
                 deps=deps,
             )
             continue
-        await release_threshold_actions(
+        release = partial(
+            release_threshold_actions,
             device_runtime,
             source_id,
             transition.index,
@@ -61,6 +65,14 @@ async def evaluate_thresholds(
             event_type=int(event.type),
             event_code=int(event.code),
         )
+        if not device_runtime.state.action_sequences.run(
+            threshold_sequence_key(source_id, transition.index),
+            release,
+            detach=False,
+            fire_and_observe_fn=deps.fire_and_observe_fn,
+            label=f"analog threshold release {source_id}",
+        ):
+            await release()
         device_runtime.state.analog_active_threshold_actions.pop(
             threshold_key(source_id, transition.index),
             None,
@@ -78,51 +90,65 @@ async def activate_threshold_actions(
     deps: ActionExecutionDeps,
 ) -> None:
     synthetic = SyntheticInputEvent(int(event.type), int(event.code), 1)
-    key = threshold_key(source_id, index)
-    executable_actions: list[tuple[int, MappingAction]] = []
-    recorded_profile_action = False
-    for action_index, action in enumerate(threshold.actions):
-        if action.action_type in {
+    executable_actions = tuple(
+        (action_index, action)
+        for action_index, action in enumerate(threshold.actions)
+        if action.action_type
+        not in {
             ActionType.PASSTHROUGH,
             ActionType.SUPPRESS,
             ActionType.ANALOG_CONTROL,
-        }:
-            continue
-        executable_actions.append((action_index, action))
-        if not recorded_profile_action:
-            _record_threshold_profile_action(
+        }
+    )
+    device_runtime.state.analog_active_threshold_actions[threshold_key(source_id, index)] = (
+        executable_actions
+    )
+
+    async def execute() -> None:
+        for position, (action_index, action) in enumerate(executable_actions):
+            if position == 0:
+                _record_threshold_profile_action(
+                    device_runtime,
+                    source_profile_name,
+                    source_id,
+                )
+            child_event_name = _child_event_name(source_id, index, action_index)
+            _observe_threshold_profile_trigger(
                 device_runtime,
-                source_profile_name,
-                source_id,
+                action,
+                child_event_name,
+                active=True,
             )
-            recorded_profile_action = True
-        child_event_name = _child_event_name(source_id, index, action_index)
-        _observe_threshold_profile_trigger(
-            device_runtime,
-            action,
-            child_event_name,
-            active=True,
-        )
-        await actions.execute_action(
-            device_runtime,
-            action,
-            synthetic,
-            child_event_name,
-            deps=deps,
-            shared_output_tracker=lambda bucket, code, value: track_threshold_output(
+            await actions.execute_action(
                 device_runtime,
-                bucket,
-                code,
-                value,
-            ),
-            shared_abs_output_tracker=lambda bucket, axis_code, value: track_threshold_abs_output(
-                device_runtime,
-                bucket,
-                axis_code,
-                value,
-            ),
-        )
-    device_runtime.state.analog_active_threshold_actions[key] = tuple(executable_actions)
+                action,
+                synthetic,
+                child_event_name,
+                deps=deps,
+                shared_output_tracker=lambda bucket, code, value: track_threshold_output(
+                    device_runtime,
+                    bucket,
+                    code,
+                    value,
+                ),
+                shared_abs_output_tracker=lambda bucket, axis_code, value: (
+                    track_threshold_abs_output(
+                        device_runtime,
+                        bucket,
+                        axis_code,
+                        value,
+                    )
+                ),
+            )
+
+    if not device_runtime.state.action_sequences.run(
+        threshold_sequence_key(source_id, index),
+        execute,
+        detach=runs_natural_move(action for _, action in executable_actions),
+        fire_and_observe_fn=deps.fire_and_observe_fn,
+        label=f"analog threshold actions {source_id}",
+    ):
+        await execute()
 
 
 async def release_threshold_actions(
@@ -245,6 +271,10 @@ def track_threshold_abs_output(
         pressed_value=None,
         release_value=release_value,
     )
+
+
+def threshold_sequence_key(source_id: str, threshold_index: int) -> str:
+    return f"{source_id}#analog_threshold#{threshold_index}"
 
 
 def _child_event_name(source_id: str, threshold_index: int, action_index: int) -> str:

@@ -1,14 +1,14 @@
 """Read without python-evdev's private batch buffer, so recovery can drain input."""
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 from keymasq.keymasqd.input_sources.evdev_adapter import NativeInputDevice
 from keymasq.keymasqd.runtime.grabbed_device.grab import reconcile_live_key_state
 from keymasq.keymasqd.runtime.grabbed_device.types import GrabbedDeviceRuntime, InputEventLike
 
 
-async def read_events(runtime: GrabbedDeviceRuntime) -> AsyncIterator[InputEventLike]:
+async def read_events(runtime: GrabbedDeviceRuntime) -> AsyncGenerator[InputEventLike]:
     device = runtime.device
     if device is None:
         return

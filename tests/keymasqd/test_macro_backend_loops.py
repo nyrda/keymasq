@@ -80,8 +80,7 @@ async def test_recording_manager_start_rolls_back_resources_when_broadcast_fails
 
     assert recorder.is_recording is False
     assert recorder._spool is None
-    assert recorder._extra_devices == []
-    assert recorder._monitoring_tasks == []
+    assert recorder._extra_readers == []
     assert recorder._progress_task is None
     assert recorder._record_grabbed_source_keys == set()
     device.close.assert_called_once()
@@ -118,7 +117,7 @@ async def test_recording_manager_closes_device_opened_after_start_cancellation(
 
     device.close.assert_called_once()
     assert recorder.is_recording is False
-    assert recorder._extra_devices == []
+    assert recorder._extra_readers == []
 
 
 @pytest.mark.asyncio
@@ -161,7 +160,7 @@ async def test_recording_manager_start_defers_repeated_cancellation_during_rollb
 
     assert recorder.is_recording is False
     assert recorder._spool is None
-    assert recorder._extra_devices == []
+    assert recorder._extra_readers == []
     device.close.assert_called_once()
 
 

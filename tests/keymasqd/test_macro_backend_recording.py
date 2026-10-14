@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -108,7 +109,7 @@ async def test_recording_abort_discards_active_spool_without_stop_event(tmp_path
     assert recorder.is_recording is False
     assert recorder._spool is None
     assert recorder._progress_task is None
-    assert recorder._monitoring_tasks == []
+    assert recorder._extra_readers == []
     assert list(tmp_path.glob("recording-*.jsonl")) == []
     broadcast.assert_not_awaited()
 
@@ -447,13 +448,18 @@ async def test_recording_ignores_start_stop_mapping_buttons() -> None:
 
 
 class _QuietInputDevice:
-    def close(self) -> None:
-        pass
+    def __init__(self) -> None:
+        self._read_fd, self._write_fd = os.pipe()
 
-    async def async_read_loop(self):
-        while True:
-            await asyncio.sleep(60)
-            yield evdev.InputEvent(1, 1, evdev.ecodes.EV_SYN, 0, 0)
+    def fileno(self) -> int:
+        return self._read_fd
+
+    def read(self) -> Iterator[evdev.InputEvent]:
+        return iter(())
+
+    def close(self) -> None:
+        os.close(self._read_fd)
+        os.close(self._write_fd)
 
 
 @pytest.mark.asyncio

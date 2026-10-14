@@ -1,7 +1,10 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION_SCRIPT = REPOSITORY_ROOT / "scripts" / "integration.sh"
@@ -75,9 +78,17 @@ def test_all_integration_checks_are_rebuilt_without_streaming_build_logs(
     assert all("--print-build-logs" not in call for call in calls)
 
 
-def test_missing_rebuild_output_falls_back_to_a_fresh_quiet_build(tmp_path: Path) -> None:
+@pytest.mark.parametrize("slow_log", [False, True])
+def test_missing_rebuild_output_falls_back_to_a_fresh_quiet_build(
+    tmp_path: Path, slow_log: bool
+) -> None:
     env, log_path = _fake_nix(tmp_path)
     env["KEYMASQ_TEST_REBUILD_MISSING"] = "1"
+    if slow_log:
+        real_tee = shutil.which("tee", path=env["PATH"])
+        slow_tee = tmp_path / "bin" / "tee"
+        slow_tee.write_text(f'#!/usr/bin/env bash\nsleep 0.3\nexec "{real_tee}" "$@"\n')
+        slow_tee.chmod(0o755)
 
     result = subprocess.run(
         ["bash", str(INTEGRATION_SCRIPT), "cosmic"],

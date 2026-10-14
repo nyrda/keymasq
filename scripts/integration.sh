@@ -167,11 +167,14 @@ run_check() {
   local status
 
   log_file="$(mktemp)"
+  exec 3>&1
   set +e
+  # A pipeline, unlike a process substitution, finishes writing the log before the grep below.
   nix build --no-link --rebuild \
-    "${nix_args[@]}" "$target" 2> >(tee "$log_file" >&2)
-  status=$?
+    "${nix_args[@]}" "$target" 2>&1 1>&3 3>&- | tee "$log_file" >&2
+  status=${PIPESTATUS[0]}
   set -e
+  exec 3>&-
 
   if [[ "$status" -eq 0 ]]; then
     rm -f "$log_file"

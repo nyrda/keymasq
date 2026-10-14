@@ -6,6 +6,7 @@ the event-loop recovery boundary.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 from typing import cast
@@ -138,24 +139,26 @@ async def event_loop(
         if device_runtime.analog_axis_bindings or controller_route(device_runtime) is not None:
             # Establish unchanged coordinates before consuming any historical report.
             await read_missing_source_axes(device_runtime, deps=deps.action_deps)
-        async for event in read_events(device_runtime):
-            if not device_runtime.running:
-                break
-            try:
-                if device_runtime.capture_stream.feed(event):
-                    continue
-                await process_event(device_runtime, event, deps=deps)
-                error_backoff = 0.01
-            except Exception:
-                if device_runtime.running:
-                    await recover_from_event_processing_error(device_runtime)
-                    log.exception(
-                        "Event processing error on %s (backoff %.3fs)",
-                        device_runtime.path,
-                        error_backoff,
-                    )
-                    await asyncio_mod.sleep(error_backoff)
-                    error_backoff = min(0.5, error_backoff * 2)
+        # Close the reader before the task ends so release never closes a still-registered fd.
+        async with contextlib.aclosing(read_events(device_runtime)) as events:
+            async for event in events:
+                if not device_runtime.running:
+                    break
+                try:
+                    if device_runtime.capture_stream.feed(event):
+                        continue
+                    await process_event(device_runtime, event, deps=deps)
+                    error_backoff = 0.01
+                except Exception:
+                    if device_runtime.running:
+                        await recover_from_event_processing_error(device_runtime)
+                        log.exception(
+                            "Event processing error on %s (backoff %.3fs)",
+                            device_runtime.path,
+                            error_backoff,
+                        )
+                        await asyncio_mod.sleep(error_backoff)
+                        error_backoff = min(0.5, error_backoff * 2)
     except asyncio.CancelledError:
         pass
     except OSError as exc:

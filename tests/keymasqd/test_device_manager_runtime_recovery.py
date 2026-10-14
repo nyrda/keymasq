@@ -1,6 +1,7 @@
 import asyncio
 import errno
 import logging
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -275,6 +276,52 @@ class TestEventLoopRecovery:
         await device.release()
 
         assert device.task is None
+
+    @pytest.mark.asyncio
+    async def test_release_closes_device_after_reader_unregisters_while_processing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        device = make_grabbed_device(monkeypatch, running=True)
+        read_fd, write_fd = os.pipe()
+        os.set_blocking(read_fd, False)
+        loop = asyncio.get_running_loop()
+        registered_at_close: list[bool] = []
+        processing = asyncio.Event()
+
+        def read_one() -> evdev.InputEvent | None:
+            try:
+                os.read(read_fd, 1)
+            except BlockingIOError:
+                return None
+            return evdev.InputEvent(0, 0, evdev.ecodes.EV_KEY, evdev.ecodes.KEY_A, 1)
+
+        async def blocked_process_event(*_args, **_kwargs) -> None:
+            processing.set()
+            await asyncio.Event().wait()
+
+        device.device = SimpleNamespace(  # type: ignore[assignment]
+            fileno=lambda: read_fd,
+            read_one=read_one,
+            ungrab=lambda: None,
+            close=lambda: registered_at_close.append(loop.remove_reader(read_fd)),
+        )
+        monkeypatch.setattr(pipeline, "process_event", blocked_process_event)
+        device.task = asyncio.create_task(
+            pipeline.event_loop(
+                device, asyncio_mod=adapters.ASYNCIO_RUNTIME, log=grabbed_device.log
+            )
+        )
+        try:
+            os.write(write_fd, b"x")
+            await asyncio.wait_for(processing.wait(), timeout=1.0)
+            await device.release()
+        finally:
+            loop.remove_reader(read_fd)
+            os.close(read_fd)
+            os.close(write_fd)
+
+        assert registered_at_close == [False]
 
 
 class TestRuntimeFailureCleanup:

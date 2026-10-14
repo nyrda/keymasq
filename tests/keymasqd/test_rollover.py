@@ -12,6 +12,7 @@ from keymasq.common.model.core import ActionType, DeviceType, SuperkeyMode
 from keymasq.common.model.profiles import RolloverGroup, RolloverMember, RolloverWinner
 from keymasq.common.model.superkeys import SuperkeyConfig
 from keymasq.common.virtual_device_templates import VirtualDeviceConfig, resolve_virtual_devices
+from keymasq.keymasqd import device_manager
 from keymasq.keymasqd.device_manager import DeviceManager
 from keymasq.keymasqd.runtime import adapters
 from keymasq.keymasqd.runtime.default_controller_route import DefaultControllerRoute
@@ -1326,15 +1327,30 @@ async def test_emergency_reset_stops_a_reader_in_the_middle_of_a_member_event(mo
 @pytest.mark.asyncio
 async def test_a_group_update_during_a_full_release_waits_for_the_devices(monkeypatch) -> None:
     rig = await cursor_member_setup(monkeypatch, {"btn_side": key("key_x")})
+    releasing = asyncio.Event()
+    resume = asyncio.Event()
+    release_devices = device_manager.release_all_devices
+
+    async def paused_release(*args: object, **kwargs: object) -> None:
+        releasing.set()
+        await resume.wait()
+        await release_devices(*args, **kwargs)
+
+    monkeypatch.setattr(device_manager, "release_all_devices", paused_release)
     reset = asyncio.create_task(rig.manager.emergency_reset())
-    while rig.manager.rollover is not None:
-        await asyncio.sleep(0)
+    await asyncio.wait_for(releasing.wait(), timeout=1)
+
+    update = asyncio.create_task(rig.manager.set_rollover_groups([rig.aim]))
+    await asyncio.sleep(0)
+
+    assert not update.done()
+    assert rig.manager.rollover is None
     assert rig.manager.grabbed_devices
-
-    await rig.manager.set_rollover_groups([rig.aim])
-
+    resume.set()
+    await asyncio.wait_for(reset, timeout=1)
+    await asyncio.wait_for(update, timeout=1)
     assert rig.manager.grabbed_devices == {}
-    await reset
+    assert key_writes(rig.keys) == []
 
 
 @pytest.mark.asyncio

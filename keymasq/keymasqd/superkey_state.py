@@ -517,6 +517,8 @@ class SuperkeyMachine:
                     action,
                     action_event_name=self._child_event_name(action, index),
                 )
+                if action.action_type in _EMERGENCY_RESET_TYPES:
+                    break
             await asyncio.sleep(0.01)
         finally:
             for index, action in reversed(pressed):
@@ -532,6 +534,8 @@ class SuperkeyMachine:
                 action,
                 action_event_name=self._child_event_name(action, index),
             )
+            if action.action_type in _EMERGENCY_RESET_TYPES:
+                break
 
     async def _execute_held_actions_up(self) -> None:
         while self._held_actions:
@@ -585,7 +589,8 @@ class SuperkeyMachine:
             cancel_macro_playback=self.cancel_macro_playback,
         )
         await started.wait()
-        # An emergency reset cancels this sequence, which must not cancel the reset.
+        # An emergency reset cancels this sequence, which must not cancel the reset;
+        # the list stops after it instead of waiting.
         if self.await_action_tasks and action.action_type not in _EMERGENCY_RESET_TYPES:
             await drain_action_tasks(handle)
 

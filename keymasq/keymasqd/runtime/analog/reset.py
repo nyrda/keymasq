@@ -81,6 +81,25 @@ async def reset_analog_controls(
                 active_actions=actions,
             )
 
+    for key, actions in list(device_runtime.state.analog_active_threshold_actions.items()):
+        state_key = threshold_source_key(key)
+        index = threshold_index(key)
+        if (
+            index is None
+            or key in device_runtime.state.analog_active_thresholds.get(state_key, ())
+            or not _should_reset_state_key(state_key, preserved, state_key_prefix)
+        ):
+            continue
+        # Released, but the release still waits behind the threshold's actions.
+        await release_threshold_actions(
+            device_runtime,
+            state_key,
+            index,
+            None,
+            deps=deps,
+            active_actions=actions,
+        )
+
     for state_key, (source_id, config) in state_configs.items():
         if not _should_reset_state_key(state_key, preserved, state_key_prefix):
             continue

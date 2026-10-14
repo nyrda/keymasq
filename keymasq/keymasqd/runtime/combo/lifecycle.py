@@ -83,7 +83,7 @@ async def clear_combo_runtime_except_unlocked(
 
     active_output_roots = {
         combo_id.split("#", 1)[0] for combo_id in manager.combo_state.active_actions
-    }
+    } | {_root_combo_id(key) for key in sequences.keys}
     if not any(root in preserved for root in active_output_roots):
         _clear_tracked_outputs(manager)
 

@@ -733,3 +733,64 @@ async def test_clearing_combos_releases_a_held_combo_overload_without_its_releas
     assert rig.key_values(KEY_X) == [1, 0]
     assert not await rig.moving()
     assert rig.rel_writes() == []
+
+
+@pytest.mark.asyncio
+async def test_remapping_an_analog_control_releases_a_threshold_whose_release_waits_on_a_move(
+    monkeypatch,
+) -> None:
+    rig = await cursor_rig(
+        monkeypatch,
+        {"trigger": threshold(key("key_x"), SLOW_MOVE)},
+        analog_inputs=TRIGGER_AXIS,
+    )
+    rig.feed(AXIS_PRESSED)
+    await wait_until(lambda: bool(rig.rel_writes()))
+    rig.feed(AXIS_RELEASED)
+    await asyncio.sleep(0.05)
+    assert rig.key_values(KEY_X) == [1]
+
+    await rig.manager.set_mapping(KEYBOARD, {})
+
+    assert not await rig.moving()
+    assert rig.key_values(KEY_X) == [1, 0]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_combo_refresh_keeps_the_output_of_a_tap_waiting_on_a_move(
+    monkeypatch,
+) -> None:
+    combos = combo_superkey(
+        {
+            "mode": "pattern",
+            "tap_actions": [{"action": "keyboard", "target": "key_x"}, move_data(1_000_000)],
+        }
+    )
+    rig = await cursor_rig(monkeypatch, {}, combos)
+    rig.feed(*COMBO_TAP)
+    await wait_until(lambda: rig.key_values(KEY_X) == [1] and bool(rig.rel_writes()))
+
+    await rig.manager.set_combos(combos)
+    await rig.manager.cancel_cursor_move()
+
+    await wait_until(lambda: rig.key_values(KEY_X) == [1, 0])
+
+
+@pytest.mark.asyncio
+async def test_a_superkey_list_stops_at_its_emergency_reset(monkeypatch) -> None:
+    rig = await cursor_rig(
+        monkeypatch,
+        {
+            "key_a": pattern(
+                tap=[
+                    SuperkeyActionData(action_type=ActionType.EMERGENCY_RESET.value),
+                    superkey_key("key_x"),
+                ]
+            )
+        },
+    )
+    rig.feed(*TAP)
+    await wait_until(lambda: rig.manager.grabbed_devices == {})
+    await asyncio.sleep(0.05)
+
+    assert rig.key_values(KEY_X) == []

@@ -56,7 +56,7 @@ async def evaluate_thresholds(
             )
             continue
         release = partial(
-            release_threshold_actions,
+            _release_threshold,
             device_runtime,
             source_id,
             transition.index,
@@ -73,10 +73,28 @@ async def evaluate_thresholds(
             label=f"analog threshold release {source_id}",
         ):
             await release()
-        device_runtime.state.analog_active_threshold_actions.pop(
-            threshold_key(source_id, transition.index),
-            None,
-        )
+
+
+async def _release_threshold(
+    device_runtime: GrabbedDeviceRuntime,
+    source_id: str,
+    index: int,
+    threshold: AnalogActionThreshold,
+    *,
+    deps: ActionExecutionDeps,
+    event_type: int,
+    event_code: int,
+) -> None:
+    await release_threshold_actions(
+        device_runtime,
+        source_id,
+        index,
+        threshold,
+        deps=deps,
+        event_type=event_type,
+        event_code=event_code,
+    )
+    device_runtime.state.analog_active_threshold_actions.pop(threshold_key(source_id, index), None)
 
 
 async def activate_threshold_actions(
@@ -102,12 +120,10 @@ async def activate_threshold_actions(
     )
     key = threshold_key(source_id, index)
     active_actions = device_runtime.state.analog_active_threshold_actions
-    active_actions[key] = ()
 
     async def execute() -> None:
         for position, (action_index, action) in enumerate(executable_actions):
-            if active_actions.get(key) is not None:
-                active_actions[key] = executable_actions[: position + 1]
+            active_actions[key] = executable_actions[: position + 1]
             if position == 0:
                 _record_threshold_profile_action(
                     device_runtime,

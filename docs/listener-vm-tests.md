@@ -208,7 +208,7 @@ attempts) handles VM timing variance where the compositor may need extra time to
 register the new uinput mouse or where the temporary layer surfaces are not ready
 before the synthetic cursor sample nudge runs.
 
-**Software renderer patch.** Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `listener-vm-matrix.nix`) that disables this check. `niriExpectedVersion` pins the niri version. A Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. See the `niriPatched` comments in `listener-vm-matrix.nix` for the update procedure.
+**Software renderer patch.** Niri (Smithay) rejects software EGL renderers (`llvmpipe`) in `src/backend/tty.rs`, which prevents it from creating any `wl_output` in a VM without a real GPU. The test uses a patched niri (`niriPatched` in `nix/compositor-vm-lib.nix`) that disables this check. `niriExpectedVersion` pins the niri version. A Nix assertion fails evaluation if nixpkgs ships a different version, and a build-time grep guard fails the build if the patch target moves. When nixpkgs updates niri, check that the new `tty.rs` still has the `!egl_device.is_software()` check, adjust the `sed` expression if it moved, and bump `niriExpectedVersion`.
 
 ### COSMIC
 

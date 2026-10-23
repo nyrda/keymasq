@@ -531,7 +531,8 @@ and filter the corresponding saved-action list immediately.
 
 Use **Open Super Keys…** to create or edit reusable super keys. Right-click a
 saved super key in the selector to open the Super Keys dialog with that super
-key selected.
+key selected. On the device tab, right-click the action of a super key mapping
+to open the same dialog with its super key selected.
 
 Super keys have two modes:
 
@@ -548,7 +549,8 @@ Trigger temporary macro recording slots, play temporary slots, cancel macro
 playback, or play a saved macro.
 
 Right-click a saved macro in the selector's Macro Library to open it in the
-macro editor.
+macro editor. On the device tab, right-click the action of a macro mapping to
+open its macro in the macro editor.
 
 ### Macro controls
 

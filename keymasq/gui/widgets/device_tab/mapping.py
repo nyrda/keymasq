@@ -23,6 +23,7 @@ from keymasq.gui.widgets.device_tab.grid import (
     mapping_action_summary_chars,
 )
 from keymasq.session.profile.types import ProfileInfo
+from keymasq.session.superkeys import SuperkeyManager
 
 
 class MappingMixin:
@@ -168,6 +169,10 @@ class MappingMixin:
             return
         layer = self._selected_layer()
         mapping = layer.mappings.get(button.id) if layer else None
+        if mapping and mapping.action_type == ActionType.SUPERKEY and mapping.superkey_name:
+            click.set_state(Gtk.EventSequenceState.CLAIMED)
+            self._open_mapped_superkey(mapping.superkey_name, button)
+            return
         if not mapping or mapping.action_type != ActionType.MACRO or not mapping.macro_name:
             return
         macro_name = mapping.macro_name
@@ -196,6 +201,24 @@ class MappingMixin:
         dialog = get_macro_editor(self.get_root(), macro_name)
         dialog.present(self.get_root())
         return False
+
+    def _open_mapped_superkey(self: Any, name: str, button: ButtonDefinition) -> None:
+        from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+
+        manager = SuperkeyManager()
+        if name not in manager.list_superkeys():
+            self._show_function_editor(button)
+            return
+        root = self.get_root()
+        dialog = SuperkeyDialog(root, self.profile_manager, manager=manager)
+        dialog.connect("superkey-saved", self._on_superkey_manager_changed)
+        dialog.connect("superkey-deleted", self._on_superkey_manager_changed)
+        dialog.present(root)
+        dialog.select_superkey_by_name(name)
+
+    def _on_superkey_manager_changed(self: Any, _dialog: object, _name: str) -> None:
+        self._notify_session_reload_async()
+        self._reload_ui()
 
     def _show_protected_remap_warning_dialog(
         self: Any,

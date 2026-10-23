@@ -993,6 +993,82 @@ def test_motion_mapping_right_click_opens_attached_control(temp_config_dir, monk
     assert opened == ["Right Stick"]
 
 
+def _superkey_mapped_mouse_tab(superkey_name: str):
+    from keymasq.common.model.actions import MappingAction
+    from keymasq.common.model.core import ActionType, DeviceType
+    from keymasq.common.model.hardware import ButtonDefinition, EvdevDevice, HardwareConfig
+    from keymasq.common.model.profiles import DeviceProfileLayer, ProfileConfig
+    from keymasq.gui.widgets.device_tab.tab import DeviceTab
+    from keymasq.session.profile.manager import ProfileManager
+
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(
+        ProfileConfig(
+            name="Daily",
+            enabled=True,
+            is_permanent=True,
+            device_layers={
+                "1532:0099": DeviceProfileLayer(
+                    hardware_id="1532:0099",
+                    mappings={
+                        "side": MappingAction(
+                            action_type=ActionType.SUPERKEY,
+                            superkey_name=superkey_name,
+                        )
+                    },
+                )
+            },
+        )
+    )
+    button = ButtonDefinition(id="side", label="Side", evdev="btn_side")
+    device = HardwareConfig(
+        vendor_id="1532",
+        product_id="0099",
+        name="Razer Mouse",
+        evdev_devices=[
+            EvdevDevice(path="/dev/input/event0", device_type=DeviceType.MOUSE, id="mouse")
+        ],
+        buttons=[button],
+    )
+    tab = DeviceTab(device=device, profile_manager=profile_manager, demo_mode=True)
+    tab.refresh_profiles(preferred_profile_name="Daily")
+    return tab, button
+
+
+def test_superkey_mapping_right_click_opens_superkey_editor(temp_config_dir, monkeypatch):
+    from gi.repository import Gtk
+
+    from keymasq.common.model.superkeys import SuperkeyConfig
+    from keymasq.gui.widgets.managed_editor.state import EditorSelection
+    from keymasq.gui.widgets.superkey_editor.dialog import SuperkeyDialog
+    from keymasq.session.superkeys import SuperkeyManager
+
+    SuperkeyManager().save_superkey(SuperkeyConfig(name="Other"))
+    SuperkeyManager().save_superkey(SuperkeyConfig(name="Voxmasq"))
+    tab, button = _superkey_mapped_mouse_tab("Voxmasq")
+    presented: list[SuperkeyDialog] = []
+    monkeypatch.setattr(SuperkeyDialog, "present", lambda dialog, _root: presented.append(dialog))
+
+    tab._on_action_label_right_clicked(Gtk.GestureClick(), 1, 0.0, 0.0, button)
+
+    assert len(presented) == 1
+    assert presented[0].state.active_selection == EditorSelection.saved_item("Voxmasq")
+
+
+def test_superkey_mapping_right_click_falls_back_when_superkey_missing(
+    temp_config_dir, monkeypatch
+):
+    from gi.repository import Gtk
+
+    tab, button = _superkey_mapped_mouse_tab("Deleted")
+    opened: list[str] = []
+    monkeypatch.setattr(tab, "_show_function_editor", lambda target: opened.append(target.id))
+
+    tab._on_action_label_right_clicked(Gtk.GestureClick(), 1, 0.0, 0.0, button)
+
+    assert opened == ["side"]
+
+
 def test_device_tab_renders_analog_controls_for_keyboard_layout(temp_config_dir):
     from keymasq.common.model.hardware import (
         AnalogAxisDefinition,

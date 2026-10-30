@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.21.1 - 2026-10-30
+
+### Added
+
+- Right-clicking a super key mapping on the device tab now opens the Super
+  Keys dialog with that super key selected, as macro mappings already open the
+  macro editor.
+
+### Packaging
+
+- Added Fedora 45 packages through COPR and the project RPM repository.
+
 ## 0.21.0 - 2026-10-14
 
 ### Added

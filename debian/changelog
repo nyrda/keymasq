@@ -1,3 +1,10 @@
+keymasq (0.21.1-1) unstable; urgency=medium
+
+  * Open the mapped super key when right-clicking a super key mapping on
+    the device tab.
+
+ -- nyrda <nyrda@keymasq.tools>  Fri, 30 Oct 2026 00:00:00 +0000
+
 keymasq (0.21.0-1) unstable; urgency=medium
 
   * Add rollover groups, per-profile pointer movement for mice, and Steam

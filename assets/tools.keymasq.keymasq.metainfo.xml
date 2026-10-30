@@ -39,6 +39,11 @@
   </keywords>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.21.1" date="2026-10-30">
+      <description>
+        <p>Right-clicking a super key mapping opens that super key in the Super Keys dialog, and Fedora 45 packages are now available.</p>
+      </description>
+    </release>
     <release version="0.21.0" date="2026-10-14">
       <description>
         <p>Adds rollover groups, pointer movement for mice, Steam Deck stick and trackpad touch inputs, hardware masking from the CLI, a macro option that blocks the physical keyboard, and Sway compositor actions.</p>

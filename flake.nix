@@ -111,7 +111,7 @@
         in
         runtimePythonPackages.buildPythonPackage {
           pname = "keymasq";
-          version = "0.21.0";
+          version = "0.21.1";
           pyproject = true;
 
           src = mkCleanSrc pkgs;

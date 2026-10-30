@@ -577,7 +577,7 @@ The RPM build flow now splits by distro:
    Python `site-packages` path, and runs its own rpmbuild wrapper
 
 `scripts/build-packages.sh` builds from the current working tree. It emits
-Fedora RPMs per Fedora release, for example `fc43` and `fc44`, rather than as a
+Fedora RPMs per Fedora release, for example `fc44` and `fc45`, rather than as a
 single generic Fedora artifact. The Fedora package itself is
 architecture-independent and builds as `noarch`. The target Fedora architecture
 still resolves runtime dependencies.
@@ -587,6 +587,7 @@ RPM repositories:
 
 - `https://repo.keymasq.tools/fedora/43`
 - `https://repo.keymasq.tools/fedora/44`
+- `https://repo.keymasq.tools/fedora/45`
 
 Fedora and Fedora-based Atomic desktops should configure the repository with
 `$releasever` in the base URL so DNF or `rpm-ostree` only sees the RPM built

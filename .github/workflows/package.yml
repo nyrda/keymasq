@@ -444,7 +444,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fedora_release: [43, 44]
+        fedora_release: [43, 44, 45]
 
     steps:
       - name: Checkout
@@ -649,6 +649,12 @@ jobs:
             container_image: fedora:44
             distro: fedora
             package_glob: dist/rpm/keymasq-*fc44*.rpm
+          - display_name: Fedora 45
+            artifact_name: rpm-fedora-fc45-package
+            local_artifact_glob: dist/*fc45*.rpm
+            container_image: fedora:45
+            distro: fedora
+            package_glob: dist/rpm/keymasq-*fc45*.rpm
           - display_name: openSUSE
             artifact_name: rpm-opensuse-package
             local_artifact_glob: dist/*.opensuse.*.rpm

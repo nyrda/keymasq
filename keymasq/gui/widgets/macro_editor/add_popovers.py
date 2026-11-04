@@ -19,6 +19,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _apply_mapping_action_to_move,
     _control_to_compositor_action,
     _move_to_mapping_action,
+    is_standard_gamepad_hat,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
     field_row,
@@ -417,6 +418,22 @@ class MacroEditorAddPopoversMixin:
             )
         ev.apply_rapidfire(action)
         self._events.append(ev)
+        if (
+            ev.ev_type == evdev.ecodes.EV_ABS
+            and ev.value != 0
+            and is_standard_gamepad_hat(ev.code, ev.output_id)
+        ):
+            self._events.append(
+                EditableEvent(
+                    device_type="gamepad",
+                    ev_type=evdev.ecodes.EV_ABS,
+                    code=ev.code,
+                    press_t_us=t_us + 50000,
+                    release_t_us=t_us + 50001,
+                    value=0,
+                    output_id=ev.output_id,
+                )
+            )
         self._events.sort(key=lambda item: item.press_t_us)
         self._timeline._selected = ev
         self._revealer.set_reveal_child(True)

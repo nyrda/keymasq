@@ -542,9 +542,9 @@ number buttons by evdev code, so any extra button would shift Select, Start,
 Guide, or the stick clicks. X is `BTN_X` (`BTN_NORTH`) and Y is `BTN_Y`
 (`BTN_WEST`), as `xpad` reports them. The triggers are only the `ABS_Z` and
 `ABS_RZ` axes. The D-pad is only the `ABS_HAT0X` and `ABS_HAT0Y` hat, and the
-gamepad picker maps D-pad directions to hat values of -1 or 1. Mappings saved
-with `btn_tl2`, `btn_tr2`, or `btn_dpad_*` targets on a standard virtual
-gamepad produce no output.
+gamepad picker maps D-pad directions to hat values of -1 or 1. Mappings and
+macro steps saved with `btn_tl2`, `btn_tr2`, or `btn_dpad_*` targets on a
+standard virtual gamepad produce no output.
 
 ### Template-backed virtual devices
 

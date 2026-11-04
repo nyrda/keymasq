@@ -21,6 +21,7 @@ from keymasq.common.model.actions import (
     normalize_natural_mouse_move_curve,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 
 # ---------------------------------------------------------------------------
@@ -89,6 +90,13 @@ def _passthrough_track(ev: MacroEvent) -> str:
     if ev_type == evdev.ecodes.EV_ABS and device_type == "gamepad":
         return "gamepad"
     return "movement"
+
+
+def is_standard_gamepad_hat(code: int, output_id: str | None) -> bool:
+    """Named outputs define their own hat ranges and rest values."""
+    return code in {evdev.ecodes.ABS_HAT0X, evdev.ecodes.ABS_HAT0Y} and (
+        not output_id or is_virtual_gamepad_output_id(output_id)
+    )
 
 
 def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:

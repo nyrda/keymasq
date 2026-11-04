@@ -22,6 +22,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _describe_passthrough_event,
     _get_event_name,
     _get_key_name,
+    is_standard_gamepad_hat,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
     field_row,
@@ -385,16 +386,17 @@ class EventPropertiesMixin:
             self._move_x_row.set_title("Value")
             self._move_x_row.set_visible(True)
             self._move_y_row.set_visible(False)
-            if axis_range is None:
-                self._move_x_spin.set_range(-32768, 32767)
-            else:
-                self._move_x_spin.set_range(
-                    axis_range.minimum,
-                    axis_range.maximum,
-                )
-
             self._updating_props = True
             try:
+                if is_standard_gamepad_hat(ev.code, ev.output_id):
+                    self._move_x_spin.set_range(-1, 1)
+                elif axis_range is None:
+                    self._move_x_spin.set_range(-32768, 32767)
+                else:
+                    self._move_x_spin.set_range(
+                        axis_range.minimum,
+                        axis_range.maximum,
+                    )
                 self._press_spin.set_value(ev.press_t_us / 1000)
                 self._move_x_spin.set_value(ev.value)
             finally:

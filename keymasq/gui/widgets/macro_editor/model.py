@@ -156,6 +156,25 @@ class EditableEvent:
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(action.rapidfire_wait_ms)
 
 
+def standard_hat_return_event(ev: EditableEvent, t_us: int) -> EditableEvent | None:
+    """Return the event that ends a standard D-pad direction, if `ev` is one."""
+    if (
+        ev.ev_type != evdev.ecodes.EV_ABS
+        or ev.value == 0
+        or not is_standard_gamepad_hat(ev.code, ev.output_id)
+    ):
+        return None
+    return EditableEvent(
+        device_type="gamepad",
+        ev_type=evdev.ecodes.EV_ABS,
+        code=ev.code,
+        press_t_us=t_us,
+        release_t_us=t_us + 1,
+        value=0,
+        output_id=ev.output_id,
+    )
+
+
 @dataclass
 class EditableMove:
     mode: str  # "rel", "abs", or "natural"

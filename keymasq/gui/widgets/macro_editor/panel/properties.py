@@ -23,6 +23,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _get_event_name,
     _get_key_name,
     is_standard_gamepad_hat,
+    standard_hat_return_event,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
     field_row,
@@ -649,6 +650,7 @@ class EventPropertiesMixin:
             return
         assert isinstance(ev, EditableEvent)
 
+        previous_key_release_t_us = ev.release_t_us if ev.ev_type == evdev.ecodes.EV_KEY else None
         target = getattr(action, "target", None)
         if action.action_type == ActionType.KEYBOARD and target:
             code = getattr(evdev.ecodes, target.upper(), None)
@@ -689,6 +691,11 @@ class EventPropertiesMixin:
         if ev.ev_type == evdev.ecodes.EV_KEY and ev.release_t_us <= ev.press_t_us + 1:
             ev.release_t_us = ev.press_t_us + 50000
         ev.apply_rapidfire(action)
+        if previous_key_release_t_us is not None:
+            hat_return = standard_hat_return_event(ev, previous_key_release_t_us)
+            if hat_return is not None:
+                self._events.append(hat_return)
+                self._events.sort(key=lambda item: item.press_t_us)
         self._on_selection_changed(ev)
         self._timeline.queue_draw()
         self._sync_close_guard()

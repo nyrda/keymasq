@@ -1908,6 +1908,28 @@ def test_macro_editor_inserts_standard_hat_direction_as_a_tap(monkeypatch, outpu
     assert dialog._move_x_spin.get_range() == (-1, 1)
 
 
+def test_macro_editor_changing_button_to_hat_direction_keeps_its_duration(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    button = EditableEvent(
+        "gamepad", evdev.ecodes.EV_KEY, evdev.ecodes.BTN_DPAD_UP, 100_000, 400_000
+    )
+    dialog._events = [button]
+    dialog._duration_us = 500_000
+    dialog._timeline._selected = button
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS, target="abs_hat0y", axis_value=-1
+    )
+
+    dialog._on_key_selected_for_edit(Gtk.Box(), action)
+    dialog._on_key_selected_for_edit(Gtk.Box(), action)
+
+    assert [(e.ev_type, e.code, e.value, e.press_t_us) for e in dialog._events] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0Y, -1, 100_000),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0Y, 0, 400_000),
+    ]
+    assert dialog._timeline._selected is button
+
+
 def test_macro_editor_selecting_hat_after_stick_keeps_its_value(monkeypatch) -> None:
     dialog = _build_macro_dialog(monkeypatch)
     stick = EditableEvent("gamepad", evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0, 1, value=1000)

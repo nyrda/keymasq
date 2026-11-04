@@ -22,6 +22,8 @@ from keymasq.gui.widgets.macro_editor.model import (
     _describe_passthrough_event,
     _get_event_name,
     _get_key_name,
+    is_standard_gamepad_hat,
+    standard_hat_return_event,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
     field_row,
@@ -385,16 +387,17 @@ class EventPropertiesMixin:
             self._move_x_row.set_title("Value")
             self._move_x_row.set_visible(True)
             self._move_y_row.set_visible(False)
-            if axis_range is None:
-                self._move_x_spin.set_range(-32768, 32767)
-            else:
-                self._move_x_spin.set_range(
-                    axis_range.minimum,
-                    axis_range.maximum,
-                )
-
             self._updating_props = True
             try:
+                if is_standard_gamepad_hat(ev.code, ev.output_id):
+                    self._move_x_spin.set_range(-1, 1)
+                elif axis_range is None:
+                    self._move_x_spin.set_range(-32768, 32767)
+                else:
+                    self._move_x_spin.set_range(
+                        axis_range.minimum,
+                        axis_range.maximum,
+                    )
                 self._press_spin.set_value(ev.press_t_us / 1000)
                 self._move_x_spin.set_value(ev.value)
             finally:
@@ -647,6 +650,7 @@ class EventPropertiesMixin:
             return
         assert isinstance(ev, EditableEvent)
 
+        previous_key_release_t_us = ev.release_t_us if ev.ev_type == evdev.ecodes.EV_KEY else None
         target = getattr(action, "target", None)
         if action.action_type == ActionType.KEYBOARD and target:
             code = getattr(evdev.ecodes, target.upper(), None)
@@ -687,6 +691,11 @@ class EventPropertiesMixin:
         if ev.ev_type == evdev.ecodes.EV_KEY and ev.release_t_us <= ev.press_t_us + 1:
             ev.release_t_us = ev.press_t_us + 50000
         ev.apply_rapidfire(action)
+        if previous_key_release_t_us is not None:
+            hat_return = standard_hat_return_event(ev, previous_key_release_t_us)
+            if hat_return is not None:
+                self._events.append(hat_return)
+                self._events.sort(key=lambda item: item.press_t_us)
         self._on_selection_changed(ev)
         self._timeline.queue_draw()
         self._sync_close_guard()

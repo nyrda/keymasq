@@ -163,23 +163,19 @@ XBOX_360_TEMPLATE = VirtualDeviceTemplate(
     version=0x0110,
     bustype=_BUS_TYPES["usb"],
     buttons=(
+        # Joydev and SDL mappings keyed to 045e:028e number buttons by code, so this
+        # set must match xpad's wired 360 pad. xpad reports X as BTN_X (BTN_NORTH).
         _button("a", "A", "btn_south"),
         _button("b", "B", "btn_east"),
-        _button("x", "X", "btn_west"),
-        _button("y", "Y", "btn_north"),
+        _button("x", "X", "btn_north"),
+        _button("y", "Y", "btn_west"),
         _button("left-shoulder", "LB", "btn_tl"),
         _button("right-shoulder", "RB", "btn_tr"),
-        _button("left-trigger-button", "LT button", "btn_tl2"),
-        _button("right-trigger-button", "RT button", "btn_tr2"),
         _button("select", "Select", "btn_select"),
         _button("start", "Start", "btn_start"),
         _button("guide", "Guide", "btn_mode"),
         _button("left-stick", "LS", "btn_thumbl"),
         _button("right-stick", "RS", "btn_thumbr"),
-        _button("dpad-up", "D-pad Up", "btn_dpad_up"),
-        _button("dpad-down", "D-pad Down", "btn_dpad_down"),
-        _button("dpad-left", "D-pad Left", "btn_dpad_left"),
-        _button("dpad-right", "D-pad Right", "btn_dpad_right"),
     ),
     axes=(
         _axis("left-x", "Left Stick X", "abs_x", -32768, 32767, fuzz=16, flat=128),

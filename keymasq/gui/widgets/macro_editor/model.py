@@ -21,6 +21,7 @@ from keymasq.common.model.actions import (
     normalize_natural_mouse_move_curve,
 )
 from keymasq.common.model.core import ActionType
+from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
 from keymasq.gui.widgets.compositor_actions import describe_compositor_action
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,13 @@ def _passthrough_track(ev: MacroEvent) -> str:
     return "movement"
 
 
+def is_standard_gamepad_hat(code: int, output_id: str | None) -> bool:
+    """Named outputs define their own hat ranges and rest values."""
+    return code in {evdev.ecodes.ABS_HAT0X, evdev.ecodes.ABS_HAT0Y} and (
+        not output_id or is_virtual_gamepad_output_id(output_id)
+    )
+
+
 def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
     """Return a title and detail string for a raw passthrough event."""
     ev_type = int(ev.get("type", -1))
@@ -146,6 +154,25 @@ class EditableEvent:
         self.rapidfire_enabled = self.ev_type == evdev.ecodes.EV_KEY and action.rapidfire_enabled
         self.rapidfire_hold_ms = clamp_rapidfire_hold_ms(action.rapidfire_hold_ms)
         self.rapidfire_wait_ms = clamp_rapidfire_wait_ms(action.rapidfire_wait_ms)
+
+
+def standard_hat_return_event(ev: EditableEvent, t_us: int) -> EditableEvent | None:
+    """Return the event that ends a standard D-pad direction, if `ev` is one."""
+    if (
+        ev.ev_type != evdev.ecodes.EV_ABS
+        or ev.value == 0
+        or not is_standard_gamepad_hat(ev.code, ev.output_id)
+    ):
+        return None
+    return EditableEvent(
+        device_type="gamepad",
+        ev_type=evdev.ecodes.EV_ABS,
+        code=ev.code,
+        press_t_us=t_us,
+        release_t_us=t_us + 1,
+        value=0,
+        output_id=ev.output_id,
+    )
 
 
 @dataclass

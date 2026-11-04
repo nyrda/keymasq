@@ -204,8 +204,8 @@ class VirtualDevicePicker(Gtk.Box):
         center.append(picture)
         face = Gtk.Grid(column_spacing=6, row_spacing=6, halign=Gtk.Align.CENTER)
         for label, code, x, y in (
-            ("Y", "btn_north", 1, 0),
-            ("X", "btn_west", 0, 1),
+            ("Y", "btn_west", 1, 0),
+            ("X", "btn_north", 0, 1),
             ("B", "btn_east", 2, 1),
             ("A", "btn_south", 1, 2),
         ):

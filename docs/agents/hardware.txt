@@ -195,9 +195,12 @@ Xbox-style virtual gamepad output target names include:
 btn_a, btn_b, btn_x, btn_y,
 btn_tl, btn_tr,
 btn_select, btn_start, btn_mode,
-btn_thumbl, btn_thumbr,
-btn_dpad_up, btn_dpad_down, btn_dpad_left, btn_dpad_right
+btn_thumbl, btn_thumbr
 ```
+
+The standard virtual gamepad has no digital trigger or D-pad buttons. Use
+`gamepad_axis` with `abs_z` and `abs_rz` for triggers, and `abs_hat0x` and
+`abs_hat0y` at -1 or 1 for the D-pad.
 
 Gamepad action output routing uses `output_id`, not the button target name.
 Virtual output IDs are `virtual-gamepad-1` through `virtual-gamepad-4`.

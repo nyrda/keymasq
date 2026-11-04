@@ -534,7 +534,17 @@ Each standard numbered virtual gamepad uses Xbox 360 hardware IDs:
 - **Name**: `keymasq-gamepad` (first), `keymasq-gamepad-2` through `-4`
 - **Vendor**: `0x045e` (Microsoft)
 - **Product**: `0x028e` (Xbox 360 controller)
-- **Capabilities**: 17 digital buttons, 8 analog axes
+- **Capabilities**: 11 digital buttons, 8 analog axes
+
+The buttons and axes match a wired Xbox 360 controller on the Linux `xpad`
+driver. Joystick nodes (`/dev/input/js*`) and SDL mappings keyed to these IDs
+number buttons by evdev code, so any extra button would shift Select, Start,
+Guide, or the stick clicks. X is `BTN_X` (`BTN_NORTH`) and Y is `BTN_Y`
+(`BTN_WEST`), as `xpad` reports them. The triggers are only the `ABS_Z` and
+`ABS_RZ` axes. The D-pad is only the `ABS_HAT0X` and `ABS_HAT0Y` hat, and the
+gamepad picker maps D-pad directions to hat values of -1 or 1. Mappings and
+macro steps saved with `btn_tl2`, `btn_tr2`, or `btn_dpad_*` targets on a
+standard virtual gamepad produce no output.
 
 ### Template-backed virtual devices
 

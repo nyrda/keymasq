@@ -1888,6 +1888,79 @@ def test_macro_editor_inserts_gamepad_axis_action(monkeypatch) -> None:
     assert dialog._timeline._selected is event
 
 
+@pytest.mark.parametrize("output_id", [None, "virtual-gamepad-2"])
+def test_macro_editor_inserts_standard_hat_direction_as_a_tap(monkeypatch, output_id) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS,
+        target="abs_hat0y",
+        axis_value=1,
+        output_id=output_id,
+    )
+
+    dialog._on_key_selected_for_insert(Gtk.Box(), action, 250_000)
+
+    assert [(e.code, e.value, e.press_t_us, e.output_id) for e in dialog._events] == [
+        (evdev.ecodes.ABS_HAT0Y, 1, 250_000, output_id),
+        (evdev.ecodes.ABS_HAT0Y, 0, 300_000, output_id),
+    ]
+    assert dialog._timeline._selected is dialog._events[0]
+    assert dialog._move_x_spin.get_range() == (-1, 1)
+
+
+def test_macro_editor_changing_button_to_hat_direction_keeps_its_duration(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    button = EditableEvent(
+        "gamepad", evdev.ecodes.EV_KEY, evdev.ecodes.BTN_DPAD_UP, 100_000, 400_000
+    )
+    dialog._events = [button]
+    dialog._duration_us = 500_000
+    dialog._timeline._selected = button
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS, target="abs_hat0y", axis_value=-1
+    )
+
+    dialog._on_key_selected_for_edit(Gtk.Box(), action)
+    dialog._on_key_selected_for_edit(Gtk.Box(), action)
+
+    assert [(e.ev_type, e.code, e.value, e.press_t_us) for e in dialog._events] == [
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0Y, -1, 100_000),
+        (evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0Y, 0, 400_000),
+    ]
+    assert dialog._timeline._selected is button
+
+
+def test_macro_editor_selecting_hat_after_stick_keeps_its_value(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    stick = EditableEvent("gamepad", evdev.ecodes.EV_ABS, evdev.ecodes.ABS_X, 0, 1, value=1000)
+    hat = EditableEvent("gamepad", evdev.ecodes.EV_ABS, evdev.ecodes.ABS_HAT0Y, 10, 11, value=-1)
+    dialog._events = [stick, hat]
+    dialog._timeline._selected = stick
+    dialog._on_selection_changed(stick)
+
+    dialog._timeline._selected = hat
+    dialog._on_selection_changed(hat)
+
+    assert hat.value == -1
+    assert stick.value == 1000
+    assert dialog._move_x_spin.get_value() == -1
+
+
+def test_macro_editor_keeps_custom_output_hat_as_a_single_axis_event(monkeypatch) -> None:
+    dialog = _build_macro_dialog(monkeypatch)
+    action = MappingAction(
+        action_type=ActionType.GAMEPAD_AXIS,
+        target="abs_hat0y",
+        axis_value=1000,
+        output_id="custom-pad",
+    )
+
+    dialog._on_key_selected_for_insert(Gtk.Box(), action, 250_000)
+
+    assert [event.value for event in dialog._events] == [1000]
+    assert dialog._move_x_spin.get_range() == (-32768, 32767)
+
+
 def test_macro_editor_timeline_draws_and_hit_tests_all_tracks(monkeypatch) -> None:
     import cairo
 

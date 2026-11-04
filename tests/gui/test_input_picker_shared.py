@@ -10,6 +10,7 @@ from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 class _GamepadOwner:
     def __init__(self) -> None:
         self.clicked: list[str] = []
+        self.axis_clicked: list[tuple[str, int]] = []
 
     def _create_key_button(
         self,
@@ -28,10 +29,10 @@ class _GamepadOwner:
     def _on_gamepad_axis_clicked(
         self,
         _button: Gtk.Button,
-        _target: str,
-        _value: int,
+        target: str,
+        value: int,
     ) -> None:
-        return
+        self.axis_clicked.append((target, value))
 
 
 def _collect_buttons(widget: Gtk.Widget) -> list[Gtk.Button]:
@@ -70,6 +71,23 @@ def test_gamepad_face_buttons_emit_positional_targets() -> None:
         face_buttons[label].emit("clicked")
 
     assert owner.clicked == list(expected.values())
+
+
+def test_gamepad_dpad_emits_hat_values() -> None:
+    from keymasq.gui.widgets.input_picker_shared import build_gamepad_tab
+
+    owner = _GamepadOwner()
+    buttons = {button.get_label(): button for button in _collect_buttons(build_gamepad_tab(owner))}
+    for arrow in ("↑", "←", "→", "↓"):
+        buttons[arrow].emit("clicked")
+
+    assert owner.clicked == []
+    assert owner.axis_clicked == [
+        ("abs_hat0y", -1),
+        ("abs_hat0x", -1),
+        ("abs_hat0x", 1),
+        ("abs_hat0y", 1),
+    ]
 
 
 class _KeyboardOwner:

@@ -3828,9 +3828,10 @@ def test_shared_gamepad_picker_buttons_use_shared_metadata():
         if isinstance(evdev_name, str) and evdev_name.startswith("btn_"):
             rendered_buttons.add(evdev_name)
 
-    metadata_buttons = set(GAMEPAD_BUTTONS.values())
-    assert rendered_buttons == metadata_buttons
-    assert {EVDEV_TO_GAMEPAD[evdev_id] for evdev_id in rendered_buttons} == set(GAMEPAD_BUTTONS)
+    dpad_labels = {"D-Up", "D-Down", "D-Left", "D-Right"}
+    picker_labels = set(GAMEPAD_BUTTONS) - dpad_labels
+    assert rendered_buttons == {GAMEPAD_BUTTONS[label] for label in picker_labels}
+    assert {EVDEV_TO_GAMEPAD[evdev_id] for evdev_id in rendered_buttons} == picker_labels
 
 
 def test_shared_gamepad_picker_falls_back_without_axis_handler():

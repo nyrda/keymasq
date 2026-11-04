@@ -19,6 +19,7 @@ from keymasq.gui.widgets.macro_editor.model import (
     _apply_mapping_action_to_move,
     _control_to_compositor_action,
     _move_to_mapping_action,
+    standard_hat_return_event,
 )
 from keymasq.gui.widgets.macro_editor.panel.rows import (
     field_row,
@@ -417,6 +418,9 @@ class MacroEditorAddPopoversMixin:
             )
         ev.apply_rapidfire(action)
         self._events.append(ev)
+        hat_return = standard_hat_return_event(ev, t_us + 50000)
+        if hat_return is not None:
+            self._events.append(hat_return)
         self._events.sort(key=lambda item: item.press_t_us)
         self._timeline._selected = ev
         self._revealer.set_reveal_child(True)

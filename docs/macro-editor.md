@@ -93,7 +93,12 @@ For example, to build Ctrl+C, add Ctrl and C on the keyboard track, then make
 the Ctrl hold begin before C and end after C.
 
 The gamepad picker also offers axis values. Gamepad events retain the virtual
-or hardware gamepad output chosen in the picker.
+or hardware gamepad output chosen in the picker. An axis value is a single event
+that stays in effect until a later event changes it or the macro ends. On a
+standard virtual gamepad, adding a D-pad direction also adds a return to center
+50 ms later, so it behaves as a tap. Changing a key or button to a D-pad direction
+adds that return at its old release time. Move the return event to hold the
+direction longer.
 
 Click an action to show its properties in the inspector below the timeline. The
 inspector has two columns, with the selected action on the left and the macro's

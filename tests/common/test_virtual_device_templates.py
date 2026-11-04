@@ -1,5 +1,6 @@
 from typing import cast
 
+import evdev
 import pytest
 
 from keymasq.common.virtual_device_templates import (
@@ -69,7 +70,21 @@ def test_builtin_templates_use_the_generic_model() -> None:
     )
     assert XBOX_360_TEMPLATE.vendor_id == 0x045E
     assert XBOX_360_TEMPLATE.product_id == 0x028E
-    assert len(XBOX_360_TEMPLATE.buttons) == 17
+    e = evdev.ecodes
+    button_codes = sorted(getattr(e, button.evdev.upper()) for button in XBOX_360_TEMPLATE.buttons)
+    assert button_codes == [
+        e.BTN_A,
+        e.BTN_B,
+        e.BTN_X,
+        e.BTN_Y,
+        e.BTN_TL,
+        e.BTN_TR,
+        e.BTN_SELECT,
+        e.BTN_START,
+        e.BTN_MODE,
+        e.BTN_THUMBL,
+        e.BTN_THUMBR,
+    ]
     assert len(XBOX_360_TEMPLATE.axes) == 8
     assert LOGITECH_EXTREME_3D_TEMPLATE.vendor_id == 0x046D
     assert LOGITECH_EXTREME_3D_TEMPLATE.product_id == 0xC215

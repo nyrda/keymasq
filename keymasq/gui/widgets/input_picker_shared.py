@@ -598,15 +598,17 @@ def _build_gamepad_left_col(owner) -> Gtk.Box:
     dpad.set_row_spacing(4)
     dpad.set_halign(Gtk.Align.CENTER)
 
-    for gc, gr, label, button_label in [
-        (1, 0, "↑", "D-Up"),
-        (0, 1, "←", "D-Left"),
-        (2, 1, "→", "D-Right"),
-        (1, 2, "↓", "D-Down"),
+    for gc, gr, label, target, value in [
+        (1, 0, "↑", "abs_hat0y", -1),
+        (0, 1, "←", "abs_hat0x", -1),
+        (2, 1, "→", "abs_hat0x", 1),
+        (1, 2, "↓", "abs_hat0y", 1),
     ]:
-        evdev_id = GAMEPAD_BUTTONS[button_label]
-        btn = owner._create_key_button(label, evdev_id)
-        btn.connect("clicked", owner._on_gamepad_clicked, evdev_id)
+        btn = owner._create_key_button(label, target)
+        if hasattr(owner, "_on_gamepad_axis_clicked"):
+            btn.connect("clicked", owner._on_gamepad_axis_clicked, target, value)
+        else:
+            btn.connect("clicked", owner._on_gamepad_clicked, target)
         dpad.attach(btn, gc, gr, 1, 1)
 
     box.append(dpad)
@@ -658,8 +660,8 @@ def _build_gamepad_code_row(owner) -> Gtk.Box:
     entry.set_placeholder_text("e.g. 305 or btn_c")
     entry.set_width_chars(14)
     entry.set_tooltip_text(
-        "Map a button outside the template by evdev name (e.g. btn_tl2, btn_tr2 "
-        "for digital triggers, btn_c, btn_trigger_happy1) or numeric code."
+        "Map a button outside the template by evdev name (e.g. btn_c, "
+        "btn_trigger_happy1) or numeric code."
     )
     entry.connect("activate", owner._on_gamepad_code_clicked)
     owner.gamepad_code_entry = entry

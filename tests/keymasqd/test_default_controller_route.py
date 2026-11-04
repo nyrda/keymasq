@@ -91,14 +91,14 @@ async def send(device, event_type, code, value):
 
 async def test_same_codes_only_and_source_frame_boundaries(routed):
     device, writer, _, _ = routed
-    for code in (E.BTN_SOUTH, E.BTN_TL2, E.BTN_Z):
+    for code in (E.BTN_SOUTH, E.BTN_TL2, E.BTN_DPAD_UP, E.BTN_MODE, E.BTN_Z):
         await send(device, E.EV_KEY, code, 1)
     await send(device, E.EV_ABS, E.ABS_X, 255)
     await send(device, E.EV_ABS, E.ABS_THROTTLE, 200)
     await send(device, E.EV_REL, E.REL_X, 8)
     assert writer.writes == [
         (E.EV_KEY, E.BTN_SOUTH, 1),
-        (E.EV_KEY, E.BTN_TL2, 1),
+        (E.EV_KEY, E.BTN_MODE, 1),
         (E.EV_ABS, E.ABS_X, 32767),
     ]
     assert writer.frames == 0

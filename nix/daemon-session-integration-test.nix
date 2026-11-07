@@ -12,7 +12,7 @@ let
   vmUid = 1000;
   runtimeDir = "/run/user/${toString vmUid}";
   testSource = ./daemon-session-integration-test;
-  testPython = pkgs.python3.withPackages (ps: [ evdevPackage ps.fusepy ]);
+  testPython = pkgs.python3.withPackages (ps: [ evdevPackage ps.mfusepy ]);
   tomlFormat = pkgs.formats.toml { };
   vmSecurityConfig = {
     daemon_allowed_uids = [ vmUid ];
@@ -251,8 +251,8 @@ let
         machine.succeed(
             "systemd-run --unit=keymasq-test-fuse --uid=${vmUser} "
             "--property=RemainAfterExit=yes "
-            "--setenv=FUSE_LIBRARY_PATH=${pkgs.lib.getLib pkgs.fuse}/lib/libfuse.so.2 "
-            "--setenv=PATH=/run/wrappers/bin:${pkgs.fuse}/bin:${pkgs.coreutils}/bin "
+            "--setenv=FUSE_LIBRARY_PATH=${pkgs.lib.getLib pkgs.fuse3}/lib/libfuse3.so "
+            "--setenv=PATH=/run/wrappers/bin:${pkgs.fuse3}/bin:${pkgs.coreutils}/bin "
             "${testPython}/bin/python ${testSource}/fuse_scan.py serve /run/keymasq-fuse-test/mount"
         )
         # mountpoint stats the directory, which this private mount denies root.

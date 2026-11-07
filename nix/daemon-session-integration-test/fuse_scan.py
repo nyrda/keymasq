@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def serve(mountpoint: str) -> None:
-    from fuse import FUSE, FuseOSError, Operations
+    from mfusepy import FUSE, FuseOSError, Operations
 
     class Files(Operations):
         def getattr(self, path, fh=None):

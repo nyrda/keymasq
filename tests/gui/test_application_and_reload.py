@@ -109,6 +109,8 @@ def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -
     assert app.window is not window
 
     class _App:
+        restart_command = None
+
         def __init__(self, demo_mode: bool = False) -> None:
             calls.append(f"main:{demo_mode}")
 
@@ -125,6 +127,27 @@ def test_application_activate_and_main_use_configured_entrypoints(monkeypatch) -
     application_module.main()
 
     assert calls[-2:] == ["main:True", "run"]
+
+
+def test_requested_restart_replaces_the_process_after_the_application_quit(monkeypatch) -> None:
+    pytest.importorskip("gi")
+
+    import keymasq.gui.application as application_module
+    from keymasq.gui.application import Application
+
+    events: list[object] = []
+    monkeypatch.setattr(Application, "run", lambda self: self.restart_into(["/new"], {"A": "1"}))
+    monkeypatch.setattr(Application, "quit", lambda self: events.append("quit"))
+    monkeypatch.setattr(application_module.os, "execve", lambda *args: events.append(args))
+    monkeypatch.setattr(
+        application_module.argparse.ArgumentParser,
+        "parse_known_args",
+        lambda self: (SimpleNamespace(demo=True), []),
+    )
+
+    application_module.main()
+
+    assert events == ["quit", ("/new", ["/new"], {"A": "1"})]
 
 
 def test_application_uses_unique_instance_by_default(monkeypatch) -> None:

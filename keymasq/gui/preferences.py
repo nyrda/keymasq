@@ -134,3 +134,26 @@ def save_rollover_anti_cheat_warning_dismissed() -> None:
     data = _load_settings()
     data["rollover_anti_cheat_warning_dismissed"] = True
     _save_settings(data)
+
+
+def load_update_check_enabled() -> bool:
+    return _load_settings().get("check_for_updates") is not False
+
+
+def save_update_check_enabled(enabled: bool) -> None:
+    data = _load_settings()
+    data["check_for_updates"] = enabled
+    _save_settings(data)
+
+
+def load_last_update_check() -> float:
+    value = _load_settings().get("last_update_check")
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return 0.0
+
+
+def save_last_update_check(timestamp: float) -> None:
+    data = _load_settings()
+    data["last_update_check"] = int(timestamp)
+    _save_settings(data)

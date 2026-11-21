@@ -203,6 +203,65 @@ user's home directory. The target user is the invoking desktop user;
 `--install --user USER` overrides it. `/etc/profile.d/keymasq.sh` puts
 `/opt/keymasq/bin` on the login `PATH`.
 
+When `gnome-shell` is on the host `PATH`, the installer also copies the bundled
+GNOME Shell extension to
+`~/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools` for the
+target user. A symlinked extension directory, as used for extension
+development, is left alone.
+
+## Launcher Commands Used by the GUI
+
+The GUI does not implement installation or updates. It runs the launcher
+script of its own runtime and reads the output, so the terminal and the GUI
+share one implementation:
+
+| Command | Privileges | Purpose |
+| --- | --- | --- |
+| `--appimage-status [--user USER]` | none | Prints the install state as `key=value` lines |
+| `--check-update` | none | Verifies the signed manifest and prints the available version |
+| `--setup-user` | none | Sets up wrappers, the desktop entry, and the session service for the invoking user |
+| `--install` | pkexec | Installs or repairs |
+| `--self-update` | pkexec for the install step | Downloads and verifies the manifest's release as the user, then installs it |
+| `--apply-update DIR` | root | Internal install step of `--self-update` for the update staged in `DIR` |
+| `--uninstall` | pkexec | Removes the installation |
+
+The contract between the two sides:
+
+- `--appimage-status` prints `installed`, `installed_version`, `launch`
+  (`appimage` for a loose AppImage, `installed` for the active installed
+  runtime, `runtime` otherwise), `appimage`, `native_package`,
+  `service_manager`, `steamos`, `user`, `user_setup`, `daemon_active`,
+  `session_active`, `password`, `missing_install_tools`,
+  `missing_update_tools`, and `architecture`.
+- `--check-update` prints `installed_version`, `available_version`, and
+  `update_available`.
+- Long-running commands print each step as a line starting with `==> `. The
+  GUI shows the latest step and keeps the full output under **Details**.
+- Errors are lines starting with `error: `. The GUI shows the last one.
+- A refused or unavailable password prompt exits with pkexec's status, 126
+  when the user dismissed it and 127 when no authorization was possible.
+- The launcher prints `==> Waiting for authorization` right before it calls
+  pkexec.
+
+`--self-update` stages `manifest.json`, `manifest.sig`, and `Keymasq.AppImage`
+in a private temporary directory of the invoking user and passes it to
+`--apply-update` through pkexec. The staging directory is untrusted input for
+the root step. `--apply-update` copies the manifest and signature into a
+root-only directory, verifies them against the installed public key, copies
+the AppImage to a mode 0600 file under `/opt/keymasq`, and only makes it
+executable after its SHA-256 matches the verified manifest. Each staged file
+is opened once without following symlinks and has to be a regular file. The
+step accepts `--allow-downgrade` but never `--allow-unsigned`, because the
+caller that staged the files also wrote its command line. pkexec always runs
+the installed `/opt/keymasq/Keymasq.AppImage`, so the verifier is root-owned
+code. When the installed release predates this step, `--self-update` hands
+the whole update to that release's own root updater instead.
+
+`assets/gui-integration-version` marks a runtime whose launcher implements
+these commands, including `--apply-update`. The GUI only uses them when the marker exists in its own
+runtime. A launcher without them passes the unknown option on to the Python
+CLI, which rejects it.
+
 `Keymasq.AppImage` remains the signed update payload. The installer extracts
 it once into `/opt/keymasq/runtime/<sha256>` and the wrappers run commands
 from `/opt/keymasq/runtime/current`, so daemon, session, and GUI starts reuse
@@ -254,10 +313,12 @@ gpg --batch --yes --detach-sign --armor latest-x86_64.json
 ```
 
 For local VM testing before GitHub Actions signs a manifest, skip the signature
-check explicitly:
+check explicitly. This only works when the updater starts as root. The
+install step that an unprivileged update reaches through pkexec refuses
+unsigned updates:
 
 ```bash
-keymasq --self-update --allow-unsigned
+sudo /opt/keymasq/bin/keymasq --self-update --allow-unsigned
 ```
 
 This still checks the manifest architecture and the AppImage SHA-256. Do not

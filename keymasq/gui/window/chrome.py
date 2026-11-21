@@ -5,7 +5,7 @@ from __future__ import annotations
 from keymasq.gui.icons import device_icon_names, image_from_icon_names
 from keymasq.gui.preferences import AppearanceMode, load_appearance_mode
 
-from . import _runtime, compositor, device_tabs, gnome_setup, tab_layout
+from . import _runtime, appimage_setup, compositor, device_tabs, gnome_setup, tab_layout
 
 
 def _icon_from_name(window, icon_name: str) -> _runtime.Gio.Icon:
@@ -158,6 +158,18 @@ def _setup_content(window) -> None:
     connect_menu_action(settings_btn, "settings")
     menu_box.append(settings_btn)
 
+    appimage_btn = _runtime.Gtk.Button(label="Install & Updates")
+    _configure_menu_button(window, appimage_btn)
+    appimage_btn.set_visible(False)
+
+    def on_appimage_clicked(_button: _runtime.Gtk.Button) -> None:
+        menu_popover.popdown()
+        appimage_setup.present_dialog(window)
+
+    appimage_btn.connect("clicked", on_appimage_clicked)
+    menu_box.append(appimage_btn)
+    window._appimage_menu_button = appimage_btn
+
     menu_box.append(_create_menu_separator(window))
 
     about_btn = _runtime.Gtk.Button(label="About")
@@ -194,6 +206,17 @@ def _setup_content(window) -> None:
     window.warning_banner.set_visible(False)
     window.warning_banner.set_revealed(False)
     content_box.append(window.warning_banner)
+
+    window.appimage_banner = _runtime.Adw.Banner()
+    window.appimage_banner.set_use_markup(False)
+    window.appimage_banner.set_visible(False)
+    window.appimage_banner.set_revealed(False)
+
+    def on_appimage_banner_clicked(_banner: _runtime.Adw.Banner) -> None:
+        appimage_setup.on_banner_button_clicked(window)
+
+    window.appimage_banner.connect("button-clicked", on_appimage_banner_clicked)
+    content_box.append(window.appimage_banner)
 
     content_box.append(window.tab_view)
 

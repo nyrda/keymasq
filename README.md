@@ -128,11 +128,13 @@ Download `Keymasq-*-x86_64.AppImage` from the
 
 ```bash
 chmod +x Keymasq-*-x86_64.AppImage
-./Keymasq-*-x86_64.AppImage --install
+./Keymasq-*-x86_64.AppImage
 ```
 
-The installer asks for your password. A stock Steam Deck has no user password
-yet, so set one first with `passwd`.
+Keymasq opens and offers to install itself. The installer asks for your
+password. A stock Steam Deck has no user password yet, so set one first with
+`passwd`. Later updates are offered in the GUI under **Install & Updates**.
+To install from a terminal instead, run the AppImage with `--install`.
 
 See [docs/steamos.md](docs/steamos.md) for details.
 

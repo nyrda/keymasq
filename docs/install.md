@@ -160,11 +160,15 @@ service-manager instructions for the missing daemon supervisor:
 
 ```bash
 chmod +x Keymasq-*-x86_64.AppImage
-./Keymasq-*-x86_64.AppImage --install
+./Keymasq-*-x86_64.AppImage
 ```
 
-The installer asks for your password. A stock Steam Deck has no user password
-yet, so set one first with `passwd`.
+Keymasq opens and offers to install itself. Click **Install** and enter your
+password. A stock Steam Deck has no user password yet, so set one first with
+`passwd`. To install without the GUI, run the AppImage with `--install`.
+
+After the install, the **Install & Updates** entry in the main menu checks for
+new releases, updates, repairs, and uninstalls Keymasq.
 
 For the full layout, update, and uninstall behavior, see
 [steamos.md](steamos.md).
@@ -413,6 +417,9 @@ sudo systemctl restart keymasqd
 systemctl --user restart keymasq-session
 ```
 
+The GUI shows a banner while it runs a different version than
+`keymasq-session`, for example when the services were not restarted yet.
+
 ### Uninstall
 
 Package removal does not remove user profiles or hardware configuration stored
@@ -455,7 +462,8 @@ Both use the same data paths. Profiles and hardware configuration in
 `~/.config/keymasq/`, the security policy in `/etc/keymasq/`, and macros and
 saved masks in `/var/lib/keymasq/` carry over when you switch.
 
-To move from the AppImage to a native package, run as your desktop user:
+To move from the AppImage to a native package, choose **Install & Updates**
+in the main menu and then **Uninstall**, or run as your desktop user:
 
 ```bash
 /opt/keymasq/bin/keymasq --uninstall

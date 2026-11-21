@@ -19,7 +19,21 @@ first:
 passwd
 ```
 
-Then make the download executable and run the installer:
+Then make the download executable and open it. In the Dolphin file manager,
+right-click the file, choose **Properties**, and mark it as executable on the
+**Permissions** tab. Then double-click the file.
+
+Keymasq starts and offers to install itself:
+
+1. Click **Install** and enter your password.
+2. Keymasq copies itself to `/opt/keymasq`, starts the background services, and
+   adds itself to the application menu. The window shows each step.
+3. Click **Done**. The window connects to the services and is ready to use.
+
+From then on, launch Keymasq from the application menu. You can delete the
+downloaded file.
+
+If you prefer a terminal, the same installer runs from the command line:
 
 ```bash
 cd ~/Downloads
@@ -27,15 +41,18 @@ chmod +x Keymasq-*-x86_64.AppImage
 ./Keymasq-*-x86_64.AppImage --install
 ```
 
-The installer sets up and starts everything, including the background
-services. When it finishes, launch Keymasq from the application menu, or from
-the same terminal:
+Then start the GUI from the application menu, or from the same terminal:
 
 ```bash
 /opt/keymasq/bin/keymasq
 ```
 
 The plain `keymasq` command works in terminals opened after your next login.
+
+The window starts the same installer you can run in a terminal. If it cannot
+show a password prompt, it tells you which command to run instead. This
+happens in Game Mode and in remote sessions, because they have no desktop
+password prompt.
 
 After setup, you can go back to Game Mode. Remapping runs as a background
 service and does not need the GUI or Desktop Mode.
@@ -64,6 +81,10 @@ Keymasq to create its wrapper there, move or rename yours before installing.
 
 `packaging/appimage/README.md` documents the full file layout and the runtime
 extraction model.
+
+On GNOME, the installer also copies the Keymasq GNOME Shell extension to
+`~/.local/share/gnome-shell/extensions/`. The GUI then guides you through
+enabling it, as described in [gnome.md](gnome.md).
 
 ## SteamOS persistence
 
@@ -126,35 +147,93 @@ expose that listener to an untrusted network. The launcher also forces the GUI
 onto the selected Brotway display, so a `DISPLAY` variable inherited from SSH
 X11 forwarding cannot send the GUI somewhere else.
 
+## Install & Updates in the GUI
+
+The main menu of an AppImage install has an **Install & Updates** entry. It
+shows the installed version and whether the background services run, and it
+offers these actions:
+
+- **Check Now** looks for a new release. **Update** installs it and asks for
+  your password. Afterwards, click **Restart Keymasq** to switch the window to
+  the new version.
+- **Check automatically** controls the update check that runs when Keymasq
+  starts, at most once a day. The check only downloads the signed release
+  manifest from `repo.keymasq.tools`. Keymasq never installs an update
+  without asking.
+- **Repair** writes the services, device rules, and commands again and
+  restarts the services. Use it when a service does not start.
+- **Uninstall** removes Keymasq, as described under [Uninstall](#uninstall).
+
+When an update is available, the main window also shows a banner with an
+**Update** button.
+
+### Opening a downloaded AppImage while Keymasq is installed
+
+The window and the background services have to run the same version. If you
+open a downloaded AppImage whose version differs from the installed one,
+Keymasq asks what to do:
+
+- A newer AppImage offers to update the installation to its version.
+- An older AppImage offers to open the installed version instead. Downgrading
+  to the AppImage's version is the second choice.
+
+### Other users on the same system
+
+The installer sets up the session service for the user who ran it. When
+another user opens Keymasq, it offers to set up their account. This does not
+need a password. The terminal equivalent is:
+
+```bash
+/opt/keymasq/bin/keymasq --setup-user
+```
+
 ## Updates
 
-The self-update runs through polkit and asks for your password, as the
-installer does:
+The self-update downloads and checks the new release as your user. It asks
+for your password through polkit only when a verified update is ready to
+install:
 
 ```bash
 keymasq --self-update
 ```
 
+If the newest release is already installed, or the download or a check fails,
+the updater stops before the password prompt.
+
+To only check for a new release, without a password:
+
+```bash
+keymasq --check-update
+```
+
 The update verifier uses the host `gpg` command, which SteamOS provides.
 
-The updater runs these steps in order:
+The updater runs these steps in order. Steps 1 to 4 run as your user and
+steps 5 to 8 run as root:
 
 1. It downloads a JSON manifest and a detached signature from the Keymasq
    repository.
 2. It verifies the manifest with the public key installed under
    `/opt/keymasq/share/keymasq/appimage-update.gpg.asc`.
-3. It checks that the manifest architecture matches the running system.
+3. It checks that the manifest architecture matches the running system and
+   that the release is not older than the installed one.
 4. It downloads the AppImage the manifest references and checks its SHA-256.
-5. It extracts the AppImage into a staging directory, checks that the copy
+5. After the password prompt, the installed release takes its own copies of
+   the manifest, the signature, and the AppImage and repeats the signature,
+   architecture, version, and SHA-256 checks on them. Root trusts none of the
+   checks from steps 2 to 4, so a file changed after the download is rejected.
+6. It extracts the AppImage into a staging directory, checks that the copy
    finished and that every file in the AppImage's runtime file list is present
    with its expected size, then renames it to `/opt/keymasq/runtime/<sha256>`. A
    failed copy, for example on a full disk, removes the staging directory.
    An incomplete `/opt/keymasq/runtime/<sha256>` left by an earlier attempt is
    replaced instead of reused.
-6. It atomically replaces `/opt/keymasq/Keymasq.AppImage` and repoints
+7. It atomically replaces `/opt/keymasq/Keymasq.AppImage` and repoints
    `/opt/keymasq/runtime/current`.
-7. It refreshes the installed host integration files and restarts the
+8. It refreshes the installed host integration files and restarts the
    services.
+
+Running `sudo keymasq --self-update` performs all steps as root.
 
 If the updater cannot restart either systemd service, it exits with an error.
 The error says that the files were installed but the services still need to be
@@ -180,12 +259,15 @@ package repository. It is published at
 
 ## Uninstall
 
+Choose **Install & Updates** in the main menu, then **Uninstall**. Or run:
+
 ```bash
 keymasq --uninstall
 ```
 
 The uninstaller removes the AppImage integration, systemd units, udev rules,
-Keymasq-managed wrappers, desktop files, and the SteamOS keep-list. It keeps
+Keymasq-managed wrappers, desktop files, the GNOME Shell extension it
+installed, and the SteamOS keep-list. It keeps
 any commands of your own that share a name with a Keymasq wrapper. After it
 removes the hidden-source flags and Keymasq ACL entries, it retriggers the
 connected input devices, so you do not need to reboot or replug anything. It

@@ -12,6 +12,16 @@ from pathlib import Path
 
 import pytest
 
+from keymasq.gui.appimage import (
+    PKEXEC_FAILED,
+    SetupNeed,
+    UpdateCheck,
+    parse_install_status,
+    parse_update_check,
+    setup_need,
+    step_from_line,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_SCRIPT = ROOT / "packaging/appimage/runtime/keymasq-appimage-runtime.sh"
 VERIFY_SCRIPT = ROOT / "packaging/appimage/verify-appimage.sh"
@@ -717,6 +727,7 @@ def _asset_dir(tmp_path: Path) -> Path:
         ROOT / "assets/tools.keymasq.keymasq.svg",
         assets / "tools.keymasq.keymasq.svg",
     )
+    shutil.copytree(ROOT / "gnome-extension", assets / "gnome-extension")
     return assets
 
 
@@ -2483,3 +2494,409 @@ exec {real_mv} "$@"
     assert (active / "bin/keymasq").read_bytes() == launcher
     assert (runtime_root / "current").readlink() == Path(sha256)
     assert {path.name for path in runtime_root.iterdir()} == {"current", sha256}
+
+
+def _systemd_install_env(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    fake_root = tmp_path / "root"
+    assets = _asset_dir(tmp_path)
+    source_appimage = tmp_path / "Keymasq.AppImage"
+    source_appimage.write_text("appimage\n", encoding="utf-8")
+    source_appimage.chmod(0o755)
+    env = _env(tmp_path, fake_root, assets, source_appimage)
+    env["KEYMASQ_APPIMAGE_SERVICE_MANAGER"] = "systemd"
+    return fake_root, env
+
+
+def _launcher_output(env: dict[str, str], *arguments: str) -> str:
+    return subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), *arguments],
+        check=True,
+        env=env,
+        stdout=subprocess.PIPE,
+        text=True,
+    ).stdout
+
+
+def test_appimage_status_tells_the_gui_when_to_install_and_when_versions_differ(
+    tmp_path: Path,
+) -> None:
+    fake_root, env = _systemd_install_env(tmp_path)
+
+    before = parse_install_status(_launcher_output(env, "--appimage-status", "--user", "root"))
+
+    assert before is not None
+    assert setup_need(before, "1.2.3") is SetupNeed.INSTALL
+
+    install_output = _launcher_output(env, "--install", "--user", "root")
+    (fake_root / "opt/keymasq/version").write_text("1.2.3\n", encoding="utf-8")
+    env["KEYMASQ_FAKE_SYSTEMD_ACTIVE_STATUS"] = "0"
+    env["KEYMASQ_FAKE_USER_SYSTEMD_ACTIVE_STATUS"] = "0"
+    after = parse_install_status(_launcher_output(env, "--appimage-status", "--user", "root"))
+
+    assert "Starting the background services" in [
+        step_from_line(line) for line in install_output.splitlines()
+    ]
+    assert after is not None
+    assert after.installed_version == "1.2.3"
+    assert after.loose_appimage
+    assert after.daemon_active is True
+    assert after.session_active is True
+    assert setup_need(after, "1.2.3") is SetupNeed.NONE
+    assert setup_need(after, "1.3.0") is SetupNeed.VERSION_MISMATCH
+
+    del env["APPIMAGE"]
+    from_installed_runtime = parse_install_status(
+        _launcher_output(env, "--appimage-status", "--user", "root")
+    )
+
+    assert from_installed_runtime is not None
+    assert not from_installed_runtime.installed_runtime
+    assert setup_need(from_installed_runtime, "1.3.0") is SetupNeed.NONE
+
+    env["APPDIR"] = str(fake_root / "opt/keymasq/runtime/current")
+    from_wrapper = parse_install_status(
+        _launcher_output(env, "--appimage-status", "--user", "root")
+    )
+
+    assert from_wrapper is not None
+    assert from_wrapper.installed_runtime
+
+
+def test_appimage_status_reports_a_native_package_instead_of_offering_an_install(
+    tmp_path: Path,
+) -> None:
+    fake_root, env = _systemd_install_env(tmp_path)
+    native_unit = fake_root / "usr/lib/systemd/system/keymasqd.service"
+    native_unit.parent.mkdir(parents=True)
+    native_unit.touch()
+
+    status = parse_install_status(_launcher_output(env, "--appimage-status", "--user", "root"))
+
+    assert status is not None
+    assert setup_need(status, "1.2.3") is SetupNeed.NATIVE_PACKAGE
+
+
+def test_appimage_update_check_runs_without_privileges(tmp_path: Path) -> None:
+    _fake_root, env = _systemd_install_env(tmp_path)
+    del env["KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK"]
+    fake_bin = Path(env["PATH"].split(":", 1)[0])
+    _write_executable(
+        fake_bin / "pkexec",
+        '#!/bin/sh\nprintf \'pkexec %s\\n\' "$*" >> "$KEYMASQ_COMMAND_LOG"\nexit 127\n',
+    )
+    public_key = tmp_path / "update-public.asc"
+    public_key.write_text("test-public-key\n", encoding="utf-8")
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    new_appimage = update_dir / "Keymasq-9.9.9-x86_64.AppImage"
+    new_appimage.write_text("new\n", encoding="utf-8")
+    _write_update_manifest(update_dir, new_appimage, "9.9.9")
+    signature = update_dir / "latest-x86_64.json.sig"
+    signature.write_text("trusted-signature\n", encoding="utf-8")
+    _install_fake_gpg(env)
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+    env["KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY"] = str(public_key)
+
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+    outdated = parse_update_check(_launcher_output(env, "--check-update"))
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "9.9.9"
+    current = parse_update_check(_launcher_output(env, "--check-update"))
+    signature.write_text("forged-signature\n", encoding="utf-8")
+    forged = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--check-update"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert outdated == UpdateCheck("1.0.0", "9.9.9", update_available=True)
+    assert current == UpdateCheck("9.9.9", "9.9.9", update_available=False)
+    assert forged.returncode != 0
+    assert "signature verification failed" in forged.stderr
+    assert parse_update_check(forged.stdout) is None
+    assert "pkexec" not in Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+
+
+def test_appimage_reports_refused_authorization_with_a_terminal_fallback(
+    tmp_path: Path,
+) -> None:
+    fake_root = tmp_path / "root"
+    installed_appimage = fake_root / "opt/keymasq/Keymasq.AppImage"
+    installed_appimage.parent.mkdir(parents=True)
+    _write_executable(installed_appimage, "#!/bin/sh\nexit 99\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "pkexec", "#!/bin/sh\nexit 127\n")
+    env = os.environ.copy()
+    env.update({"PATH": f"{fake_bin}:{env['PATH']}", "KEYMASQ_APPIMAGE_ROOT": str(fake_root)})
+    env.pop("APPIMAGE", None)
+    env.pop("KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK", None)
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == PKEXEC_FAILED
+    assert f"sudo {installed_appimage} --uninstall --user root" in result.stderr
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="sets up the unprivileged invoking user")
+def test_appimage_setup_user_adds_the_session_for_a_second_desktop_user(
+    tmp_path: Path,
+) -> None:
+    fake_root, env = _systemd_install_env(tmp_path)
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+    )
+    del env["KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK"]
+    home = fake_root / pwd.getpwuid(os.getuid()).pw_dir.lstrip("/")
+
+    before = parse_install_status(_launcher_output(env, "--appimage-status"))
+    _launcher_output(env, "--setup-user")
+    after = parse_install_status(_launcher_output(env, "--appimage-status"))
+
+    assert before is not None
+    assert setup_need(before, "") is SetupNeed.SETUP_USER
+    assert after is not None
+    assert setup_need(after, "") is SetupNeed.NONE
+    installed_assets = fake_root / "opt/keymasq/runtime/current/share/keymasq/appimage"
+    assert (home / ".config/systemd/user/keymasq-session.service").read_bytes() == (
+        installed_assets / "keymasq-session.service"
+    ).read_bytes()
+    assert (home / ".local/bin/keymasq").is_file()
+    assert "systemctl --user enable --now keymasq-session.service" in Path(
+        env["KEYMASQ_COMMAND_LOG"]
+    ).read_text(encoding="utf-8")
+
+
+def test_appimage_manages_the_gnome_bridge_for_gnome_users(tmp_path: Path) -> None:
+    fake_root, env = _systemd_install_env(tmp_path)
+    fake_bin = Path(env["PATH"].split(":", 1)[0])
+    _write_executable(fake_bin / "gnome-shell", "#!/bin/sh\nexit 0\n")
+    source = ROOT / "gnome-extension/gnome-bridge@keymasq.tools"
+    installed = fake_root / "root/.local/share/gnome-shell/extensions/gnome-bridge@keymasq.tools"
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+    )
+
+    assert {path.name: path.read_bytes() for path in installed.iterdir()} == {
+        path.name: path.read_bytes() for path in source.iterdir()
+    }
+
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--uninstall", "--user", "root"],
+        check=True,
+        env=env,
+    )
+
+    assert not installed.exists()
+
+
+def _unprivileged_update_env(tmp_path: Path, version: str) -> tuple[Path, dict[str, str], Path]:
+    fake_root, env = _systemd_install_env(tmp_path)
+    subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--install", "--user", "root"],
+        check=True,
+        env=env,
+        stdout=subprocess.DEVNULL,
+    )
+    del env["KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK"]
+    fake_bin = Path(env["PATH"].split(":", 1)[0])
+    _write_executable(
+        fake_bin / "gpg",
+        """#!/bin/sh
+case " $* " in
+  *" --import "*)
+    exit 0
+    ;;
+  *" --verify "*)
+    signature=$(printf '%s\\n' "$@" | tail -n 2 | head -n 1)
+    manifest=$(printf '%s\\n' "$@" | tail -n 1)
+    [ "$(cat "$signature")" = "signed $(sha256sum < "$manifest")" ] || exit 1
+    exit 0
+    ;;
+esac
+exit 1
+""",
+    )
+    _write_executable(
+        fake_bin / "pkexec",
+        f"""#!/bin/sh
+printf 'pkexec %s\\n' "$*" >> "$KEYMASQ_COMMAND_LOG"
+stage=$3
+eval "${{KEYMASQ_FAKE_PKEXEC_TAMPER:-:}}"
+shift
+KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK=1 exec sh {RUNTIME_SCRIPT} "$@"
+""",
+    )
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    new_appimage = update_dir / "Keymasq-new-x86_64.AppImage"
+    new_appimage.write_text("new\n", encoding="utf-8")
+    _write_update_manifest(update_dir, new_appimage, version)
+    manifest_sha256 = subprocess.check_output(
+        ["sha256sum"], stdin=(update_dir / "latest-x86_64.json").open("rb"), text=True
+    )
+    (update_dir / "latest-x86_64.json.sig").write_text(
+        f"signed {manifest_sha256}", encoding="utf-8"
+    )
+    public_key = tmp_path / "update-public.asc"
+    public_key.write_text("test-public-key\n", encoding="utf-8")
+    env["KEYMASQ_APPIMAGE_UPDATE_BASE_URL"] = update_dir.as_uri()
+    env["KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY"] = str(public_key)
+    env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "1.0.0"
+    env["TMPDIR"] = str(tmp_path / "tmp")
+    (tmp_path / "tmp").mkdir()
+    return fake_root, env, update_dir
+
+
+def _pkexec_calls(env: dict[str, str]) -> list[str]:
+    command_log = Path(env["KEYMASQ_COMMAND_LOG"]).read_text(encoding="utf-8")
+    return [line for line in command_log.splitlines() if line.startswith("pkexec ")]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="exercises the unprivileged half of the update")
+def test_appimage_self_update_downloads_as_the_user_and_installs_through_the_installed_release(
+    tmp_path: Path,
+) -> None:
+    fake_root, env, _update_dir = _unprivileged_update_env(tmp_path, "9.9.9")
+    installed_appimage = fake_root / "opt/keymasq/Keymasq.AppImage"
+
+    output = _launcher_output(env, "--self-update", "--user", "root")
+
+    steps = [step_from_line(line) for line in output.splitlines()]
+    assert steps.index("Downloading Keymasq 9.9.9") < steps.index("Waiting for authorization")
+    assert steps.index("Waiting for authorization") < steps.index("Installing Keymasq 9.9.9")
+    (call,) = _pkexec_calls(env)
+    assert call.startswith(f"pkexec {installed_appimage} --apply-update ")
+    assert call.endswith(" --user root")
+    assert installed_appimage.read_text(encoding="utf-8") == "new\n"
+    assert (fake_root / "opt/keymasq/version").read_text(encoding="utf-8") == "9.9.9\n"
+    assert list((tmp_path / "tmp").iterdir()) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="exercises the unprivileged half of the update")
+@pytest.mark.parametrize(
+    ("tamper", "error"),
+    [
+        ("printf 'evil\n' > \"$stage/Keymasq.AppImage\"", "does not match the update manifest"),
+        (
+            "printf 'evil\n' > \"$stage/Keymasq.AppImage\"; "
+            'sed -i "s/\\"sha256\\": \\"[0-9a-f]*\\"/\\"sha256\\": \\"'
+            '$(sha256sum < "$stage/Keymasq.AppImage" | cut -d" " -f1)\\"/" "$stage/manifest.json"',
+            "signature verification failed",
+        ),
+        (
+            'ln -sf "$KEYMASQ_TEST_SECRET" "$stage/Keymasq.AppImage"',
+            "not a usable regular file",
+        ),
+        (
+            'rm "$stage/Keymasq.AppImage"; mkfifo "$stage/Keymasq.AppImage"',
+            "not a usable regular file",
+        ),
+        ('set -- "$@" --allow-unsigned', "only installs signed updates"),
+    ],
+    ids=["appimage", "manifest", "symlink", "fifo", "unsigned"],
+)
+def test_appimage_update_install_rejects_files_swapped_after_the_user_side_check(
+    tmp_path: Path,
+    tamper: str,
+    error: str,
+) -> None:
+    fake_root, env, _update_dir = _unprivileged_update_env(tmp_path, "9.9.9")
+    secret = tmp_path / "secret"
+    secret.write_text("new\n", encoding="utf-8")
+    env["KEYMASQ_TEST_SECRET"] = str(secret)
+    env["KEYMASQ_FAKE_PKEXEC_TAMPER"] = tamper
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--self-update", "--user", "root"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert error in result.stderr
+    assert len(_pkexec_calls(env)) == 1
+    assert list((fake_root / "opt/keymasq").glob("Keymasq.AppImage.new.*")) == []
+    assert (fake_root / "opt/keymasq/Keymasq.AppImage").read_text(encoding="utf-8") == (
+        "appimage\n"
+    )
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="exercises the unprivileged half of the update")
+@pytest.mark.parametrize(
+    ("case", "exit_code", "message"),
+    [
+        ("forged", 1, "signature verification failed"),
+        ("downgrade", 1, "refusing to downgrade"),
+        ("unsigned", 1, "have to start as root"),
+        ("installed", 0, "is already installed"),
+    ],
+)
+def test_appimage_self_update_asks_for_no_password_without_an_installable_update(
+    tmp_path: Path,
+    case: str,
+    exit_code: int,
+    message: str,
+) -> None:
+    fake_root, env, update_dir = _unprivileged_update_env(tmp_path, "9.9.9")
+    if case == "forged":
+        (update_dir / "latest-x86_64.json.sig").write_text("signed nothing\n", encoding="utf-8")
+    elif case == "downgrade":
+        env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "10.0.0"
+    elif case == "unsigned":
+        env["KEYMASQ_APPIMAGE_ALLOW_UNSIGNED_UPDATE"] = "1"
+    else:
+        env["KEYMASQ_APPIMAGE_CURRENT_VERSION"] = "9.9.9"
+        installed_appimage = fake_root / "opt/keymasq/Keymasq.AppImage"
+        (update_dir / "Keymasq-new-x86_64.AppImage").write_bytes(installed_appimage.read_bytes())
+        _write_update_manifest(update_dir, update_dir / "Keymasq-new-x86_64.AppImage", "9.9.9")
+        manifest_sha256 = subprocess.check_output(
+            ["sha256sum"], stdin=(update_dir / "latest-x86_64.json").open("rb"), text=True
+        )
+        (update_dir / "latest-x86_64.json.sig").write_text(
+            f"signed {manifest_sha256}", encoding="utf-8"
+        )
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--self-update", "--user", "root"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == exit_code
+    assert message in result.stdout + result.stderr
+    assert _pkexec_calls(env) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="exercises the unprivileged half of the update")
+def test_appimage_self_update_without_authorization_points_to_a_command_that_still_works(
+    tmp_path: Path,
+) -> None:
+    fake_root, env, _update_dir = _unprivileged_update_env(tmp_path, "9.9.9")
+    env["KEYMASQ_FAKE_PKEXEC_TAMPER"] = f"exit {PKEXEC_FAILED}"
+
+    result = subprocess.run(
+        ["sh", str(RUNTIME_SCRIPT), "--self-update", "--allow-downgrade"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == PKEXEC_FAILED
+    installed_appimage = fake_root / "opt/keymasq/Keymasq.AppImage"
+    assert f"sudo {installed_appimage} --self-update --allow-downgrade\n" in result.stderr
+    assert "--apply-update" not in result.stderr
+    assert list((tmp_path / "tmp").iterdir()) == []

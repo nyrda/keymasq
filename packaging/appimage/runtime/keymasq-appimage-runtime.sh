@@ -11,9 +11,14 @@ RUNTIME_FILE_LIST=share/keymasq/appimage/runtime-files.txt
 UPDATE_MANIFEST_NAME=latest-x86_64.json
 DEFAULT_UPDATE_BASE_URL=https://repo.keymasq.tools/appimage
 USER_WRAPPER_MARKER='# Managed by Keymasq AppImage'
+GNOME_EXTENSION_UUID=gnome-bridge@keymasq.tools
 
 log() {
 	printf '%s\n' "$*"
+}
+
+step() {
+	printf '==> %s\n' "$*"
 }
 
 warn() {
@@ -42,7 +47,7 @@ require_root_or_pkexec() {
 		return 0
 	fi
 
-	appimage=${APPIMAGE:-}
+	appimage=${keymasq_privileged_appimage:-${APPIMAGE:-}}
 	if [ -z "$appimage" ]; then
 		installed_appimage=$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")
 		if [ -x "$installed_appimage" ]; then
@@ -50,8 +55,22 @@ require_root_or_pkexec() {
 		fi
 	fi
 	[ -n "$appimage" ] || die "cannot locate AppImage for privilege escalation"
+	keymasq_sudo_command="sudo $appimage ${keymasq_privileged_hint:-$*}"
+	command -v pkexec >/dev/null 2>&1 ||
+		die "pkexec was not found; run as root instead: $keymasq_sudo_command"
 
-	exec pkexec "$appimage" "$@"
+	step "Waiting for authorization"
+	keymasq_pkexec_status=0
+	pkexec "$appimage" "$@" || keymasq_pkexec_status=$?
+	case "$keymasq_pkexec_status" in
+		126)
+			warn "authorization was dismissed"
+			;;
+		127)
+			warn "authorization failed. pkexec needs your account password and a running polkit agent. Without them, run in a terminal: $keymasq_sudo_command"
+			;;
+	esac
+	exit "$keymasq_pkexec_status"
 }
 
 asset_dir() {
@@ -152,7 +171,7 @@ EOF
 run_as_user() {
 	keymasq_run_user=$1
 	shift
-	if [ "$keymasq_run_user" = root ]; then
+	if [ "$keymasq_run_user" = root ] || [ "$keymasq_run_user" = "${keymasq_unprivileged_user:-}" ]; then
 		"$@"
 	elif command -v runuser >/dev/null 2>&1; then
 		runuser -u "$keymasq_run_user" -- "$@"
@@ -628,7 +647,9 @@ run_user_systemctl() {
 	[ -n "$uid" ] || return 1
 	runtime_dir=/run/user/$uid
 	bus_address=unix:path=$runtime_dir/bus
-	if command -v runuser >/dev/null 2>&1; then
+	if [ "$user" = "${keymasq_unprivileged_user:-}" ]; then
+		env XDG_RUNTIME_DIR="$runtime_dir" DBUS_SESSION_BUS_ADDRESS="$bus_address" systemctl --user "$@"
+	elif command -v runuser >/dev/null 2>&1; then
 		runuser -u "$user" -- env XDG_RUNTIME_DIR="$runtime_dir" \
 			DBUS_SESSION_BUS_ADDRESS="$bus_address" systemctl --user "$@"
 	else
@@ -725,6 +746,37 @@ install_user_wrappers() {
 		write_user_wrapper "$user" "$name" "$bin_dir/$name"
 	done
 	remove_user_wrapper_if_managed "$user" keymasq-record "$bin_dir/keymasq-record"
+}
+
+gnome_extension_dir() {
+	printf '%s\n' "$(root_path "$1/.local/share/gnome-shell/extensions/$GNOME_EXTENSION_UUID")"
+}
+
+install_gnome_extension() {
+	user=$1
+	source_dir="$(asset_dir)/gnome-extension/$GNOME_EXTENSION_UUID"
+	[ -d "$source_dir" ] || return 0
+	# GNOME Shell only loads extensions from the user and system data directories.
+	command -v gnome-shell >/dev/null 2>&1 || return 0
+	home=$(resolve_user_home "$user")
+	extension_dir=$(gnome_extension_dir "$home")
+	if [ -L "$extension_dir" ]; then
+		warn "preserving symlinked GNOME extension directory: $extension_dir"
+		return 0
+	fi
+	install_user_dir_chain "$user" "$home" .local share gnome-shell extensions "$GNOME_EXTENSION_UUID"
+	for extension_file in "$source_dir"/*; do
+		[ -f "$extension_file" ] || continue
+		write_user_file_atomic "$user" 0644 "$extension_dir/${extension_file##*/}" < "$extension_file"
+	done
+}
+
+remove_gnome_extension() {
+	user=$1
+	extension_dir=$(gnome_extension_dir "$2")
+	if [ -d "$extension_dir" ] && [ ! -L "$extension_dir" ]; then
+		remove_user_path "$user" "$extension_dir"
+	fi
 }
 
 install_session_autostart() {
@@ -952,6 +1004,7 @@ refresh_common_integration() {
 	install_path_profile
 	install_user_wrappers "$target_user"
 	install_desktop_files "$target_user"
+	install_gnome_extension "$target_user"
 }
 
 install_common_payload() {
@@ -970,12 +1023,14 @@ install_common_payload() {
 	fi
 	appimage_sha256=$(sha256sum "$appimage_dst" | awk '{print $1}')
 	previous_runtime=$(current_runtime_id || true)
+	step "Extracting the $APP_NAME runtime"
 	prepare_runtime_from_appimage "$appimage_dst" "$appimage_sha256"
 	activate_runtime "$appimage_sha256"
 	appimage_version=$(appdir_version "$(runtime_path_for_sha256 "$appimage_sha256")" 2>/dev/null || true)
 	write_installed_version "$appimage_version"
 	prune_old_runtimes "$appimage_sha256" "$previous_runtime"
 
+	step "Installing commands and device rules"
 	refresh_common_integration "$target_user"
 }
 
@@ -1161,10 +1216,12 @@ install_auto() {
 	refuse_native_package
 	require_root_or_pkexec --install --user "$target_user"
 	validate_user_wrapper_destinations "$target_user"
+	step "Copying $APP_NAME to $INSTALL_DIR"
 	install_common_payload "$target_user"
 	remove_legacy_helper_integration
 
 	if systemd_available; then
+		step "Starting the background services"
 		if steamos_detected; then
 			install_systemd_integration "$target_user" 1
 		else
@@ -1175,6 +1232,138 @@ install_auto() {
 		install_generic_integration "$target_user"
 		log "$APP_NAME core install completed at $INSTALL_DIR for user $target_user"
 	fi
+}
+
+setup_user() {
+	[ "$#" = 0 ] || die "unknown setup option: $1"
+	if is_root; then
+		die "--setup-user sets up the desktop user who runs it; run it without sudo"
+	fi
+	target_user=$(id -un)
+	keymasq_unprivileged_user=$target_user
+	installed_runtime=$(runtime_current_path)
+	[ -x "$installed_runtime/bin/keymasq" ] || die "$APP_NAME is not installed; run --install first"
+	# The installed release owns the files each user gets, not the AppImage that runs this.
+	KEYMASQ_APPIMAGE_ASSET_DIR="$installed_runtime/share/keymasq/appimage"
+	export KEYMASQ_APPIMAGE_ASSET_DIR
+
+	step "Setting up $APP_NAME for $target_user"
+	install_user_wrappers "$target_user"
+	install_desktop_files "$target_user"
+	install_gnome_extension "$target_user"
+	if [ -f "$(root_path /etc/systemd/system/keymasqd.service)" ] && systemd_available; then
+		install_user_service "$target_user"
+		step "Starting the session service"
+		run_user_systemctl "$target_user" daemon-reload || die "could not reload user systemd for $target_user"
+		run_user_systemctl "$target_user" enable --now keymasq-session.service ||
+			die "could not start keymasq-session for $target_user"
+	else
+		install_session_autostart "$target_user"
+		log "keymasq-session starts with your next login"
+	fi
+	log "$APP_NAME is set up for $target_user"
+}
+
+yes_no() {
+	if "$@" >/dev/null 2>&1; then
+		echo yes
+	else
+		echo no
+	fi
+}
+
+user_password_state() {
+	case "$(passwd -S "$1" 2>/dev/null | awk '{print $2; exit}')" in
+		P|PS) echo set ;;
+		NP|L|LK) echo missing ;;
+		*) echo unknown ;;
+	esac
+}
+
+missing_tools() {
+	keymasq_missing_tools=
+	for keymasq_tool in "$@"; do
+		command -v "$keymasq_tool" >/dev/null 2>&1 ||
+			keymasq_missing_tools="$keymasq_missing_tools $keymasq_tool"
+	done
+	printf '%s\n' "${keymasq_missing_tools# }"
+}
+
+print_status() {
+	target_user=
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--user)
+				target_user=${2:-}
+				[ -n "$target_user" ] || die "--user requires a value"
+				shift 2
+				;;
+			*)
+				die "unknown status option: $1"
+				;;
+		esac
+	done
+	target_user=$(resolve_target_user "$target_user")
+	home=$(resolve_user_home "$target_user")
+	if ! is_root && [ "$target_user" = "$(id -un)" ]; then
+		keymasq_unprivileged_user=$target_user
+	fi
+
+	installed=no
+	installed_version=
+	if [ -x "$(runtime_current_path)/bin/keymasq" ]; then
+		installed=yes
+		keymasq_status_version_file=$(version_file_path)
+		if [ -s "$keymasq_status_version_file" ]; then
+			installed_version=$(sed -n '1p' "$keymasq_status_version_file")
+		fi
+	fi
+
+	launch=runtime
+	appimage=
+	if [ -n "${APPIMAGE:-}" ] && [ -f "$APPIMAGE" ] &&
+		[ "$(readlink -f "$APPIMAGE")" != "$(readlink -f "$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")")" ]; then
+		launch=appimage
+		appimage=$APPIMAGE
+	elif [ "$installed" = yes ] && [ -n "${APPDIR:-}" ] &&
+		[ "$(readlink -f "$APPDIR")" = "$(readlink -f "$(runtime_current_path)")" ]; then
+		launch=installed
+	fi
+
+	if systemd_available; then
+		service_manager=systemd
+		user_setup=$(yes_no test -f "$(root_path "$home/.config/systemd/user/keymasq-session.service")")
+		daemon_active=$(yes_no systemctl is-active --quiet keymasqd.service)
+		session_active=$(yes_no run_user_systemctl "$target_user" is-active --quiet keymasq-session.service)
+	else
+		service_manager=generic
+		user_setup=$(yes_no test -f "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")")
+		daemon_active=unknown
+		session_active=unknown
+	fi
+
+	missing_update_tools=$(missing_tools pkexec gpg flock)
+	if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+		missing_update_tools="${missing_update_tools:+$missing_update_tools }curl"
+	fi
+
+	cat <<EOF
+installed=$installed
+installed_version=$installed_version
+launch=$launch
+appimage=$appimage
+native_package=$(yes_no native_package_installed)
+service_manager=$service_manager
+steamos=$(yes_no steamos_detected)
+user=$target_user
+user_setup=$user_setup
+daemon_active=$daemon_active
+session_active=$session_active
+password=$(user_password_state "$target_user")
+missing_install_tools=$(missing_tools pkexec setfacl udevadm sha256sum)
+missing_update_tools=$missing_update_tools
+architecture=${KEYMASQ_APPIMAGE_ARCH:-$(uname -m)}
+EOF
 }
 
 remove_path() {
@@ -1240,7 +1429,9 @@ uninstall_keymasq() {
 	require_root_or_pkexec --uninstall --user "$target_user"
 	home=$(resolve_user_home "$target_user")
 
+	step "Restoring masked devices"
 	prepare_hardware_removal
+	step "Removing $APP_NAME"
 	systemctl disable --now keymasqd.service 2>/dev/null || true
 	run_user_systemctl "$target_user" disable --now keymasq-session.service 2>/dev/null || true
 
@@ -1259,6 +1450,7 @@ uninstall_keymasq() {
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/applications/tools.keymasq.keymasq.desktop")"
 	remove_user_path "$target_user" "$(root_path "$home/.local/share/icons/hicolor/scalable/apps/tools.keymasq.keymasq.svg")"
 	remove_user_path "$target_user" "$(root_path "$home/.config/autostart/tools.keymasq.keymasq-session.desktop")"
+	remove_gnome_extension "$target_user" "$home"
 	remove_path "$(root_path "$INSTALL_DIR/share/keymasq/non-systemd-services.txt")"
 
 	for name in keymasq keymasqd keymasq-session keymasq-helper keymasq-record waypipe gtk4-brotway-run; do
@@ -1269,6 +1461,7 @@ uninstall_keymasq() {
 	remove_path "$(root_path "$INSTALL_DIR/share")"
 	remove_path "$(root_path "$INSTALL_DIR/$VERSION_FILE_NAME")"
 	remove_path "$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")"
+	remove_path "$(root_path "$INSTALL_DIR/.update.lock")"
 	rmdir "$(root_path "$INSTALL_DIR")" 2>/dev/null || true
 
 	systemctl daemon-reload 2>/dev/null || true
@@ -1337,66 +1530,23 @@ verify_manifest() {
 	die "update manifest signature verification failed"
 }
 
-self_update() {
-	target_user=
-	allow_unsigned=${KEYMASQ_APPIMAGE_ALLOW_UNSIGNED_UPDATE:-0}
-	allow_downgrade=${KEYMASQ_APPIMAGE_ALLOW_DOWNGRADE:-0}
-	while [ "$#" -gt 0 ]; do
-		case "$1" in
-			--user)
-				target_user=${2:-}
-				[ -n "$target_user" ] || die "--user requires a value"
-				shift 2
-				;;
-			--allow-unsigned|--skip-signature-check)
-				allow_unsigned=1
-				shift
-				;;
-			--allow-downgrade)
-				allow_downgrade=1
-				shift
-				;;
-			*)
-				die "unknown update option: $1"
-				;;
-		esac
-	done
-
-	set -- --self-update
-	if [ "$allow_unsigned" = 1 ]; then
-		set -- "$@" --allow-unsigned
-	fi
-	if [ "$allow_downgrade" = 1 ]; then
-		set -- "$@" --allow-downgrade
-	fi
-	if [ -n "$target_user" ]; then
-		set -- "$@" --user "$target_user"
-	fi
-	require_root_or_pkexec "$@"
-
-	target_user=$(resolve_target_user "$target_user" 2>/dev/null || printf '%s' root)
-	validate_user_wrapper_destinations "$target_user"
+require_update_architecture() {
 	arch=${KEYMASQ_APPIMAGE_ARCH:-$(uname -m)}
 	[ "$arch" = x86_64 ] || die "self-update is currently supported only on x86_64"
-	base_url=${KEYMASQ_APPIMAGE_UPDATE_BASE_URL:-$DEFAULT_UPDATE_BASE_URL}
-	manifest_name=${KEYMASQ_APPIMAGE_UPDATE_MANIFEST:-$UPDATE_MANIFEST_NAME}
-	public_key=${KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY:-$(root_path "$INSTALL_DIR/share/keymasq/appimage-update.gpg.asc")}
-	target=${KEYMASQ_APPIMAGE_TARGET:-$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")}
-	lock_path=$(root_path "$INSTALL_DIR/.update.lock")
-	install -d -m 0755 "$(dirname "$target")"
+}
 
-	tmp_dir=$(mktemp -d)
-	trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
-	manifest="$tmp_dir/manifest.json"
-	signature="$tmp_dir/manifest.sig"
-	new_appimage="$tmp_dir/$APPIMAGE_NAME"
+read_update_manifest() {
+	keymasq_manifest_dir=$1
+	keymasq_manifest_allow_unsigned=$2
+	keymasq_manifest_public_key=$3
+	require_update_architecture
+	manifest="$keymasq_manifest_dir/manifest.json"
+	signature="$keymasq_manifest_dir/manifest.sig"
 
-	download_to "$base_url/$manifest_name" "$manifest"
-	if [ "$allow_unsigned" = 1 ]; then
+	if [ "$keymasq_manifest_allow_unsigned" = 1 ]; then
 		warn "skipping AppImage update signature verification for testing"
 	else
-		download_to "$base_url/$manifest_name.sig" "$signature"
-		verify_manifest "$manifest" "$signature" "$public_key"
+		verify_manifest "$manifest" "$signature" "$keymasq_manifest_public_key"
 	fi
 
 	appimage_url=$(parse_manifest_field "$manifest" appimage_url)
@@ -1409,11 +1559,128 @@ self_update() {
 	[ -n "$manifest_architecture" ] || die "update manifest missing architecture"
 	[ "$manifest_architecture" = "$arch" ] || \
 		die "update manifest architecture $manifest_architecture does not match system architecture $arch"
+}
 
-	download_to "$appimage_url" "$new_appimage"
-	actual_sha256=$(sha256sum "$new_appimage" | awk '{print $1}')
-	[ "$actual_sha256" = "$sha256" ] || die "downloaded AppImage checksum mismatch"
-	chmod 0755 "$new_appimage"
+load_update_manifest() {
+	keymasq_manifest_dir=$1
+	keymasq_manifest_allow_unsigned=$2
+	require_update_architecture
+	base_url=${KEYMASQ_APPIMAGE_UPDATE_BASE_URL:-$DEFAULT_UPDATE_BASE_URL}
+	manifest_name=${KEYMASQ_APPIMAGE_UPDATE_MANIFEST:-$UPDATE_MANIFEST_NAME}
+
+	download_to "$base_url/$manifest_name" "$keymasq_manifest_dir/manifest.json" ||
+		die "could not download the update manifest from $base_url"
+	if [ "$keymasq_manifest_allow_unsigned" != 1 ]; then
+		download_to "$base_url/$manifest_name.sig" "$keymasq_manifest_dir/manifest.sig" ||
+			die "could not download the update manifest signature from $base_url"
+	fi
+	read_update_manifest "$@"
+}
+
+check_update() {
+	allow_unsigned=${KEYMASQ_APPIMAGE_ALLOW_UNSIGNED_UPDATE:-0}
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--allow-unsigned|--skip-signature-check)
+				allow_unsigned=1
+				shift
+				;;
+			*)
+				die "unknown update check option: $1"
+				;;
+		esac
+	done
+
+	public_key=${KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY:-$(root_path "$INSTALL_DIR/share/keymasq/appimage-update.gpg.asc")}
+	[ -s "$public_key" ] || public_key="$(asset_dir)/appimage-update.gpg.asc"
+	tmp_dir=$(mktemp -d)
+	trap 'rm -rf "$tmp_dir"' EXIT
+	trap 'exit 1' HUP INT TERM
+	load_update_manifest "$tmp_dir" "$allow_unsigned" "$public_key"
+
+	current_version=$(installed_version) || die "could not determine the installed $APP_NAME version"
+	keymasq_check_comparison=$(compare_versions "$current_version" "$version") ||
+		die "could not compare installed version $current_version with update version $version"
+	update_available=no
+	if [ "$keymasq_check_comparison" = 1 ]; then
+		update_available=yes
+	fi
+	cat <<EOF
+installed_version=$current_version
+available_version=$version
+update_available=$update_available
+EOF
+}
+
+stage_update() {
+	keymasq_stage_dir=$1
+	keymasq_stage_allow_unsigned=$2
+	keymasq_stage_allow_downgrade=$3
+	keymasq_stage_public_key=$4
+	keymasq_stage_target=$5
+	update_staged=no
+
+	step "Checking for updates"
+	load_update_manifest "$keymasq_stage_dir" "$keymasq_stage_allow_unsigned" "$keymasq_stage_public_key"
+	current_version=$(installed_version) || die "could not determine installed Keymasq version; refusing update"
+	refuse_downgrade_unless_allowed "$current_version" "$version" "$keymasq_stage_allow_downgrade"
+	# Runtimes are named after their AppImage, so this also catches an update that stopped half way.
+	if [ "$current_version" = "$version" ] && [ "$(current_runtime_id || true)" = "$sha256" ] &&
+		[ -f "$keymasq_stage_target" ] &&
+		[ "$(sha256sum "$keymasq_stage_target" | awk '{print $1}')" = "$sha256" ]; then
+		return 0
+	fi
+
+	step "Downloading $APP_NAME $version"
+	download_to "$appimage_url" "$keymasq_stage_dir/$APPIMAGE_NAME" || die "could not download $appimage_url"
+	[ "$(sha256sum "$keymasq_stage_dir/$APPIMAGE_NAME" | awk '{print $1}')" = "$sha256" ] ||
+		die "downloaded AppImage checksum mismatch"
+	update_staged=yes
+}
+
+copy_staged_file() {
+	# The unprivileged user owns the staging directory and can swap its files at
+	# any time, so the check has to be on the file that was opened, not on its path.
+	run_python - "$1" "$2" <<'PY' || die "staged update file is not a usable regular file: $1"
+import os
+import shutil
+import stat
+import sys
+
+try:
+    source = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    if not stat.S_ISREG(os.fstat(source).st_mode):
+        raise SystemExit(1)
+    target = os.open(
+        sys.argv[2],
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+        0o600,
+    )
+    with os.fdopen(source, "rb") as reader, os.fdopen(target, "wb") as writer:
+        shutil.copyfileobj(reader, writer)
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
+install_staged_update() {
+	keymasq_apply_stage=$1
+	target_user=$2
+	allow_unsigned=$3
+	allow_downgrade=$4
+	public_key=${KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY:-$(root_path "$INSTALL_DIR/share/keymasq/appimage-update.gpg.asc")}
+	target=${KEYMASQ_APPIMAGE_TARGET:-$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")}
+	lock_path=$(root_path "$INSTALL_DIR/.update.lock")
+
+	tmp_dir=$(mktemp -d)
+	trap 'rm -rf "$tmp_dir" "${keymasq_owned_stage:-}"' EXIT
+	trap 'exit 1' HUP INT TERM
+	copy_staged_file "$keymasq_apply_stage/manifest.json" "$tmp_dir/manifest.json"
+	if [ "$allow_unsigned" != 1 ]; then
+		copy_staged_file "$keymasq_apply_stage/manifest.sig" "$tmp_dir/manifest.sig"
+	fi
+	read_update_manifest "$tmp_dir" "$allow_unsigned" "$public_key"
+	install -d -m 0755 "$(dirname "$target")"
 
 	(
 		flock 9
@@ -1441,7 +1708,13 @@ self_update() {
 			exit "$keymasq_update_status"
 		' EXIT
 		trap 'exit 1' HUP INT TERM
-		install_file 0755 "$new_appimage" "$staged_target"
+		step "Installing $APP_NAME $version"
+		rm -f "$staged_target"
+		# Stay unreadable to other users until the copy matches the signed manifest.
+		copy_staged_file "$keymasq_apply_stage/$APPIMAGE_NAME" "$staged_target"
+		actual_sha256=$(sha256sum "$staged_target" | awk '{print $1}')
+		[ "$actual_sha256" = "$sha256" ] || die "staged AppImage does not match the update manifest"
+		chmod 0755 "$staged_target"
 		prepare_runtime_from_appimage "$staged_target" "$actual_sha256"
 		# A new unit may invoke commands absent from the active runtime. Restore
 		# its predecessor if refresh or activation fails, including after reload.
@@ -1467,6 +1740,7 @@ self_update() {
 		prune_old_runtimes "$actual_sha256" "$previous_runtime"
 	) 9>"$lock_path"
 
+	step "Restarting the background services"
 	restart_failed=0
 	for unit in keymasqd.service; do
 		if [ -f "$(root_path "/etc/systemd/system/$unit")" ] && \
@@ -1486,6 +1760,114 @@ self_update() {
 	fi
 
 	log "$APP_NAME updated${version:+ to $version}"
+}
+
+parse_update_options() {
+	target_user=
+	allow_unsigned=${KEYMASQ_APPIMAGE_ALLOW_UNSIGNED_UPDATE:-0}
+	allow_downgrade=${KEYMASQ_APPIMAGE_ALLOW_DOWNGRADE:-0}
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+			--user)
+				target_user=${2:-}
+				[ -n "$target_user" ] || die "--user requires a value"
+				shift 2
+				;;
+			--allow-unsigned|--skip-signature-check)
+				allow_unsigned=1
+				shift
+				;;
+			--allow-downgrade)
+				allow_downgrade=1
+				shift
+				;;
+			*)
+				die "unknown update option: $1"
+				;;
+		esac
+	done
+}
+
+apply_update() {
+	keymasq_apply_dir=${1:-}
+	[ -n "$keymasq_apply_dir" ] || die "--apply-update requires the staged update directory"
+	shift
+	parse_update_options "$@"
+	is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ] || die "installing an update requires root"
+	# Whoever staged the update also wrote this command line.
+	[ "$allow_unsigned" != 1 ] || die "--apply-update only installs signed updates"
+	[ -d "$keymasq_apply_dir" ] || die "staged update does not exist: $keymasq_apply_dir"
+
+	target_user=$(resolve_target_user "$target_user" 2>/dev/null || printf '%s' root)
+	validate_user_wrapper_destinations "$target_user"
+	install_staged_update "$keymasq_apply_dir" "$target_user" "$allow_unsigned" "$allow_downgrade"
+}
+
+self_update() {
+	parse_update_options "$@"
+	target=${KEYMASQ_APPIMAGE_TARGET:-$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")}
+	public_key=${KEYMASQ_APPIMAGE_UPDATE_PUBLIC_KEY:-$(root_path "$INSTALL_DIR/share/keymasq/appimage-update.gpg.asc")}
+
+	if is_root || [ "${KEYMASQ_APPIMAGE_SKIP_PRIVILEGE_CHECK:-0}" = 1 ]; then
+		target_user=$(resolve_target_user "$target_user" 2>/dev/null || printf '%s' root)
+		validate_user_wrapper_destinations "$target_user"
+		keymasq_owned_stage=$(mktemp -d)
+		trap 'rm -rf "$keymasq_owned_stage"' EXIT
+		trap 'exit 1' HUP INT TERM
+		stage_update "$keymasq_owned_stage" "$allow_unsigned" "$allow_downgrade" "$public_key" "$target"
+		if [ "$update_staged" = no ]; then
+			log "$APP_NAME $version is already installed"
+			return 0
+		fi
+		install_staged_update "$keymasq_owned_stage" "$target_user" "$allow_unsigned" "$allow_downgrade"
+		return 0
+	fi
+
+	# The installed release verifies and installs the update, never a downloaded AppImage.
+	keymasq_privileged_appimage=$(root_path "$INSTALL_DIR/$APPIMAGE_NAME")
+	[ -x "$keymasq_privileged_appimage" ] || die "$APP_NAME is not installed; run --install first"
+	if [ ! -f "$(runtime_current_path)/share/keymasq/appimage/gui-integration-version" ]; then
+		# Releases from before the split run their whole updater as root.
+		set -- --self-update
+		if [ "$allow_unsigned" = 1 ]; then
+			set -- "$@" --allow-unsigned
+		fi
+		if [ "$allow_downgrade" = 1 ]; then
+			set -- "$@" --allow-downgrade
+		fi
+		if [ -n "$target_user" ]; then
+			set -- "$@" --user "$target_user"
+		fi
+		require_root_or_pkexec "$@"
+	fi
+	[ "$allow_unsigned" != 1 ] ||
+		die "unsigned updates have to start as root: sudo $keymasq_privileged_appimage --self-update --allow-unsigned"
+
+	# Download and check as the invoking user. Root verifies its own copy again
+	# before installing, so this half only decides whether to ask for a password.
+	target_user=$(resolve_target_user "$target_user")
+	if [ "$target_user" = "$(id -un)" ]; then
+		keymasq_unprivileged_user=$target_user
+		validate_user_wrapper_destinations "$target_user"
+	fi
+	[ -s "$public_key" ] || public_key="$(asset_dir)/appimage-update.gpg.asc"
+	keymasq_owned_stage=$(mktemp -d)
+	trap 'rm -rf "$keymasq_owned_stage"' EXIT
+	trap 'exit 1' HUP INT TERM
+	stage_update "$keymasq_owned_stage" 0 "$allow_downgrade" "$public_key" "$target"
+	if [ "$update_staged" = no ]; then
+		log "$APP_NAME $version is already installed"
+		return 0
+	fi
+
+	set -- --apply-update "$keymasq_owned_stage" --user "$target_user"
+	# The staged files are gone once this command exits, so a retry starts over.
+	keymasq_privileged_hint=--self-update
+	if [ "$allow_downgrade" = 1 ]; then
+		set -- "$@" --allow-downgrade
+		keymasq_privileged_hint="$keymasq_privileged_hint --allow-downgrade"
+	fi
+	require_root_or_pkexec "$@"
 }
 
 resolve_appdir_python() {
@@ -1608,7 +1990,8 @@ main() {
 	case "$basename" in
 		keymasq)
 			case "${1:-}" in
-				--install|install|--uninstall|uninstall|--self-update|self-update)
+				--install|install|--uninstall|uninstall|--self-update|self-update|\
+				--check-update|--apply-update|--setup-user|--appimage-status)
 					:
 					;;
 				*)
@@ -1638,6 +2021,22 @@ main() {
 		--self-update|self-update)
 			shift
 			self_update "$@"
+			;;
+		--check-update)
+			shift
+			check_update "$@"
+			;;
+		--apply-update)
+			shift
+			apply_update "$@"
+			;;
+		--setup-user)
+			shift
+			setup_user "$@"
+			;;
+		--appimage-status)
+			shift
+			print_status "$@"
 			;;
 		keymasq|keymasqd|keymasq-session|keymasq-helper|keymasq-record)
 			command_name=$1

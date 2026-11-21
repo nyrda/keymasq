@@ -3,12 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from keymasq.common.model.hardware import HardwareConfig
+from keymasq.gui.appimage import AppImageRuntime, InstallStatus, UpdateCheck
 from keymasq.gui.preferences import (
     load_hidden_tabs,
     load_selected_profile,
     load_selected_tab,
     load_tab_order,
 )
+from keymasq.gui.widgets.appimage_dialog import AppImageDialog
 from keymasq.gui.widgets.combo_tab import ComboTab
 from keymasq.gui.widgets.device_tab.rollover import RolloverWindowState
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
@@ -17,6 +19,7 @@ from keymasq.session.profile.manager import ProfileManager
 
 from . import (
     _runtime,
+    appimage_setup,
     chrome,
     compositor,
     connection,
@@ -55,6 +58,14 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         self._connection_issue: str | None = None
         self._connection_title_label: _runtime.Gtk.Label | None = None
         self._connection_body_label: _runtime.Gtk.Label | None = None
+        self._appimage_runtime: AppImageRuntime | None = None
+        self._appimage_status: InstallStatus | None = None
+        self._appimage_status_loaded = False
+        self._appimage_update: UpdateCheck | None = None
+        self._appimage_dialog: AppImageDialog | None = None
+        self._appimage_mismatch_prompted = False
+        self._appimage_banner_action = ""
+        self._session_version = ""
         self._gnome_setup_dialog: GnomeSetupDialog | None = None
         self._gnome_setup_dialog_prompted = False
         self._gnome_setup_poll_source_id = 0
@@ -101,6 +112,8 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
         chrome._setup_content(self)
         self._suppress_selected_tab_save = False
         compositor._start_startup_probe(self)
+
+        appimage_setup.start(self)
 
         if not self.demo_mode:
             connection.register(self)

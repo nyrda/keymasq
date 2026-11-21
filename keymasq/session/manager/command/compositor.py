@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, cast
 
+from keymasq import __version__
 from keymasq.common.coercion import coerce_str
 from keymasq.common.model.actions import parse_mpris_command
 from keymasq.session.mpris import MprisDBusError
@@ -89,6 +90,7 @@ async def handle_compositor_commands(
         profile_payload = runtime_status.build_active_profiles_payload(manager)
         status_payload: JsonObject = {
             "status": "ok",
+            "session_version": __version__,
             "keymasqd_connected": manager.connected,
             "compositor_id": compositor_status["compositor_id"],
             "compositor_name": compositor_status["compositor_name"],

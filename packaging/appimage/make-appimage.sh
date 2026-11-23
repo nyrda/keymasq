@@ -311,6 +311,7 @@ install_runtime_files() {
   cp -a "$REPO_ROOT/udev/91-keymasq-acl.rules" "$APPDIR/share/keymasq/appimage/"
   cp -a "$REPO_ROOT/udev/99-keymasq-hide-grabbed.rules" "$APPDIR/share/keymasq/appimage/"
   cp -a "$REPO_ROOT/assets/tools.keymasq.keymasq.svg" "$APPDIR/share/keymasq/appimage/"
+  cp -a "$REPO_ROOT/gnome-extension" "$APPDIR/share/keymasq/appimage/"
 }
 
 write_runtime_file_list() {

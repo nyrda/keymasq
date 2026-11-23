@@ -9,7 +9,10 @@ Keymasq does not support GNOME 45 and older.
 ## Enable the extension
 
 Packaged installs already include the extension files but do not enable it
-automatically. You need to enable it once after installation.
+automatically. You need to enable it once after installation. The AppImage
+installer copies the extension to
+`~/.local/share/gnome-shell/extensions/` when GNOME Shell is installed, and
+the same steps apply.
 
 ### GUI-guided setup
 

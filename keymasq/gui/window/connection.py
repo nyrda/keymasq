@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from . import _runtime, compositor, gnome_setup, macro_recording, profiles
+from . import _runtime, appimage_setup, compositor, gnome_setup, macro_recording, profiles
 
 
 def register(window) -> None:
@@ -139,6 +139,7 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
             window, data if isinstance(data, dict) else None
         )
         if isinstance(data, dict) and data.get("status") == "ok":
+            appimage_setup.update_session_version(window, data)
             profiles._apply_profile_runtime_state(window, data)
             _queue_initial_status_profile_reload(window)
             compositor_id = data.get("compositor_id")
@@ -164,6 +165,7 @@ def _on_status_response(window, data: dict | None, query_id: int) -> bool:
                 window.session_status.set_label("session: 🟡")
                 window.keymasqd_status.set_label("keymasqd: 🔴")
                 _set_connection_issue(window, "keymasqd")
+            compositor._update_compositor_warning_banner(window)
         else:
             _update_status_disconnected(window)
     except (OSError, RuntimeError, TypeError, ValueError):
@@ -187,6 +189,7 @@ def _update_status_disconnected(window) -> None:
     profiles._mark_device_runtime_unknown(window)
     compositor._update_compositor_dispatch_state(window, None)
     _set_connection_issue(window, "session")
+    compositor._update_compositor_warning_banner(window)
 
 
 def _set_connection_issue(window, issue: str | None) -> None:
@@ -197,12 +200,18 @@ def _set_connection_issue(window, issue: str | None) -> None:
         window._connection_issue = None
         if window._connection_dialog:
             window._connection_dialog.close()
+        appimage_setup.on_session_reachable(window)
         return
 
     if issue == window._connection_issue and window._connection_dialog:
         return
 
     window._connection_issue = issue
+
+    if issue == "session" and appimage_setup.present_for_session_issue(window):
+        if window._connection_dialog:
+            window._connection_dialog.close()
+        return
 
     if issue == "session":
         title = "Cannot Reach keymasq-session"
@@ -250,6 +259,16 @@ def _set_connection_issue(window, issue: str | None) -> None:
 
         quit_btn.connect("clicked", on_quit_clicked)
         btn_row.append(quit_btn)
+
+        if window._appimage_status is not None:
+            repair_btn = _runtime.Gtk.Button(label="Repair…")
+
+            def on_repair_clicked(_button: _runtime.Gtk.Button) -> None:
+                appimage_setup.present_dialog(window)
+                dialog.close()
+
+            repair_btn.connect("clicked", on_repair_clicked)
+            btn_row.append(repair_btn)
 
         retry_btn = _runtime.Gtk.Button(label="Retry")
         retry_btn.add_css_class("suggested-action")

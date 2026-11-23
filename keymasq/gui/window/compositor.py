@@ -164,7 +164,11 @@ def _update_compositor_status(window) -> None:
 
 
 def _update_compositor_warning_banner(window) -> None:
-    if window.demo_mode or not window._startup_probe_done:
+    # An AppImage that still has to be installed has no session to ask about the compositor.
+    appimage_without_session = (
+        window._appimage_runtime is not None and window._connection_issue == "session"
+    )
+    if window.demo_mode or not window._startup_probe_done or appimage_without_session:
         window.warning_banner.set_visible(False)
         window.warning_banner.set_revealed(False)
         return

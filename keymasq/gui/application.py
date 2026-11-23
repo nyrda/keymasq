@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+from collections.abc import Callable
 from importlib import resources
 
 from keymasq import __version__
@@ -60,6 +62,7 @@ class Application(Adw.Application):
         )
         self.demo_mode = demo_mode
         self.window: MainWindow | None = None
+        self.restart_command: tuple[list[str], dict[str, str]] | None = None
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -230,6 +233,21 @@ class Application(Adw.Application):
 
         close_macro_editors(self, self.quit)
 
+    def close_macro_editors_then(self, on_closed: Callable[[], None]) -> None:
+        # After an update a first import would load the new release into this old process.
+        macro_editors = sys.modules.get("keymasq.gui.widgets.macro_editor.dialog")
+        if macro_editors is None:
+            on_closed()
+        else:
+            macro_editors.close_macro_editors(self, on_closed)
+
+    def restart_into(self, command: list[str], environment: dict[str, str]) -> None:
+        def restart() -> None:
+            self.restart_command = (command, environment)
+            self.quit()
+
+        self.close_macro_editors_then(restart)
+
     def apply_appearance_mode(self, mode: AppearanceMode, *, persist: bool = True) -> None:
         Adw.StyleManager.get_default().set_color_scheme(COLOR_SCHEME_BY_APPEARANCE[mode])
         if persist:
@@ -256,6 +274,9 @@ def main() -> None:
 
     app = Application(demo_mode=args.demo)
     app.run()
+    if app.restart_command is not None:
+        command, environment = app.restart_command
+        os.execve(command[0], command, environment)
 
 
 if __name__ == "__main__":

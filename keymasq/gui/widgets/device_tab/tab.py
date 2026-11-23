@@ -22,6 +22,8 @@ from keymasq.gui.widgets.device_tab.inputs import InputInventoryMixin
 from keymasq.gui.widgets.device_tab.inventory import InventoryMixin
 from keymasq.gui.widgets.device_tab.mapping import MappingMixin
 from keymasq.gui.widgets.device_tab.presentation import ProfilePresentationMixin
+from keymasq.gui.widgets.device_tab.preset_dialog import ApplyPresetDialog
+from keymasq.gui.widgets.device_tab.presets import PresetMixin
 from keymasq.gui.widgets.device_tab.rollover import RolloverMixin
 from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.gui.widgets.profile_managed_tab import ProfileManagedTab
@@ -39,6 +41,7 @@ class DeviceTab(
     MappingMixin,
     CaptureMixin,
     SelectorCommitMixin,
+    PresetMixin,
     ProfilePresentationMixin,
     HardwareSettingsMixin,
     ProfileManagedTab,
@@ -64,6 +67,8 @@ class DeviceTab(
             compositor_capabilities=compositor_capabilities,
         )
         self._hardware_settings_dialog: HardwareSettingsDialog | None = None
+        self._apply_preset_dialog: ApplyPresetDialog | None = None
+        self._device_tab_destroyed = False
         self._button_widgets: dict[str, Gtk.Button] = {}
         self._user_interacting = False
         self._keyboard_layout_mode = False

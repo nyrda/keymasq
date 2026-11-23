@@ -52,6 +52,7 @@ preferences-desktop-keyboard-symbolic
 system-search-symbolic
 tools.keymasq.keymasq
 user-trash-symbolic
+view-list-symbolic
 view-refresh-symbolic
 view-restore-symbolic
 view-reveal-symbolic

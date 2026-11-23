@@ -191,3 +191,10 @@ class MainWindow(_runtime.Adw.ApplicationWindow):
 
     def present_recording_settings_dialog(self) -> None:
         macro_recording.present_recording_settings_dialog(self)
+
+    def show_toast(self, title: str) -> None:
+        if not title or self._destroyed:
+            return
+        toast = _runtime.Adw.Toast(title=title)
+        toast.set_timeout(3)
+        self.toast_overlay.add_toast(toast)

@@ -91,6 +91,7 @@ class ProfilePresentationMixin:
         return "Applied profiles. Layer order: " + " -> ".join(self._active_profile_names)
 
     def _after_profile_selection_applied(self: Any) -> None:
+        self._update_apply_preset_button_state()
         self._sync_rollover_selection_with_profile()
         self._sync_rollover_dialog()
         for button_id in self._button_widgets:

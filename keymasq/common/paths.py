@@ -12,6 +12,9 @@ __all__ = [
     "ANALOG_CONTROLS_DIR",
     "MOTION_CONTROLS_DIR",
     "VIRTUAL_DEVICES_PATH",
+    "PRESETS_DIR",
+    "BUNDLED_PRESETS_DIR",
+    "preset_search_dirs",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
     "SLURP_PATH",
@@ -49,6 +52,8 @@ SETTINGS_PATH = CONFIG_DIR / "settings.toml"
 ANALOG_CONTROLS_DIR = CONFIG_DIR / "analog_controls"
 MOTION_CONTROLS_DIR = CONFIG_DIR / "motion_controls"
 VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
+PRESETS_DIR = CONFIG_DIR / "presets"
+BUNDLED_PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 _build_slurp_path = "/usr/bin/slurp"
 _build_libxkbcommon_path = ""
@@ -73,6 +78,20 @@ def ensure_config_dirs() -> None:
     SUPERKEYS_DIR.mkdir(parents=True, exist_ok=True)
     ANALOG_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
     MOTION_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def preset_search_dirs() -> list[Path]:
+    """Return preset directories from lowest to highest priority."""
+    data_dirs = [
+        Path(entry)
+        for entry in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
+        if entry.startswith("/")
+    ]
+    return [
+        BUNDLED_PRESETS_DIR,
+        *(data_dir / "keymasq" / "presets" for data_dir in reversed(data_dirs)),
+        PRESETS_DIR,
+    ]
 
 
 def ensure_session_socket_dir() -> None:

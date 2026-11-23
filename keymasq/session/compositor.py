@@ -4,6 +4,7 @@ from typing import TypedDict, cast
 
 from keymasq.session.dbus import SessionDBus
 from keymasq.session.listeners.cosmic import CosmicListener
+from keymasq.session.listeners.gamescope import GamescopeListener
 from keymasq.session.listeners.gnome import GnomeListener
 from keymasq.session.listeners.hyprland import HyprlandListener
 from keymasq.session.listeners.kde import KDEListener
@@ -19,6 +20,7 @@ log = logging.getLogger("keymasq-session.compositor")
 type CompositorProbe = Callable[[SessionDBus | None], Awaitable[bool]]
 type CompositorListener = (
     type[CosmicListener]
+    | type[GamescopeListener]
     | type[GnomeListener]
     | type[HyprlandListener]
     | type[KDEListener]
@@ -94,6 +96,13 @@ SUPPORTED_COMPOSITORS: dict[str, SupportedCompositor] = {
         "capabilities": [],
         "listener": LayerShellCursorListener,
         "probe_order": 65,
+    },
+    "gamescope": {
+        "env": "GAMESCOPE_WAYLAND_DISPLAY",
+        "name": "Gamescope",
+        "capabilities": ["layer_focus"],
+        "listener": GamescopeListener,
+        "probe_order": 68,
     },
     "x11": {
         "env": "DISPLAY",

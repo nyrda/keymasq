@@ -19,6 +19,7 @@ EXPECTED_PROBE_ORDER = [
     "cosmic",
     "wayland",
     "wayland-layer-shell",
+    "gamescope",
     "x11",
 ]
 
@@ -80,8 +81,9 @@ def test_registry_dispatches_listener_lookup_and_support_probe(
         (["gnome", "cosmic", "wayland", "x11"], "gnome"),
         (["cosmic", "wayland", "x11"], "cosmic"),
         (["gnome", "wayland", "x11"], "gnome"),
-        (["wayland", "wayland-layer-shell", "x11"], "wayland"),
-        (["wayland-layer-shell", "x11"], "wayland-layer-shell"),
+        (["wayland", "wayland-layer-shell", "gamescope", "x11"], "wayland"),
+        (["wayland-layer-shell", "gamescope", "x11"], "wayland-layer-shell"),
+        (["gamescope", "x11"], "gamescope"),
         (["x11"], "x11"),
         ([], None),
     ],

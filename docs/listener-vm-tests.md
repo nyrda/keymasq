@@ -22,6 +22,7 @@ best-effort compatibility until it gets dedicated VM coverage.
 - Sway
 - COSMIC
 - Generic Wayland via `zwlr_foreign_toplevel_manager_v1` (tested with Mango)
+- Gamescope
 - X11
 
 ### Expected to work, but not covered by dedicated VM tests
@@ -40,7 +41,6 @@ not currently part of the dedicated VM integration matrix:
 
 - Weston
 - Muffin
-- gamescope sessions
 
 ## Passing tests
 
@@ -55,6 +55,7 @@ not currently part of the dedicated VM integration matrix:
 | `listener-vm-cosmic` | cosmic | COSMIC | ✓ passing |
 | `listener-vm-sway` | sway | Sway | ✓ passing |
 | `listener-vm-mango` | wayland | Mango (wlroots fallback) | ✓ passing |
+| `listener-vm-gamescope` | gamescope | Gamescope (SteamOS-like) | ✓ passing |
 
 ## What the tests exercise
 
@@ -104,6 +105,7 @@ nix build 'path:.#checks.x86_64-linux.listener-vm-xfce'
 nix build 'path:.#checks.x86_64-linux.listener-vm-cosmic'
 nix build 'path:.#checks.x86_64-linux.listener-vm-sway'
 nix build 'path:.#checks.x86_64-linux.listener-vm-mango'
+nix build 'path:.#checks.x86_64-linux.listener-vm-gamescope'
 ```
 
 Use the `path:` flake reference while the VM files are uncommitted. A plain `.#...` build can miss new files because it evaluates the Git snapshot.
@@ -248,6 +250,12 @@ The XFCE test uses the X11 listener backed by `python-xlib`. The listener reads 
 `query_pointer()`. Absolute mouse workflows use keymasqd's virtual mouse
 movement path.
 
+### Gamescope
+
+The Gamescope test runs a minimal `gamescope` session (`--backend headless -e --xwayland-count 2`) on Mesa lavapipe, unsetting `DISPLAY` and `WAYLAND_DISPLAY` in `systemd --user` and writing `$XDG_RUNTIME_DIR/gamescope-environment` to mirror SteamOS Game Mode.
+
+A lightweight X11 driver (`keymasq-gamescope-lab`) creates a Steam Big Picture Mode window and a non-focusable `mangoapp`-style overlay (`GAMESCOPE_NO_FOCUS=1`) on `:0`, opens game windows (`STEAM_GAME=1001`, `1002`) on `:1`, and switches focus via `GAMESCOPECTRL_BASELAYER_APPID` and `STEAM_OVERLAY`/`STEAM_INPUT_FOCUS` while real `gamescope` drives all `GAMESCOPE_*` focus atoms. The test verifies multi-Xwayland window tracking and retitling, conditional game profiles, overlay (`steam-overlay`) and OSK (`steam-osk`) fallback to default mappings across `keymasq-session` restarts, and cursor reads switching between `:1` and `:0`.
+
 ## Focus switching summary
 
 | Compositor | `present()` works? | Activation method |
@@ -259,6 +267,7 @@ movement path.
 | COSMIC | yes | GTK `window.present()` |
 | Sway | no | Keymasq `activate_title` → `[con_id=<id>] focus` |
 | Mango | no | `mmsg dispatch focusid client,<id>` |
+| Gamescope | no | `GAMESCOPECTRL_BASELAYER_APPID` + `STEAM_OVERLAY`/`STEAM_INPUT_FOCUS` via `keymasq-gamescope-lab` |
 | X11/XFCE | yes | GTK `window.present()` |
 
 ## Next iteration

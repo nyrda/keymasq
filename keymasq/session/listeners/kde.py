@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from dbus_next.constants import MessageType
+from dbus_next.errors import DBusError
 from dbus_next.message import Message
 from dbus_next.service import ServiceInterface, method
 
@@ -282,7 +283,9 @@ class KDEListener(WindowListener):
             self._dispatch_waiters.pop(request_id, None)
 
         if self._window_script_iface:
-            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+            with contextlib.suppress(
+                AttributeError, DBusError, EOFError, OSError, RuntimeError, TypeError
+            ):
                 call_stop = getattr(self._window_script_iface, "call_stop", None)
                 if callable(call_stop):
                     result = call_stop()
@@ -291,7 +294,7 @@ class KDEListener(WindowListener):
             self._window_script_iface = None
 
         if self._kwin_scripting and self._plugin_name:
-            with contextlib.suppress(OSError, RuntimeError):
+            with contextlib.suppress(DBusError, EOFError, OSError, RuntimeError):
                 await self._call_unload_script(self._plugin_name)
 
         self._script_id = None
@@ -304,7 +307,7 @@ class KDEListener(WindowListener):
             self._script_path = None
 
         if self._bus and self._bridge:
-            with contextlib.suppress(OSError, RuntimeError, TypeError):
+            with contextlib.suppress(DBusError, EOFError, OSError, RuntimeError, TypeError):
                 self._bus.unexport(KDE_DBUS_OBJECT_PATH, self._bridge)
         self._bridge = None
         self._bus = None
@@ -543,14 +546,16 @@ class KDEListener(WindowListener):
         script_path: Path | None,
     ) -> None:
         if script_iface is not None:
-            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+            with contextlib.suppress(
+                AttributeError, DBusError, EOFError, OSError, RuntimeError, TypeError
+            ):
                 call_stop = getattr(script_iface, "call_stop", None)
                 if callable(call_stop):
                     result = call_stop()
                     if inspect.isawaitable(result):
                         await cast(Awaitable[object], result)
         if self._kwin_scripting and plugin_name:
-            with contextlib.suppress(OSError, RuntimeError):
+            with contextlib.suppress(DBusError, EOFError, OSError, RuntimeError):
                 await self._call_unload_script(plugin_name)
         if script_path is not None:
             with contextlib.suppress(OSError):
@@ -612,14 +617,16 @@ class KDEListener(WindowListener):
         self._cursor_tracking_cache = None
 
         if script_iface is not None:
-            with contextlib.suppress(AttributeError, OSError, RuntimeError, TypeError):
+            with contextlib.suppress(
+                AttributeError, DBusError, EOFError, OSError, RuntimeError, TypeError
+            ):
                 call_stop = getattr(script_iface, "call_stop", None)
                 if callable(call_stop):
                     result = call_stop()
                     if inspect.isawaitable(result):
                         await cast(Awaitable[object], result)
         if self._kwin_scripting and plugin_name:
-            with contextlib.suppress(OSError, RuntimeError):
+            with contextlib.suppress(DBusError, EOFError, OSError, RuntimeError):
                 await self._call_unload_script(plugin_name)
         if script_path is not None:
             with contextlib.suppress(OSError):

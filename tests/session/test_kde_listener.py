@@ -630,3 +630,47 @@ def test_ephemeral_kwin_script_helper_stops_on_run_failure(monkeypatch, tmp_path
     assert isinstance(result, kde_listener_module._KDEEphemeralScriptRunError)
     assert calls == ["write:source", "load", "iface", "stop", "unload"]
     assert path_exists is False
+
+
+def test_kde_listener_stop_completes_cleanup_on_bus_eof(monkeypatch, tmp_path) -> None:
+    class _EofScriptIface:
+        async def call_stop(self) -> None:
+            raise EOFError("bus closed")
+
+    class _FakeBus:
+        def __init__(self) -> None:
+            self.unexported: list[tuple[str, object]] = []
+
+        def unexport(self, path: str, iface: object) -> None:
+            self.unexported.append((path, iface))
+
+    async def _unload_eof(_plugin_name: str) -> None:
+        raise EOFError("bus closed")
+
+    listener = KDEListener(_noop_callback)
+    script_path = tmp_path / "window.js"
+    script_path.write_text("print('hi')")
+    bridge = object()
+    bus = _FakeBus()
+    listener.running = True
+    listener._window_script_iface = _EofScriptIface()
+    listener._kwin_scripting = object()
+    listener._plugin_name = "keymasq-kde-test"
+    listener._script_id = 7
+    listener._script_path = script_path
+    listener._bridge = bridge
+    listener._bus = bus
+    monkeypatch.setattr(listener, "_call_unload_script", _unload_eof)
+
+    asyncio.run(listener.stop())
+
+    assert listener.running is False
+    assert listener._window_script_iface is None
+    assert listener._kwin_scripting is None
+    assert listener._plugin_name == ""
+    assert listener._script_id is None
+    assert listener._script_path is None
+    assert listener._bridge is None
+    assert listener._bus is None
+    assert script_path.exists() is False
+    assert len(bus.unexported) == 1

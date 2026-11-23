@@ -240,9 +240,12 @@ fuzzel uses the namespace `launcher` by default. On Hyprland,
 the Window Rules dialog also records the layer when you open the launcher
 during the capture delay.
 
-`layer` rules work on Hyprland with a Lua config. With a hyprlang config and
-on other compositors, profiles with `layer` rules show as unsupported and never
-activate.
+`layer` rules work on Hyprland (with a Lua config) and in Gamescope sessions.
+In Gamescope, Steam overlays (Steam menu and Quick Access Menu) report the layer
+`steam-overlay`, and the on-screen keyboard reports `steam-osk`, pausing
+game-specific window rules so menus use your default mappings. On Hyprland with
+a hyprlang config and on other compositors, profiles with `layer` rules show as
+unsupported and never activate.
 
 ## TOML format
 

@@ -31,6 +31,7 @@ wlroots-based compositors.
 | **Sway** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | Yes | Tracks windows like generic wlroots and sends actions over Sway's i3-compatible IPC socket. Includes a **Set Cursor** compositor action. |
 | **Generic wlroots** | Yes | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Works on wlroots-based compositors such as Mango, Wayfire, river, and labwc. |
 | **Generic layer-shell Wayland** | No | [Layer-shell feedback](#layer-shell-pointer-feedback) | No | Fallback for compositors with `zwlr_layer_shell_v1` and `zxdg_output_manager_v1` but no supported active-window protocol. |
+| **Gamescope** | Yes | Native (focused Xwayland) | No | Tracks multi-Xwayland gamescope sessions (e.g., SteamOS Game Mode) and clears window focus to `layer` rules when Steam overlays or OSK take focus. |
 | **X11** | Yes | Native | No | Not Wayland, but useful as a comparison point. |
 
 ### What the columns mean
@@ -229,6 +230,32 @@ Pointer-position reads use [layer-shell feedback](#layer-shell-pointer-feedback)
 when the compositor exposes the required Wayland protocols.
 Generic wlroots support does not include compositor actions because there is
 no shared compositor-dispatch API.
+
+### Gamescope
+
+Keymasq supports standalone gamescope sessions such as SteamOS Game Mode.
+Gamescope runs separate Xwayland servers for Steam UI (`:0`) and launched games
+(`:1` and up) and exposes focus state through `GAMESCOPE_*` root properties on
+the control Xwayland server rather than `_NET_ACTIVE_WINDOW`.
+
+Keymasq tracks `GAMESCOPE_FOCUSED_WINDOW`, `GAMESCOPE_FOCUSED_APP`,
+`GAMESCOPE_FOCUSED_APP_GFX`, `GAMESCOPE_FOCUSABLE_WINDOWS`, and the
+`GAMESCOPE_*_FOCUS_DISPLAY` properties to resolve the focused window's
+`WM_CLASS` and title across all Xwayland servers belonging to the session. For
+native Wayland games with no X11 window, Keymasq falls back to
+`steam_app_<appid>` from `GAMESCOPE_FOCUSED_APP`.
+
+When a Steam overlay (Steam menu or Quick Access Menu) or the on-screen keyboard
+takes focus over a game, Keymasq clears the active window `class` and `title` so
+game-specific conditional profiles fall back to your permanent profiles, and
+reports a [`layer` rule](profiles.md#layers) namespace (`steam-overlay` or
+`steam-osk`).
+
+Cursor reads query the pointer on whichever Xwayland server currently holds
+mouse focus (`GAMESCOPE_MOUSE_FOCUS_DISPLAY`). Coordinates reflect that
+Xwayland server's window coordinate space (which may differ from the panel
+resolution when gamescope scales a game). Gamescope does not expose compositor
+actions.
 
 ## Troubleshooting
 

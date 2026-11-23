@@ -19,10 +19,11 @@ from keymasq.session.analog_controls import AnalogControlManager
 from keymasq.session.presets import (
     PresetPlan,
     ProfilePreset,
-    apply_preset,
     load_presets,
     plan_preset,
     presets_for_hardware,
+    save_preset_analog_controls,
+    write_preset_mappings,
 )
 from keymasq.session.profile.manager import ProfileManager
 
@@ -67,8 +68,7 @@ def empty_plan_summary(plan: PresetPlan) -> str:
         )
     if plan.kept:
         return (
-            "No controls will be filled. "
-            "Every matching control in this preset is already mapped."
+            "No controls will be filled. Every matching control in this preset is already mapped."
         )
     if plan.unavailable:
         return (
@@ -365,48 +365,52 @@ class ApplyPresetDialog(Adw.Dialog):
         self.set_can_close(False)
         error_label.set_visible(False)
 
-        profile_name = self._profile_name
         hardware = self._hardware
-        profile_manager = self._profile_manager
+        layer = self._layer
 
-        def worker() -> PresetPlan:
-            current = profile_manager.get_profile(profile_name)
-            if current is None:
-                raise ValueError(f"Profile '{profile_name}' no longer exists.")
-            previous_layer = copy.deepcopy(current.config.get_layer(hardware.hardware_id))
-            try:
-                return apply_preset(
-                    preset,
-                    current.config,
-                    hardware,
-                    profile_manager=profile_manager,
-                    analog_control_manager=AnalogControlManager(),
-                )
-            except Exception:
-                if previous_layer is None:
-                    current.config.device_layers.pop(hardware.hardware_id, None)
-                else:
-                    current.config.device_layers[hardware.hardware_id] = previous_layer
-                raise
+        def worker() -> dict[str, AnalogControlConfig]:
+            return save_preset_analog_controls(preset, hardware, layer, AnalogControlManager())
 
-        def on_done(result: GuiTaskResult[PresetPlan]) -> bool:
+        def show_error(message: str) -> None:
+            if self._closed:
+                return
+            apply_btn.set_sensitive(True)
+            cancel_btn.set_sensitive(True)
+            error_label.set_text(f"Could not apply preset: {message}")
+            error_label.set_visible(True)
+
+        def on_done(result: GuiTaskResult[dict[str, AnalogControlConfig]]) -> bool:
             self._applying = False
             self.set_can_close(True)
             if result.error is not None or result.value is None:
-                if not self._closed:
-                    apply_btn.set_sensitive(True)
-                    cancel_btn.set_sensitive(True)
-                    message = (
-                        str(result.error) if result.error is not None else "Unknown error"
-                    )
-                    error_label.set_text(f"Could not apply preset: {message}")
-                    error_label.set_visible(True)
+                show_error(str(result.error) if result.error is not None else "Unknown error")
                 return False
 
-            applied_plan = result.value
+            # The profile is shared with the tab, so it is only changed on the main thread.
+            try:
+                applied_plan = self._write_mappings(preset, result.value)
+            except (OSError, ValueError) as exc:
+                show_error(str(exc))
+                return False
             if not self._closed:
                 self.close()
             self._on_applied(preset, applied_plan)
             return False
 
         run_gui_task(worker, on_done)
+
+    def _write_mappings(
+        self,
+        preset: ProfilePreset,
+        saved_analog_controls: dict[str, AnalogControlConfig],
+    ) -> PresetPlan:
+        current = self._profile_manager.get_profile(self._profile_name)
+        if current is None:
+            raise ValueError(f"Profile '{self._profile_name}' no longer exists.")
+        return write_preset_mappings(
+            preset,
+            current.config,
+            self._hardware,
+            saved_analog_controls,
+            profile_manager=self._profile_manager,
+        )

@@ -156,6 +156,33 @@ def test_apply_skips_a_stick_when_the_saved_control_of_that_name_is_for_an_axis(
     assert "right_stick" not in saved.config.device_layers[hardware.hardware_id].mappings
 
 
+def test_a_failed_profile_save_leaves_the_profile_mappings_unchanged(
+    temp_config_dir, tmp_path, monkeypatch
+):
+    hardware = _gamepad()
+    profile = ProfileConfig(name="Desk")
+    profile.ensure_layer(hardware.hardware_id).mappings["btn_south"] = MappingAction(
+        ActionType.KEYBOARD, target="key_a"
+    )
+    profile_manager = ProfileManager()
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("read-only filesystem")
+
+    monkeypatch.setattr(profile_manager, "save_profile", fail_save)
+
+    with pytest.raises(OSError, match="read-only filesystem"):
+        apply_preset(
+            _desktop_preset(tmp_path),
+            profile,
+            hardware,
+            profile_manager=profile_manager,
+            analog_control_manager=AnalogControlManager(),
+        )
+
+    assert list(profile.device_layers[hardware.hardware_id].mappings) == ["btn_south"]
+
+
 def test_later_search_directories_override_earlier_ones_by_file_name(tmp_path):
     packaged, user = tmp_path / "packaged", tmp_path / "user"
     _write_preset(packaged, "desktop", '[preset]\nname = "Packaged"\n' + MINIMAL_MAPPING)

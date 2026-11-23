@@ -256,9 +256,7 @@ def test_dialog_loads_presets_async_and_orders_model_specific_first(
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "desktop", DESKTOP_PRESET_TOML)
     _write_preset(preset_dir, "deck", MODEL_PRESET_TOML)
-    monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     pending, flush_next = _install_deferred_gui_task(monkeypatch)
     presented = _capture_presented_dialogs(monkeypatch)
 
@@ -288,9 +286,7 @@ def test_dialog_loads_presets_async_and_orders_model_specific_first(
 def test_dialog_shows_empty_state_with_user_presets_path(temp_config_dir, tmp_path, monkeypatch):
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "desktop", DESKTOP_PRESET_TOML)
-    monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     _install_sync_gui_task(monkeypatch)
     presented = _capture_presented_dialogs(monkeypatch)
 
@@ -313,9 +309,7 @@ def test_preview_shows_fill_kept_unavailable_and_writes_only_on_confirm(
 ):
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "desktop", DESKTOP_PRESET_TOML)
-    monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     pending, flush_next = _install_deferred_gui_task(monkeypatch)
     presented = _capture_presented_dialogs(monkeypatch)
 
@@ -399,9 +393,7 @@ def test_preview_omits_apply_button_when_nothing_would_be_filled(
 ):
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "deck", MODEL_PRESET_TOML)
-    monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     _install_sync_gui_task(monkeypatch)
     presented = _capture_presented_dialogs(monkeypatch)
 
@@ -428,14 +420,10 @@ def test_preview_omits_apply_button_when_nothing_would_be_filled(
     assert _find_button_by_label(preview_page, "Close") is not None
 
 
-def test_apply_saves_embedded_analog_controls_and_handles_errors(
-    temp_config_dir, tmp_path, monkeypatch
-):
+def test_apply_saves_embedded_analog_controls(temp_config_dir, tmp_path, monkeypatch):
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "desktop", DESKTOP_PRESET_TOML)
-    monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     _install_sync_gui_task(monkeypatch)
     presented = _capture_presented_dialogs(monkeypatch)
 
@@ -490,12 +478,10 @@ def test_dialog_reports_load_and_apply_errors(temp_config_dir, tmp_path, monkeyp
 
     preset_dir = tmp_path / "presets"
     _write_preset(preset_dir, "deck", MODEL_PRESET_TOML)
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
     monkeypatch.setattr(
-        preset_dialog_module, "load_presets", lambda: load_presets([preset_dir])
-    )
-    monkeypatch.setattr(
-        preset_dialog_module,
-        "apply_preset",
+        profile_manager,
+        "save_profile",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("read-only filesystem")),
     )
 

@@ -120,6 +120,13 @@ priority folder wins. This lets you override a bundled or system preset by
 placing a file with the same name in `~/.config/keymasq/presets`. Invalid preset
 files are logged and skipped without hiding valid presets.
 
+## Trusting preset files
+
+A preset can contain any mapping a profile can, including `exec` actions that
+run shell commands when you press the mapped control. Read a preset file from
+someone else before you apply it. The preview lists every mapping the preset
+will add.
+
 ## Current limits
 
 - A preset cannot reference a saved superkey, motion control, or macro. Files

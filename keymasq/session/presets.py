@@ -219,6 +219,47 @@ def plan_preset(
     return plan
 
 
+def save_preset_analog_controls(
+    preset: ProfilePreset,
+    hardware: HardwareConfig,
+    layer: DeviceProfileLayer | None,
+    analog_control_manager: AnalogControlManager,
+) -> dict[str, AnalogControlConfig]:
+    plan = plan_preset(preset, hardware, layer, analog_control_manager.get_all_analog_controls())
+    for control in plan.new_analog_controls:
+        analog_control_manager.save_analog_control(control)
+    return analog_control_manager.get_all_analog_controls()
+
+
+def write_preset_mappings(
+    preset: ProfilePreset,
+    profile: ProfileConfig,
+    hardware: HardwareConfig,
+    saved_analog_controls: Mapping[str, AnalogControlConfig],
+    *,
+    profile_manager: ProfileManager,
+) -> PresetPlan:
+    hardware_id = hardware.hardware_id
+    existing_layer = profile.get_layer(hardware_id)
+    plan = plan_preset(preset, hardware, existing_layer, saved_analog_controls)
+    if not plan.mappings:
+        return plan
+
+    layer = profile.ensure_layer(hardware_id)
+    previous_mappings = dict(layer.mappings)
+    layer.mappings.update(plan.mappings)
+    try:
+        profile_manager.save_profile(profile)
+    except Exception:
+        if existing_layer is None:
+            profile.device_layers.pop(hardware_id, None)
+        else:
+            layer.mappings.clear()
+            layer.mappings.update(previous_mappings)
+        raise
+    return plan
+
+
 def apply_preset(
     preset: ProfilePreset,
     profile: ProfileConfig,
@@ -227,18 +268,17 @@ def apply_preset(
     profile_manager: ProfileManager,
     analog_control_manager: AnalogControlManager,
 ) -> PresetPlan:
-    plan = plan_preset(
+    # Analog controls are saved first so the profile never references a missing one.
+    saved_analog_controls = save_preset_analog_controls(
         preset,
         hardware,
         profile.get_layer(hardware.hardware_id),
-        analog_control_manager.get_all_analog_controls(),
+        analog_control_manager,
     )
-    if not plan.mappings:
-        return plan
-
-    # Analog controls are saved first so the profile never references a missing one.
-    for control in plan.new_analog_controls:
-        analog_control_manager.save_analog_control(control)
-    profile.ensure_layer(hardware.hardware_id).mappings.update(plan.mappings)
-    profile_manager.save_profile(profile)
-    return plan
+    return write_preset_mappings(
+        preset,
+        profile,
+        hardware,
+        saved_analog_controls,
+        profile_manager=profile_manager,
+    )

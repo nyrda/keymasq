@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added an **Apply preset** button on the device tab profile toolbar to preview
+  and apply matching TOML profile presets to the selected profile and device,
+  including the bundled **Desktop mouse** gamepad preset. Applying fills only
+  unbound and passthrough controls and reuses existing saved analog controls.
+
 ## 0.21.1 - 2026-10-30
 
 ### Added

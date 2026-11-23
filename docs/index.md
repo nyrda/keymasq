@@ -24,6 +24,8 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
   controls, and detection methods.
 - [Profiles](profiles.md) — the layered, window-aware profile model. The other
   features all attach to profiles.
+- [Presets](presets.md) — fill a device layer in a profile from a reusable TOML
+  preset without overwriting existing mappings.
 - [Actions](actions.md) — what each mapping can do.
 - [Examples](examples.md) — short recipes for common tasks.
 - [Macros](macros.md) — create, record, and play input sequences, including autoclicker loops.

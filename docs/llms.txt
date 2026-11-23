@@ -39,6 +39,7 @@ Primary docs:
 - Hardware Masking: https://keymasq.tools/docs/latest/hardware-masking/
 - Device Inspector: https://keymasq.tools/docs/latest/device-inspector/
 - Profiles: https://keymasq.tools/docs/latest/profiles/
+- Presets: https://keymasq.tools/docs/latest/presets/
 - Actions: https://keymasq.tools/docs/latest/actions/
 - Macros: https://keymasq.tools/docs/latest/macros/
 - Macro timeline editor: https://keymasq.tools/docs/latest/macro-editor/
@@ -90,6 +91,7 @@ Primary docs:
   superkeys/<superkey_name>.toml
   analog_controls/<control_name>.toml
   motion_controls/<control_name>.toml
+  presets/<preset_id>.toml
   virtual_devices.toml
   recording_settings.toml
   settings.toml

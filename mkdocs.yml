@@ -104,6 +104,7 @@ nav:
       - Hardware Masking: hardware-masking.md
       - Device Inspector: device-inspector.md
       - Profiles: profiles.md
+      - Presets: presets.md
       - Actions: actions.md
       - Analog Controls: analog-controls.md
       - Motion Controls: motion-controls.md

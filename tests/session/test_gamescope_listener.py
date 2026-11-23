@@ -747,3 +747,92 @@ def test_gamescope_cursor_returns_none_for_wayland_or_unopenable_focus_display(
             await listener.stop()
 
     asyncio.run(run())
+
+
+def test_gamescope_drains_events_buffered_during_sync_xlib_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> None:
+        displays, root0, steam_win, _kotor = _build_deck_displays()
+        disp0 = displays[":0"]
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setenv("XDG_CURRENT_DESKTOP", "gamescope")
+        monkeypatch.setattr(gamescope_module, "xlib_constants", _fake_x_constants())
+        monkeypatch.setattr(gamescope_module, "xlib_display", _FakeDisplayModule(displays))
+        monkeypatch.setattr(gamescope_module, "_x11_socket_displays", lambda: [":0", ":1"])
+        monkeypatch.setattr(gamescope_module, "_read_gamescope_environment_display", lambda: ":0")
+
+        emissions: list[tuple[str, str, str]] = []
+        second_emission = asyncio.Event()
+        third_emission = asyncio.Event()
+        listener: GamescopeListener | None = None
+
+        async def _cb(window_class: str, window_title: str, _tags: list[str]) -> None:
+            assert listener is not None
+            emissions.append((window_class, window_title, listener.active_layer))
+            if len(emissions) == 2:
+                second_emission.set()
+            elif len(emissions) == 3:
+                third_emission.set()
+
+        listener = GamescopeListener(_cb)
+        orig_query = listener._query_active_state
+        buffered_once = False
+
+        def _query_and_buffer() -> tuple[str, str, str]:
+            nonlocal buffered_once
+            result = orig_query()
+            if not buffered_once:
+                buffered_once = True
+                steam_win.props["STEAM_OVERLAY"] = [1]
+                steam_win.props["STEAM_INPUT_FOCUS"] = [1]
+                root0.props["GAMESCOPE_FOCUSED_APP"] = [769]
+                disp0.events.append(
+                    SimpleNamespace(
+                        type=28,
+                        window=steam_win,
+                        atom=disp0.intern_atom("STEAM_OVERLAY"),
+                    )
+                )
+            return result
+
+        monkeypatch.setattr(listener, "_query_active_state", _query_and_buffer)
+
+        await listener.start()
+        try:
+            await asyncio.wait_for(second_emission.wait(), timeout=2.0)
+            assert emissions[0] == (
+                "steam_app_32370",
+                "Star Wars: Knights of the Old Republic",
+                "",
+            )
+            assert emissions[1] == ("", "", STEAM_OVERLAY_LAYER)
+
+            orig_cursor = listener._query_cursor_position
+
+            def _cursor_and_buffer() -> tuple[int, int] | None:
+                pos = orig_cursor()
+                steam_win.props["STEAM_OVERLAY"] = [0]
+                steam_win.props["STEAM_INPUT_FOCUS"] = [0]
+                root0.props["GAMESCOPE_FOCUSED_APP"] = [32370]
+                disp0.events.append(
+                    SimpleNamespace(
+                        type=28,
+                        window=root0,
+                        atom=disp0.intern_atom("GAMESCOPE_FOCUSED_APP"),
+                    )
+                )
+                return pos
+
+            monkeypatch.setattr(listener, "_query_cursor_position", _cursor_and_buffer)
+            await listener.get_cursor_position()
+            await asyncio.wait_for(third_emission.wait(), timeout=2.0)
+            assert emissions[2] == (
+                "steam_app_32370",
+                "Star Wars: Knights of the Old Republic",
+                "",
+            )
+        finally:
+            await listener.stop()
+
+    asyncio.run(run())

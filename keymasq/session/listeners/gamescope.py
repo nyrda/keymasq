@@ -510,13 +510,17 @@ class GamescopeListener(WindowListener):
     async def health_check(self) -> bool:
         if not await super().health_check():
             return False
-        return await asyncio.to_thread(self._check_control_alive)
+        alive = await asyncio.to_thread(self._check_control_alive)
+        if alive:
+            await self._wake_if_buffered_events()
+        return alive
 
     async def get_active_window(self) -> tuple[str, str, list[str]]:
         try:
             window_class, window_title, layer = await asyncio.to_thread(self._query_active_state)
             self._active_layer = layer
             await self._sync_loop_readers()
+            await self._wake_if_buffered_events()
             return window_class, window_title, []
         except Exception as exc:  # noqa: BLE001 - keep active-window fallback alive.
             _log_x_failure("Gamescope active window query failed", exc)
@@ -526,6 +530,7 @@ class GamescopeListener(WindowListener):
         try:
             pos = await asyncio.to_thread(self._query_cursor_position)
             await self._sync_loop_readers()
+            await self._wake_if_buffered_events()
             return pos
         except Exception as exc:  # noqa: BLE001 - keep cursor query fallback alive.
             _log_x_failure("Gamescope cursor query failed", exc)
@@ -542,11 +547,20 @@ class GamescopeListener(WindowListener):
             await self._sync_loop_readers()
             await self._emit_active_window_if_changed()
 
+            skip_buffered_check = False
             while self.running:
-                await self._fd_event.wait()
+                if not self._fd_event.is_set():
+                    has_buffered = (
+                        False
+                        if skip_buffered_check
+                        else await asyncio.to_thread(self._has_buffered_events)
+                    )
+                    if not has_buffered:
+                        await self._fd_event.wait()
                 self._fd_event.clear()
 
-                changed = await asyncio.to_thread(self._drain_events)
+                changed, drain_failed = await asyncio.to_thread(self._drain_events)
+                skip_buffered_check = drain_failed
                 await self._sync_loop_readers()
                 if changed:
                     await self._emit_active_window_if_changed()
@@ -561,6 +575,26 @@ class GamescopeListener(WindowListener):
 
     def _on_display_readable(self) -> None:
         if self._fd_event and not self._fd_event.is_set():
+            self._fd_event.set()
+
+    def _has_buffered_events(self) -> bool:
+        with self._x_lock:
+            conns: list[_DisplayConnection] = []
+            if self._control is not None:
+                conns.append(self._control)
+            conns.extend(self._siblings.values())
+            for conn in conns:
+                try:
+                    if conn.display.pending_events() > 0:
+                        return True
+                except Exception as exc:  # noqa: BLE001 - ignore dead display while checking queue.
+                    _log_x_failure(f"Failed to check Gamescope event queue on {conn.name}", exc)
+            return False
+
+    async def _wake_if_buffered_events(self) -> None:
+        if self._fd_event is None or self._fd_event.is_set():
+            return
+        if await asyncio.to_thread(self._has_buffered_events):
             self._fd_event.set()
 
     async def _sync_loop_readers(self) -> None:
@@ -835,25 +869,36 @@ class GamescopeListener(WindowListener):
         except Exception as exc:  # noqa: BLE001 - window may have closed concurrently.
             _log_x_failure("Failed to watch Gamescope active window", exc)
 
-    def _drain_events(self) -> bool:
+    def _drain_events(self) -> tuple[bool, bool]:
         with self._x_lock:
             changed = False
+            had_error = False
             if self._control is not None:
-                changed = self._drain_display_unlocked(self._control, is_control=True) or changed
+                ctrl_changed, ctrl_error = self._drain_display_unlocked(
+                    self._control, is_control=True
+                )
+                changed = ctrl_changed or changed
+                had_error = ctrl_error or had_error
             for display_name in list(self._siblings):
                 conn = self._siblings.get(display_name)
                 if conn is None:
                     continue
                 try:
-                    if self._drain_display_unlocked(conn, is_control=False):
+                    sib_changed, _ = self._drain_display_unlocked(conn, is_control=False)
+                    if sib_changed:
                         changed = True
                 except Exception as exc:  # noqa: BLE001 - dead sibling Xwayland server.
                     _log_x_failure(f"Gamescope sibling display {display_name} disconnected", exc)
                     self._drop_sibling_unlocked(display_name)
                     changed = True
-            return changed
+            return changed, had_error
 
-    def _drain_display_unlocked(self, conn: _DisplayConnection, *, is_control: bool) -> bool:
+    def _drain_display_unlocked(
+        self,
+        conn: _DisplayConnection,
+        *,
+        is_control: bool,
+    ) -> tuple[bool, bool]:
         changed = False
         try:
             while conn.display.pending_events() > 0:
@@ -864,8 +909,8 @@ class GamescopeListener(WindowListener):
             if not is_control:
                 raise
             _log_x_failure("Failed to drain Gamescope control events", exc)
-            return False
-        return changed
+            return False, True
+        return changed, False
 
     def _handle_x_event_unlocked(
         self,

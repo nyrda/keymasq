@@ -23,6 +23,7 @@ EXPECTED_CHECKS = {
     "listener-vm-cosmic",
     "listener-vm-sway",
     "listener-vm-mango",
+    "listener-vm-gamescope",
 }
 
 

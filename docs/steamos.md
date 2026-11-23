@@ -55,7 +55,11 @@ happens in Game Mode and in remote sessions, because they have no desktop
 password prompt.
 
 After setup, you can go back to Game Mode. Remapping runs as a background
-service and does not need the GUI or Desktop Mode.
+service and does not need the GUI or Desktop Mode. Window-aware conditional
+profiles work in Game Mode as well: Keymasq tracks active games across
+gamescope's Xwayland displays and automatically pauses game profiles while the
+Steam menu, Quick Access Menu (`layer = "steam-overlay"`), or on-screen keyboard
+(`layer = "steam-osk"`) has focus so menus keep your default mappings.
 
 The rest of this page covers what the installer puts on disk, how the install
 persists across SteamOS updates, and how to update and uninstall Keymasq.

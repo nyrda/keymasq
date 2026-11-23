@@ -19,6 +19,7 @@ LISTENER_TEST_ENTRIES=(
   "cosmic|listener-vm-cosmic|COSMIC listener|"
   "sway|listener-vm-sway|Sway listener|"
   "mango|listener-vm-mango|generic wlroots listener (Mango)|wayland wlroots"
+  "gamescope|listener-vm-gamescope|Gamescope listener|steamos"
 )
 INTEGRATION_TEST_ENTRIES=(
   "$DAEMON_SESSION_TEST_ENTRY"

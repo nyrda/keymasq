@@ -22,7 +22,7 @@ when in doubt.
 | AppImage/Brotway artifact | `scripts/test-appimage-brotway <Keymasq.AppImage>` | [AppImage/Brotway artifact gate](#appimagebrotway-artifact-gate) |
 | AppImage upgrade from v0.20.0 | `scripts/test-appimage-upgrade <Keymasq.AppImage>` | [AppImage upgrade gate](#appimage-upgrade-gate) |
 | Listener VM matrix (all compositors) | `./scripts/integration.sh listeners` | [listener-vm-tests.md](listener-vm-tests.md) |
-| Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|mango\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
+| Single listener VM | `./scripts/integration.sh <gnome\|kde\|hyprland\|niri\|xfce\|cosmic\|sway\|mango\|gamescope\|gnome-bridge>` | [listener-vm-tests.md](listener-vm-tests.md) |
 | Documentation screenshots | `scripts/check-doc-screenshots` | [screenshots.md](screenshots.md) |
 
 List every integration shortcut with `./scripts/integration.sh --help`.

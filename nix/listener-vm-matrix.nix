@@ -37,12 +37,23 @@ let
     '';
   };
 
+  gamescopeLabPython = pkgs.python3.withPackages (ps: [ ps.xlib ]);
+
+  gamescopeLab = pkgs.writeShellApplication {
+    name = "keymasq-gamescope-lab";
+    runtimeInputs = [ gamescopeLabPython ];
+    text = ''
+      exec ${gamescopeLabPython}/bin/python ${./listener-vms/gamescope-lab.py} "$@"
+    '';
+  };
+
   listenerWindowLabTools = compositorVmLib.mkWindowLabTools {
     commandPrefix = "keymasq-listener";
     packageName = "keymasq-listener-vm-tools";
     extraPaths = [
       sessionQuery
       gnomeBridgeProbe
+      gamescopeLab
     ];
   };
   listenerVmTools = listenerWindowLabTools.tools;
@@ -978,6 +989,7 @@ let
   swayModule = compositorVmLib.desktopModules.sway;
   mangoModule = compositorVmLib.desktopModules.mango;
   niriModule = compositorVmLib.desktopModules.niri { };
+  gamescopeModule = compositorVmLib.desktopModules.gamescope { };
 
 in
 {
@@ -1215,6 +1227,293 @@ in
             "niri socket",
             'test -S "$(systemctl --user show-environment | sed -n "s/^NIRI_SOCKET=//p")"',
         )
+      '';
+    };
+
+    listener-vm-gamescope = mkDesktopTest {
+      name = "listener-vm-gamescope";
+      expectedCompositor = "gamescope";
+      extraModule = gamescopeModule;
+      runListenerAssertions = false;
+      memorySize = 3072;
+      desktopReadyScript = ''
+        wait_for_command("gamescope process", "pgrep -u ${toString vmUid} -f '/bin/gamescope '")
+        wait_for_user_command(
+            "gamescope-environment file",
+            f"test -s {runtime_dir}/gamescope-environment",
+        )
+        wait_for_user_command("gamescope control Xwayland :0", "test -S /tmp/.X11-unix/X0")
+        wait_for_user_command("gamescope game Xwayland :1", "test -S /tmp/.X11-unix/X1")
+      '';
+      preflightScript = ''
+        gs_socket = f"{runtime_dir}/gamescope-lab.sock"
+
+        def gs_lab(args: str) -> dict:
+            raw = machine.succeed(as_user(f"keymasq-gamescope-lab --socket {gs_socket} {args}"))
+            return json.loads(raw)
+
+        def write_profile(filename: str, content: str) -> None:
+            prof_dir = "/home/${vmUser}/.config/keymasq/profiles"
+            machine.succeed(as_user(f"mkdir -p {prof_dir}"))
+            encoded = base64.b64encode(content.encode()).decode()
+            machine.succeed(f"echo {encoded} | base64 -d > {prof_dir}/{filename}")
+            machine.succeed(f"chown ${vmUser}: {prof_dir}/{filename}")
+
+        def active_profile_names() -> list[str]:
+            payload = session_query("get_active_profiles")
+            return list(payload.get("active_profiles", []))
+
+        # Mirror SteamOS: DISPLAY and WAYLAND_DISPLAY are absent from systemd --user env.
+        assert not user_env("DISPLAY"), user_env("DISPLAY")
+        assert not user_env("WAYLAND_DISPLAY"), user_env("WAYLAND_DISPLAY")
+
+        # Temporarily unset desktop markers so startup strictly exercises gamescope-environment discovery.
+        saved_desktop_env = {
+            var: user_env(var)
+            for var in ("XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "DESKTOP_SESSION")
+        }
+        machine.succeed(
+            as_user(
+                "systemctl --user unset-environment "
+                "XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION"
+            )
+        )
+        assert not user_env("XDG_CURRENT_DESKTOP"), user_env("XDG_CURRENT_DESKTOP")
+
+        machine.succeed(as_user("systemctl --user stop keymasq-session.service || true"))
+        machine.succeed(as_user("systemctl --user start keymasq-session.service"))
+        wait_for_user_command(
+            "keymasq-session user service",
+            "systemctl --user is-active keymasq-session.service",
+        )
+        wait_for_user_socket(
+            "keymasq-session socket",
+            f"{runtime_dir}/keymasq/session.sock",
+            "keymasq-session.service",
+        )
+
+        with subtest("listener starts via gamescope-environment"):
+            wait_for_listener()
+            comp = session_query("get_compositor")
+            assert comp.get("compositor_id") == "gamescope", comp
+            assert comp.get("listener_name") == "gamescope", comp
+            assert "layer_focus" in (comp.get("capabilities") or []), comp
+
+        restore_pairs = " ".join(
+            f"{k}={v}" for k, v in saved_desktop_env.items() if v
+        )
+        if restore_pairs:
+            machine.succeed(as_user(f"systemctl --user set-environment {restore_pairs}"))
+
+        with subtest("multi-Xwayland window detection, switching, and profiles"):
+            machine.succeed(as_user(f"rm -f {gs_socket}"))
+            machine.succeed(
+                as_user(
+                    "systemd-run --user --unit=keymasq-gamescope-lab --collect "
+                    f"keymasq-gamescope-lab --socket {gs_socket} serve"
+                )
+            )
+            wait_for_user_socket(
+                "gamescope lab socket",
+                gs_socket,
+                "keymasq-gamescope-lab.service",
+                probe_cmd=f"keymasq-gamescope-lab --socket {gs_socket} ping >/dev/null",
+            )
+
+            gs_lab("start-steam")
+            steam = wait_for_active_title("Steam Big Picture Mode")
+            assert steam.get("class") == "steam", steam
+            assert not steam.get("layer"), steam
+
+            write_profile(
+                "game-alpha.toml",
+                '[profile]\n'
+                'name = "game-alpha"\n'
+                'enabled = true\n'
+                'is_permanent = false\n'
+                'created_at = "2026-01-01T00:00:00"\n'
+                '\n'
+                '[[profile.window_rules]]\n'
+                'field = "class"\n'
+                'pattern = "^steam_app_1001$"\n',
+            )
+            write_profile(
+                "game-beta.toml",
+                '[profile]\n'
+                'name = "game-beta"\n'
+                'enabled = true\n'
+                'is_permanent = false\n'
+                'created_at = "2026-01-01T00:00:01"\n'
+                '\n'
+                '[[profile.window_rules]]\n'
+                'field = "class"\n'
+                'pattern = "^steam_app_1002$"\n',
+            )
+            write_profile(
+                "steam-overlay.toml",
+                '[profile]\n'
+                'name = "steam-overlay"\n'
+                'enabled = true\n'
+                'is_permanent = false\n'
+                'created_at = "2026-01-01T00:00:02"\n'
+                '\n'
+                '[[profile.window_rules]]\n'
+                'field = "layer"\n'
+                'pattern = "^steam-overlay$"\n',
+            )
+            reloaded = session_query("reload")
+            assert reloaded.get("status") == "ok", reloaded
+            assert "game-alpha" not in active_profile_names()
+            assert "game-beta" not in active_profile_names()
+
+            gs_lab("open-game alpha 1001 Alpha")
+            alpha = wait_for_active_title("Alpha")
+            assert alpha.get("class") == "steam_app_1001", alpha
+            wait_for_condition(
+                "game-alpha profile active",
+                lambda: "game-alpha" in active_profile_names(),
+            )
+
+            gs_lab("open-game beta 1002 Beta")
+            beta = wait_for_active_title("Beta")
+            assert beta.get("class") == "steam_app_1002", beta
+            wait_for_condition(
+                "game-beta active and game-alpha inactive",
+                lambda: "game-beta" in active_profile_names()
+                and "game-alpha" not in active_profile_names(),
+            )
+
+            gs_lab("focus-app 1001")
+            wait_for_active_title("Alpha")
+            wait_for_condition(
+                "game-alpha active and game-beta inactive after focus switch",
+                lambda: set(active_profile_names()) == {"Default", "game-alpha"},
+            )
+
+            gs_lab("retitle-game alpha AlphaRenamed")
+            wait_for_active_title("AlphaRenamed")
+
+            gs_lab("close-game alpha")
+            wait_for_active_title("Beta")
+            wait_for_condition(
+                "game-beta active after closing alpha",
+                lambda: set(active_profile_names()) == {"Default", "game-beta"},
+            )
+
+            mango = gs_lab("start-mango")
+            assert mango.get("mapped") is True, mango
+            time.sleep(0.5)
+            beta_after_mango = session_query("get_active_window")
+            assert beta_after_mango.get("class") == "steam_app_1002", beta_after_mango
+            assert beta_after_mango.get("title") == "Beta", beta_after_mango
+            assert not beta_after_mango.get("layer"), beta_after_mango
+            assert set(active_profile_names()) == {"Default", "game-beta"}, active_profile_names()
+
+        with subtest("overlay and OSK focus reset game profile to default"):
+            gs_lab("set-overlay 1 1")
+            wait_for_condition(
+                "steam-overlay layer focused",
+                lambda: session_query("get_active_window").get("layer") == "steam-overlay",
+            )
+            overlay_win = session_query("get_active_window")
+            assert not overlay_win.get("class"), overlay_win
+            assert not overlay_win.get("title"), overlay_win
+            wait_for_condition(
+                "steam-overlay profile active and game-beta paused",
+                lambda: set(active_profile_names()) == {"Default", "steam-overlay"},
+            )
+
+            machine.succeed(as_user("systemctl --user restart keymasq-session.service"))
+            wait_for_user_socket(
+                "keymasq-session socket after restart",
+                f"{runtime_dir}/keymasq/session.sock",
+                "keymasq-session.service",
+            )
+            wait_for_listener()
+            wait_for_condition(
+                "steam-overlay still reported after session restart",
+                lambda: session_query("get_active_window").get("layer") == "steam-overlay",
+            )
+            wait_for_condition(
+                "steam-overlay profile still active after session restart",
+                lambda: set(active_profile_names()) == {"Default", "steam-overlay"},
+            )
+
+            gs_lab("set-overlay 1 2")
+            wait_for_condition(
+                "steam-osk layer focused",
+                lambda: session_query("get_active_window").get("layer") == "steam-osk",
+            )
+            osk_win = session_query("get_active_window")
+            assert not osk_win.get("class"), osk_win
+            assert not osk_win.get("title"), osk_win
+            wait_for_condition(
+                "OSK resets conditional profiles to Default",
+                lambda: active_profile_names() == ["Default"],
+            )
+
+            machine.succeed(as_user("systemctl --user restart keymasq-session.service"))
+            wait_for_user_socket(
+                "keymasq-session socket after OSK restart",
+                f"{runtime_dir}/keymasq/session.sock",
+                "keymasq-session.service",
+            )
+            wait_for_listener()
+            wait_for_condition(
+                "steam-osk still reported after session restart",
+                lambda: session_query("get_active_window").get("layer") == "steam-osk",
+            )
+            wait_for_condition(
+                "Default stays active across OSK session restart",
+                lambda: active_profile_names() == ["Default"],
+            )
+
+            gs_lab("set-overlay 0 0")
+            beta_back = wait_for_active_title("Beta")
+            assert beta_back.get("class") == "steam_app_1002", beta_back
+            assert not beta_back.get("layer"), beta_back
+            wait_for_condition(
+                "game-beta reactivated after overlay closed",
+                lambda: set(active_profile_names()) == {"Default", "game-beta"},
+            )
+
+        with subtest("cursor position across Xwayland displays"):
+            gs_lab("warp-pointer :1 320 240")
+            wait_for_condition(
+                "cursor read from game Xwayland :1",
+                lambda: (
+                    session_query("get_cursor_position").get("x") == 320
+                    and session_query("get_cursor_position").get("y") == 240
+                ),
+            )
+
+            gs_lab("set-overlay 1 1")
+            wait_for_condition(
+                "steam-overlay active for cursor switch",
+                lambda: session_query("get_active_window").get("layer") == "steam-overlay",
+            )
+            wait_for_condition(
+                "gamescope switched mouse focus to overlay Xwayland :0",
+                lambda: gs_lab("debug-state").get("mouse_focus_display") == ":0",
+            )
+            gs_lab("warp-pointer :0 900 500")
+            machine.log(f"gamescope debug_state during overlay: {gs_lab('debug-state')}")
+            machine.log(
+                f"cursor_position during overlay: {session_query('get_cursor_position')}"
+            )
+            wait_for_condition(
+                "cursor read from overlay Xwayland :0",
+                lambda: (
+                    session_query("get_cursor_position").get("x") == 900
+                    and session_query("get_cursor_position").get("y") == 500
+                ),
+            )
+
+            gs_lab("set-overlay 0 0")
+            wait_for_active_title("Beta")
+            gs_lab("close-game beta")
+            wait_for_active_title("Steam Big Picture Mode")
+            gs_lab("quit")
       '';
     };
 

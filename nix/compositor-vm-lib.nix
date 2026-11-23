@@ -325,6 +325,120 @@ rec {
         };
         environment.etc."niri/config.kdl".text = configText;
       };
+
+    gamescope =
+      { sessionPackage ? gamescopeMinimalSessionPackage }:
+      {
+        services.displayManager.defaultSession = "gamescope-minimal";
+        services.displayManager.sessionPackages = [ sessionPackage ];
+        services.displayManager.sddm = {
+          enable = true;
+          wayland.enable = true;
+        };
+        environment.systemPackages = [
+          pkgs.gamescope
+          pkgs.xwayland
+          pkgs.xprop
+        ];
+      };
+  };
+
+  gamescopeMinimalSessionPackage = pkgs.stdenvNoCC.mkDerivation {
+    pname = "keymasq-gamescope-minimal-session";
+    version = "1";
+    dontUnpack = true;
+    passthru.providedSessions = [ "gamescope-minimal" ];
+    installPhase = ''
+      mkdir -p "$out/bin" "$out/share/wayland-sessions"
+      cat > "$out/bin/gamescope-minimal-session" <<'EOF'
+#!${pkgs.bash}/bin/bash
+set -euo pipefail
+
+export XDG_CURRENT_DESKTOP=gamescope
+export XDG_SESSION_DESKTOP=gamescope
+export DESKTOP_SESSION=gamescope-wayland
+export XDG_SESSION_TYPE=x11
+
+${pkgs.dbus}/bin/dbus-update-activation-environment --systemd \
+  DESKTOP_SESSION XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE || true
+${pkgs.systemd}/bin/systemctl --user unset-environment DISPLAY XAUTHORITY WAYLAND_DISPLAY || true
+
+tmpdir="$(mktemp -p "$XDG_RUNTIME_DIR" -d -t gamescope.XXXXXXX)"
+ready_fifo="$tmpdir/startup.socket"
+mkfifo "$ready_fifo"
+
+gs_pid=""
+cleanup() {
+  rm -rf "$tmpdir"
+}
+stop_gamescope() {
+  if [ -n "$gs_pid" ]; then
+    kill -TERM "$gs_pid" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      if ! kill -0 "$gs_pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+    if kill -0 "$gs_pid" 2>/dev/null; then
+      kill -KILL "$gs_pid" 2>/dev/null || true
+    fi
+    wait "$gs_pid" 2>/dev/null || true
+  fi
+}
+forward_stop() {
+  stop_gamescope
+  cleanup
+}
+trap cleanup EXIT
+trap 'forward_stop; exit 0' TERM INT
+
+if [ -z "''${VK_DRIVER_FILES:-}" ]; then
+  for icd in /run/opengl-driver/share/vulkan/icd.d/lvp_icd*.json; do
+    if [ -f "$icd" ]; then
+      export VK_DRIVER_FILES="$icd"
+      break
+    fi
+  done
+fi
+
+${pkgs.gamescope}/bin/gamescope \
+  --backend headless \
+  -e \
+  --xwayland-count 2 \
+  -W 1280 -H 800 \
+  -w 1280 -h 800 \
+  -R "$ready_fifo" &
+gs_pid=$!
+
+if ! read -r -t 30 response_x_display response_wl_display <> "$ready_fifo"; then
+  echo "gamescope-minimal-session: timed out waiting for gamescope readiness FIFO" >&2
+  stop_gamescope
+  exit 1
+fi
+
+{
+  printf 'DISPLAY=%s\n' "$response_x_display"
+  printf 'GAMESCOPE_WAYLAND_DISPLAY=%s\n' "$response_wl_display"
+  printf 'XDG_CURRENT_DESKTOP=gamescope\n'
+  printf 'XDG_SESSION_DESKTOP=gamescope\n'
+  printf 'DESKTOP_SESSION=gamescope-wayland\n'
+  printf 'XDG_SESSION_TYPE=x11\n'
+} > "$XDG_RUNTIME_DIR/gamescope-environment"
+
+rm -rf "$tmpdir"
+wait "$gs_pid"
+EOF
+      chmod +x "$out/bin/gamescope-minimal-session"
+      cat > "$out/share/wayland-sessions/gamescope-minimal.desktop" <<EOF
+[Desktop Entry]
+Name=Gamescope Minimal
+Comment=Minimal Gamescope session for Keymasq listener VM tests
+Exec=$out/bin/gamescope-minimal-session
+Type=Application
+DesktopNames=gamescope
+EOF
+    '';
   };
 
   cosmicMinimalSessionPackage = pkgs.stdenvNoCC.mkDerivation {

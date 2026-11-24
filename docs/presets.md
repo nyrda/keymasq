@@ -19,14 +19,23 @@ pointer, scroll wheel, click, arrow-key, and basic key layout.
    profile in the profile dropdown.
 2. Click the **Apply preset** button on the profile toolbar (next to the
    profile add, copy, and settings buttons).
+
+   ![Profile toolbar with the Apply preset button highlighted](assets/screenshots/keymasq_apply_preset_button.png)
+
 3. Choose a preset from the list. Keymasq only lists presets that match the
    tab's hardware, with model-specific presets shown first.
+
+   ![Apply Preset dialog listing the Desktop mouse preset](assets/screenshots/keymasq_apply_preset_list.png)
+
 4. Review the preview before confirming. It shows:
    - how many controls will be filled and the mapping each control will receive,
      plus any new saved analog controls that will be created
    - which controls are kept because they are already mapped in the selected
      profile
    - which controls in the preset are unavailable on this device
+
+   ![Preview of the Desktop mouse preset with controls to fill, kept, and unavailable](assets/screenshots/keymasq_apply_preset_preview.png)
+
 5. Click **Apply Preset** to write the mappings and reload the session. If
    nothing would be filled, the preview explains why and does not offer to apply.
 

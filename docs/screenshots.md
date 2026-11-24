@@ -18,6 +18,9 @@ widget exposed by the prepared dialog, and `scroll_crop_widget = true` when the
 fixture should scroll that widget before capture. Pointer Movement shots accept
 `scroll_to_widget` to scroll a named dialog group to the top, and an inline
 `[shot.pointer_movement]` table to show a config that no seeded profile uses.
+The `profile_toolbar` target crops the profile row of a device tab and draws a
+focus ring around the **Apply preset** button. The `apply_preset_dialog` target
+accepts `preset` with a preset ID to open that preset's preview page.
 
 The popover shots keep a legacy X11 root-window capture path because GTK
 popovers and dropdown lists are separate native surfaces. For those shots only,

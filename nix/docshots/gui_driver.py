@@ -45,6 +45,7 @@ from keymasq.gui.widgets.device_tab.hardware_settings_dialog import (
     DetectionMethod,
     HardwareSettingsDialog,
 )
+from keymasq.gui.widgets.device_tab.preset_dialog import ApplyPresetDialog
 from keymasq.gui.widgets.gnome_setup_dialog import GnomeSetupDialog
 from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
 from keymasq.gui.widgets.macro_editor.dialog import MacroEditorDialog
@@ -73,6 +74,8 @@ DEFAULT_COMPOSITOR_STATUS: Json = {
     "compositor_dispatch_available": True,
     "supported": True,
 }
+
+HIGHLIGHT_STATE_FLAGS = Gtk.StateFlags.FOCUSED | Gtk.StateFlags.FOCUS_VISIBLE
 
 
 def _load_manifest(path: Path) -> tuple[Json, list[Json]]:
@@ -788,6 +791,7 @@ class DocshotRunner:
         self.current_popover: Gtk.Popover | None = None
         self.current_subdialog: object | None = None
         self.crop_widget: Gtk.Widget | None = None
+        self.highlighted_widget: Gtk.Widget | None = None
         self.crop_dialog: Gtk.Widget | None = None
         self.capture_root_window = False
         self.crop_padding = 16
@@ -1018,6 +1022,9 @@ class DocshotRunner:
             return self._prepare_next()
 
         self._close_current_dialog()
+        if self.highlighted_widget is not None:
+            self.highlighted_widget.unset_state_flags(HIGHLIGHT_STATE_FLAGS)
+            self.highlighted_widget = None
         shot = self.shots[self.shot_index]
         self.runtime_profiles = self._runtime_profiles_for_shot(shot)
         self.crop_widget = None
@@ -1289,6 +1296,8 @@ class DocshotRunner:
             "combo_action_selector": self._prepare_combo_action_selector,
             "gnome_setup_dialog": self._prepare_gnome_setup_dialog,
             "rollover_group_editor": self._prepare_rollover_group_editor,
+            "profile_toolbar": self._prepare_profile_toolbar,
+            "apply_preset_dialog": self._prepare_apply_preset_dialog,
         }
         handler = dispatch.get(target)
         if handler is None:
@@ -1443,6 +1452,38 @@ class DocshotRunner:
         if widget is None:
             raise KeyError(f"button widget {source!r} was not found")
         self._set_widget_crop(widget, shot)
+
+    def _prepare_profile_toolbar(self, shot: Json) -> None:
+        tab = self._select_device_profile(shot)
+        button = tab.apply_preset_btn
+        button.set_state_flags(HIGHLIGHT_STATE_FLAGS, False)
+        self.highlighted_widget = button
+        profile_row = button.get_parent().get_parent()
+        self._set_widget_crop(profile_row, shot)
+
+    def _prepare_apply_preset_dialog(self, shot: Json) -> None:
+        tab = self._select_device_profile(shot)
+        tab._on_apply_preset_clicked(tab.apply_preset_btn)
+        dialog = tab._apply_preset_dialog
+        if dialog is None:
+            raise RuntimeError("apply preset dialog did not open")
+        self.current_dialog = dialog
+        self._set_dialog_crop(dialog, shot)
+        preset_id = str(shot.get("preset", "") or "").strip()
+        if preset_id:
+            dialog._nav_view.set_animate_transitions(False)
+            GLib.timeout_add(50, self._open_preset_preview, dialog, preset_id)
+
+    def _open_preset_preview(self, dialog: ApplyPresetDialog, preset_id: str) -> bool:
+        if dialog is not self.current_dialog:
+            return False
+        if not dialog._preset_rows:
+            return True
+        for preset, row in zip(dialog._presets, dialog._preset_rows, strict=True):
+            if preset.preset_id == preset_id:
+                row.emit("activated")
+                return False
+        raise KeyError(f"preset {preset_id!r} is not listed")
 
     def _current_action(self, shot: Json) -> MappingAction | None:
         assert self.window is not None

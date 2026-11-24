@@ -299,7 +299,8 @@ def apply_hardware_preset(preset: HardwarePreset, config: HardwareConfig) -> lis
         for button in matches:
             button.label = label
 
-    button_ids = {button.id for button in config.buttons}
+    reserved_ids = {button.id for button in config.buttons}
+    reserved_ids.update(sensor.id for sensor in config.motion_sensors)
     inputs = list(config.analog_inputs)
     for definition in preset.analog_inputs:
         located = _locate_axes(inputs, definition)
@@ -308,7 +309,7 @@ def apply_hardware_preset(preset: HardwarePreset, config: HardwareConfig) -> lis
             continue
         donors = list({id(donor): donor for donor, _ in located}.values())
         donor_keys = {id(donor) for donor in donors}
-        used_ids = button_ids | {analog.id for analog in inputs if id(analog) not in donor_keys}
+        used_ids = reserved_ids | {analog.id for analog in inputs if id(analog) not in donor_keys}
         if definition.id in used_ids:
             unavailable.append(definition.id)
             continue

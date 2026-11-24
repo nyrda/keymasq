@@ -96,10 +96,18 @@ def preset_from_toml(data: TomlDict, *, preset_id: str, path: Path) -> ProfilePr
         data.get("analog_controls"), "analog_controls"
     ).items():
         control_table = _table(control_data, f"analog control '{control_name}'")
-        analog_controls[control_name] = AnalogControlManager.parse_analog_control(
+        control = AnalogControlManager.parse_analog_control(
             {**control_table, "name": control_name},
             default_name=control_name,
         )
+        for threshold in control.thresholds:
+            for action in threshold.actions:
+                if action.action_type in _SAVED_REFERENCE_ACTIONS:
+                    raise ValueError(
+                        f"analog control '{control_name}': presets cannot reference a saved "
+                        f"{_SAVED_REFERENCE_ACTIONS[action.action_type]}"
+                    )
+        analog_controls[control_name] = control
 
     codec = ProfileCodec()
     mappings: dict[str, MappingAction] = {}

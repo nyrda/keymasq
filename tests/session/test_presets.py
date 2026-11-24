@@ -236,6 +236,9 @@ def test_later_search_directories_override_earlier_ones_by_file_name(tmp_path):
         '[mapping.motion_1]\naction = "motion_control"\nmotion_control_name = "Gyro"\n',
         '[mapping.btn_south]\naction = "no_such_action"\n',
         '[mapping.btn_south]\naciton = "keyboard"\ntarget = "key_enter"\n',
+        MINIMAL_MAPPING
+        + '[[analog_controls.Pointer.thresholds]]\naxis = "x"\n'
+        + 'actions = [{ action = "macro", macro_name = "Farm" }]\n',
         "[preset]\ndevice_types = [42]\n" + MINIMAL_MAPPING,
         '[mapping.right_stick]\naction = "analog_control"\n',
         '[preset]\nname = "Empty"\n',

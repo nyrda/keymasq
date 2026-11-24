@@ -11,6 +11,7 @@ from keymasq.common.model.hardware import (
     EvdevDevice,
     HardwareConfig,
 )
+from keymasq.common.model.motion import MotionSensorDefinition
 from keymasq.session.hardware_presets import (
     apply_hardware_preset,
     hardware_presets_for_model,
@@ -131,6 +132,7 @@ def test_an_axis_left_over_from_a_split_stick_becomes_its_own_input(tmp_path):
 
 def test_controls_the_device_lacks_or_that_would_clash_are_reported_and_skipped(tmp_path):
     config = _detected()
+    config.motion_sensors = [MotionSensorDefinition(id="motion_1", label="Gyro")]
     before = _layout(config)
     preset = _preset(
         tmp_path,
@@ -147,10 +149,20 @@ axes = [{ role = "x", evdev = "abs_hat1x" }, { role = "y", evdev = "abs_hat1y" }
 id = "left_stick"
 type = "stick"
 axes = [{ role = "x", evdev = "abs_hat0x" }, { role = "y", evdev = "abs_hat0y" }]
+
+[[analogs]]
+id = "motion_1"
+type = "stick"
+axes = [{ role = "x", evdev = "abs_hat2x" }, { role = "y", evdev = "abs_hat2y" }]
 """,
     )
 
-    assert apply_hardware_preset(preset, config) == ["btn_mode", "right_trackpad", "left_stick"]
+    assert apply_hardware_preset(preset, config) == [
+        "btn_mode",
+        "right_trackpad",
+        "left_stick",
+        "motion_1",
+    ]
     assert _layout(config) == before
 
 

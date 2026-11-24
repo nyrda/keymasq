@@ -1,5 +1,9 @@
 # Profile presets
 
+This page covers presets that fill a profile with mappings. For presets that
+describe a device's controls during setup, see
+[Hardware presets](hardware-presets.md).
+
 A profile preset is a TOML file that fills a device layer in a profile with a
 ready-made set of mappings. Applying a preset is a one-time fill. After you
 apply it, the profile holds ordinary mappings that you can edit or delete

@@ -1,0 +1,85 @@
+[preset]
+name = "Steam Deck"
+description = "Names the Steam Deck controls, sets up both trackpads and splits the analog triggers."
+hardware = ["28de:1205"]
+device_types = ["gamepad"]
+
+[buttons.btn_tl]
+label = "L1"
+
+[buttons.btn_tr]
+label = "R1"
+
+[buttons.btn_tl2]
+label = "L2 Full Pull"
+
+[buttons.btn_tr2]
+label = "R2 Full Pull"
+
+[buttons.btn_thumbl]
+label = "L3"
+
+[buttons.btn_thumbr]
+label = "R3"
+
+[buttons.btn_gripl]
+label = "L4"
+
+[buttons.btn_gripr]
+label = "R4"
+
+[buttons.btn_gripl2]
+label = "L5"
+
+[buttons.btn_gripr2]
+label = "R5"
+
+[buttons.btn_select]
+label = "View"
+
+[buttons.btn_start]
+label = "Menu"
+
+[buttons.btn_mode]
+label = "Steam"
+
+[buttons.btn_base]
+label = "Quick Access"
+
+[buttons.btn_thumb]
+label = "Left Trackpad Click"
+
+[buttons.btn_thumb2]
+label = "Right Trackpad Click"
+
+# The kernel reports trackpad Y with up as positive, the opposite of a stick.
+[[analogs]]
+id = "left_trackpad"
+label = "Left Trackpad"
+type = "stick"
+axes = [
+    { role = "x", evdev = "abs_hat0x" },
+    { role = "y", evdev = "abs_hat0y", invert = true },
+]
+
+[[analogs]]
+id = "right_trackpad"
+label = "Right Trackpad"
+type = "stick"
+axes = [
+    { role = "x", evdev = "abs_hat1x" },
+    { role = "y", evdev = "abs_hat1y", invert = true },
+]
+
+# The kernel reports the two triggers as one hat pair.
+[[analogs]]
+id = "left_trigger"
+label = "L2"
+type = "axis"
+axes = [{ role = "x", evdev = "abs_hat2y" }]
+
+[[analogs]]
+id = "right_trigger"
+label = "R2"
+type = "axis"
+axes = [{ role = "x", evdev = "abs_hat2x" }]

@@ -101,6 +101,7 @@ nav:
   - Getting Started: getting-started.md
   - User Guide:
       - Hardware: hardware.md
+      - Hardware Presets: hardware-presets.md
       - Hardware Masking: hardware-masking.md
       - Device Inspector: device-inspector.md
       - Profiles: profiles.md

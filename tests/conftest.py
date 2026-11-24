@@ -109,6 +109,7 @@ def isolate_keymasq_config_paths(
         "MOTION_CONTROLS_DIR": motion_controls_dir,
         "VIRTUAL_DEVICES_PATH": virtual_devices_path,
         "PRESETS_DIR": config_dir / "presets",
+        "HARDWARE_PRESETS_DIR": config_dir / "hardware_presets",
     }
     for name, value in patched_paths.items():
         monkeypatch.setattr(paths, name, value)

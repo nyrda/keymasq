@@ -10,6 +10,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
 from keymasq.common.devices import input_classes_include_gamepad, make_keymasq_device_path
+from keymasq.session.hardware_presets import HardwarePreset, hardware_presets_for_model
 
 from . import discovery, inventory, rows, templates
 from .identity import config_path_for_detected_interface
@@ -22,6 +23,14 @@ MODE_LABELS = {
     "keyboard": "Keyboard",
     "custom": "Custom",
 }
+MODE_DEVICE_TYPES = {
+    "gamepad": ("gamepad",),
+    "mouse_keyboard": ("mouse", "keyboard"),
+    "mouse": ("mouse",),
+    "keyboard": ("keyboard",),
+    "custom": (),
+}
+NO_HARDWARE_PRESET_LABEL = "None, use detected controls"
 
 
 class SelectionMixin:
@@ -161,8 +170,45 @@ class SelectionMixin:
             "keyboard": "Create a standard keyboard profile",
         }.get(mode, "Create a standard mouse profile")
         self.describe_subtitle.set_label(subtitle)
+        self._refresh_hardware_presets()
         if self.stack.get_visible_child_name() == "describe":
             self.next_btn.set_label("Save")
+
+    def _refresh_hardware_presets(self: Any) -> None:
+        selected_device = self._discovery_state.selected_device
+        matching: list[HardwarePreset] = []
+        if selected_device is not None:
+            vendor_id, product_id, _name = self._selected_device_fields(selected_device)
+            matching = hardware_presets_for_model(
+                self._hardware_presets,
+                f"{vendor_id}:{product_id}",
+                MODE_DEVICE_TYPES.get(self._template_state.current, ()),
+            )
+        if matching != self._matching_hardware_presets:
+            self._matching_hardware_presets = matching
+            self.hardware_preset_model.splice(
+                0,
+                self.hardware_preset_model.get_n_items(),
+                [*(preset.name for preset in matching), NO_HARDWARE_PRESET_LABEL],
+            )
+            self.hardware_preset_combo.set_selected(0)
+        self.hardware_preset_row.set_visible(bool(matching))
+        self._update_hardware_preset_info()
+
+    def _selected_hardware_preset(self: Any) -> HardwarePreset | None:
+        index = self.hardware_preset_combo.get_selected()
+        if 0 <= index < len(self._matching_hardware_presets):
+            return self._matching_hardware_presets[index]
+        return None
+
+    def _on_hardware_preset_changed(self: Any, _combo: Gtk.DropDown, _param: object) -> None:
+        self._update_hardware_preset_info()
+
+    def _update_hardware_preset_info(self: Any) -> None:
+        preset = self._selected_hardware_preset()
+        description = preset.description if preset is not None else ""
+        self.hardware_preset_info.set_label(description)
+        self.hardware_preset_info.set_visible(bool(description))
 
     def _selected_device_request_key(self: Any, selected_device: DetectedDevice) -> str:
         vendor_id = str(selected_device.get("vendor_id", "") or "")

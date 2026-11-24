@@ -15,6 +15,9 @@ __all__ = [
     "PRESETS_DIR",
     "BUNDLED_PRESETS_DIR",
     "preset_search_dirs",
+    "HARDWARE_PRESETS_DIR",
+    "BUNDLED_HARDWARE_PRESETS_DIR",
+    "hardware_preset_search_dirs",
     "STATE_DIR",
     "SECURITY_POLICY_PATH",
     "SLURP_PATH",
@@ -54,6 +57,8 @@ MOTION_CONTROLS_DIR = CONFIG_DIR / "motion_controls"
 VIRTUAL_DEVICES_PATH = CONFIG_DIR / "virtual_devices.toml"
 PRESETS_DIR = CONFIG_DIR / "presets"
 BUNDLED_PRESETS_DIR = Path(__file__).resolve().parent.parent / "presets"
+HARDWARE_PRESETS_DIR = CONFIG_DIR / "hardware_presets"
+BUNDLED_HARDWARE_PRESETS_DIR = Path(__file__).resolve().parent.parent / "hardware_presets"
 
 _build_slurp_path = "/usr/bin/slurp"
 _build_libxkbcommon_path = ""
@@ -80,18 +85,31 @@ def ensure_config_dirs() -> None:
     MOTION_CONTROLS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def preset_search_dirs() -> list[Path]:
-    """Return preset directories from lowest to highest priority."""
+def _layered_search_dirs(bundled_dir: Path, name: str, user_dir: Path) -> list[Path]:
     data_dirs = [
         Path(entry)
         for entry in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
         if entry.startswith("/")
     ]
     return [
-        BUNDLED_PRESETS_DIR,
-        *(data_dir / "keymasq" / "presets" for data_dir in reversed(data_dirs)),
-        PRESETS_DIR,
+        bundled_dir,
+        *(data_dir / "keymasq" / name for data_dir in reversed(data_dirs)),
+        user_dir,
     ]
+
+
+def preset_search_dirs() -> list[Path]:
+    """Return preset directories from lowest to highest priority."""
+    return _layered_search_dirs(BUNDLED_PRESETS_DIR, "presets", PRESETS_DIR)
+
+
+def hardware_preset_search_dirs() -> list[Path]:
+    """Return hardware preset directories from lowest to highest priority."""
+    return _layered_search_dirs(
+        BUNDLED_HARDWARE_PRESETS_DIR,
+        "hardware_presets",
+        HARDWARE_PRESETS_DIR,
+    )
 
 
 def ensure_session_socket_dir() -> None:

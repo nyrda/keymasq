@@ -4,6 +4,10 @@
 
 ### Added
 
+- Added hardware presets: per-model TOML files that **Add New Device** uses to
+  name a device's controls and group its axes correctly. The bundled
+  **Steam Deck** preset sets up both trackpads with the vertical axis
+  corrected and the two analog triggers as separate axes.
 - Added an **Apply preset** button on the device tab profile toolbar to preview
   and apply matching TOML profile presets to the selected profile and device,
   including the bundled **Desktop mouse** gamepad preset. Applying fills only

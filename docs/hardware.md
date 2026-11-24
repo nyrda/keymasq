@@ -13,6 +13,10 @@ Hardware files live in:
 Use the GUI for normal setup. The TOML files are plain text, so you can
 inspect them, back them up, and hand-edit them for an advanced fix.
 
+For some device models, **Add New Device** offers a
+[hardware preset](hardware-presets.md) that names the controls and groups the
+axes correctly. Keymasq ships one for the Steam Deck.
+
 ## Mental model
 
 A hardware definition has three parts:
@@ -234,7 +238,8 @@ already has that ID, it keeps its mappings and the hardware has no Pointer Movem
 - `type`: `stick` or `axis`
 - `source`: optional event device `id`
 - `axes`: axis definitions with `role`, `evdev`, optional `evdev_code`, and
-  optional calibration fields
+  optional calibration fields. `invert = true` reverses a stick axis for every
+  mapping that uses it.
 
 `[[hardware.input_sources]]`
 

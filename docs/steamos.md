@@ -61,6 +61,10 @@ gamescope's Xwayland displays and automatically pauses game profiles while the
 Steam menu, Quick Access Menu (`layer = "steam-overlay"`), or on-screen keyboard
 (`layer = "steam-osk"`) has focus so menus keep your default mappings.
 
+When you add the Steam Deck's built-in controller, Keymasq applies its bundled
+[hardware preset](hardware-presets.md). It sets up both trackpads, the two
+analog triggers, and the back grip buttons with their proper names.
+
 The rest of this page covers what the installer puts on disk, how the install
 persists across SteamOS updates, and how to update and uninstall Keymasq.
 

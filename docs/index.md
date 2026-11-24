@@ -22,6 +22,8 @@ autoclicker, game auto-fire, app-specific shortcuts, and multi-step automation.
   create your first remap after installing.
 - [Hardware Configuration](hardware.md) — hardware IDs, event devices, source
   controls, and detection methods.
+- [Hardware Presets](hardware-presets.md) — per-model control layouts that
+  Add New Device uses for devices such as the Steam Deck.
 - [Profiles](profiles.md) — the layered, window-aware profile model. The other
   features all attach to profiles.
 - [Presets](presets.md) — fill a device layer in a profile from a reusable TOML

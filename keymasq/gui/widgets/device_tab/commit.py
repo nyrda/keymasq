@@ -78,6 +78,7 @@ class SelectorCommitMixin:
         return False
 
     def _on_device_tab_destroy(self: Any, _widget) -> None:
+        self._device_tab_destroyed = True
         source_id = self._commit_state.clear_source()
         if source_id:
             self._remove_selector_commit_source(source_id)

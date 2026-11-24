@@ -219,6 +219,11 @@ blank removes that override and lets runtime calibration supply it. Minimum must
 be less than maximum, and an explicit center/rest must lie within the supplied
 bounds. The dialog shows the source interface and axis codes for reference.
 
+Each stick axis also has an **Invert** switch. It reverses that axis for every
+mapping and analog control that uses the stick, which corrects a device that
+reports an axis the wrong way round. Single-axis inputs do not have the switch.
+To reverse one of those, use the invert option of its analog control.
+
 Save preserves the input ID, axis assignments, and existing profile mappings.
 Cancel leaves the configuration unchanged. Delete remains available in the same
 dialog. To change stick grouping or source axes, use Learn Analog.

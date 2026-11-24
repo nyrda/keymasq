@@ -498,6 +498,13 @@ def _seed_hardware(config_dir: Path, devices: Json) -> None:
                             "source": "joystick",
                             "axes": [{"role": "value", "evdev": "abs_z"}],
                         },
+                        {
+                            "id": "right_trigger",
+                            "label": "Right Trigger",
+                            "type": "axis",
+                            "source": "joystick",
+                            "axes": [{"role": "value", "evdev": "abs_rz"}],
+                        },
                     ],
                 },
             }

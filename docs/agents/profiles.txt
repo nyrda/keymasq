@@ -444,3 +444,38 @@ superkey file format, fetch:
 ```text
 https://keymasq.tools/docs/latest/agents/superkeys-combos.txt
 ```
+
+## Profile presets
+
+Profile presets are one-time TOML templates that fill unbound and `passthrough`
+controls in one device layer of a profile without overwriting existing mappings.
+Search order from lowest to highest priority is bundled presets,
+`<dir>/keymasq/presets` across `XDG_DATA_DIRS` (earlier entries win), and
+`~/.config/keymasq/presets`. Matching filename stems override earlier folders.
+
+```toml
+[preset]
+name = "Desktop mouse"
+description = "Control the desktop with a game controller"
+device_types = ["gamepad"]
+# hardware = ["28de:1205"]
+
+[mapping.btn_south]
+action = "keyboard"
+target = "key_enter"
+
+[mapping.right_stick]
+action = "analog_control"
+analog_control_name = "Mouse Move"
+
+[analog_controls."Mouse Move"]
+input_type = "stick"
+
+[analog_controls."Mouse Move".mouse_motion]
+enabled = true
+speed = 1000.0
+```
+
+Saved analog controls with the same name are reused and never overwritten.
+Presets only support buttons, sticks, and axes, and cannot reference saved
+superkeys, motion controls, or macros.

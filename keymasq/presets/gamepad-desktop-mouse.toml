@@ -1,0 +1,185 @@
+[preset]
+name = "Desktop mouse"
+description = "Control the desktop with a game controller: pointer, scrolling, clicks, and basic keys"
+device_types = ["gamepad"]
+
+[mapping.right_stick]
+action = "analog_control"
+analog_control_name = "Mouse Move"
+
+[mapping.left_stick]
+action = "analog_control"
+analog_control_name = "Scroll Wheel"
+
+[mapping.right_trigger]
+action = "analog_control"
+analog_control_name = "Trigger Left Click"
+
+[mapping.left_trigger]
+action = "analog_control"
+analog_control_name = "Trigger Right Click"
+
+[mapping.right_trackpad]
+action = "analog_control"
+analog_control_name = "Touchpad Mouse"
+
+[mapping.hat_0]
+action = "analog_control"
+analog_control_name = "Arrow Keys"
+
+[mapping.btn_dpad_up]
+action = "keyboard"
+target = "key_up"
+
+[mapping.btn_dpad_down]
+action = "keyboard"
+target = "key_down"
+
+[mapping.btn_dpad_left]
+action = "keyboard"
+target = "key_left"
+
+[mapping.btn_dpad_right]
+action = "keyboard"
+target = "key_right"
+
+[mapping.btn_south]
+action = "keyboard"
+target = "key_enter"
+
+[mapping.btn_east]
+action = "keyboard"
+target = "key_esc"
+
+[mapping.btn_west]
+action = "keyboard"
+target = "key_backspace"
+
+[mapping.btn_north]
+action = "keyboard"
+target = "key_space"
+
+[analog_controls."Mouse Move"]
+input_type = "stick"
+description = "Move the mouse with the stick"
+
+[analog_controls."Mouse Move".mouse_motion]
+enabled = true
+speed = 1000.0
+deadzone = 0.18
+response_curve = 2.0
+
+[analog_controls."Touchpad Mouse"]
+input_type = "stick"
+description = "Slide a finger on the trackpad to move the pointer"
+
+[analog_controls."Touchpad Mouse".mouse_motion]
+enabled = true
+mode = "area"
+area_input_style = "touchpad"
+area_radius_x = 400.0
+area_radius_y = 400.0
+
+[analog_controls."Scroll Wheel"]
+input_type = "stick"
+description = "Scroll up/down and side-scroll with the stick"
+
+[[analog_controls."Scroll Wheel".thresholds]]
+axis = "y"
+trigger_min = -1.0
+trigger_max = -0.55
+release_min = -1.0
+release_max = -0.45
+actions = [
+    { action = "mouse", target = "rel_wheel:1", rapidfire_enabled = true, rapidfire_hold_ms = 20, rapidfire_wait_ms = 60 },
+]
+
+[[analog_controls."Scroll Wheel".thresholds]]
+axis = "y"
+trigger_min = 0.55
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [
+    { action = "mouse", target = "rel_wheel:-1", rapidfire_enabled = true, rapidfire_hold_ms = 20, rapidfire_wait_ms = 60 },
+]
+
+[[analog_controls."Scroll Wheel".thresholds]]
+axis = "x"
+trigger_min = -1.0
+trigger_max = -0.55
+release_min = -1.0
+release_max = -0.45
+actions = [
+    { action = "mouse", target = "rel_hwheel:-1", rapidfire_enabled = true, rapidfire_hold_ms = 20, rapidfire_wait_ms = 60 },
+]
+
+[[analog_controls."Scroll Wheel".thresholds]]
+axis = "x"
+trigger_min = 0.55
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [
+    { action = "mouse", target = "rel_hwheel:1", rapidfire_enabled = true, rapidfire_hold_ms = 20, rapidfire_wait_ms = 60 },
+]
+
+[analog_controls."Arrow Keys"]
+input_type = "stick"
+description = "Map the directions to the arrow keys"
+
+[[analog_controls."Arrow Keys".thresholds]]
+axis = "y"
+trigger_min = -1.0
+trigger_max = -0.65
+release_min = -1.0
+release_max = -0.55
+actions = [{ action = "keyboard", target = "key_up" }]
+
+[[analog_controls."Arrow Keys".thresholds]]
+axis = "y"
+trigger_min = 0.65
+trigger_max = 1.0
+release_min = 0.55
+release_max = 1.0
+actions = [{ action = "keyboard", target = "key_down" }]
+
+[[analog_controls."Arrow Keys".thresholds]]
+axis = "x"
+trigger_min = -1.0
+trigger_max = -0.65
+release_min = -1.0
+release_max = -0.55
+actions = [{ action = "keyboard", target = "key_left" }]
+
+[[analog_controls."Arrow Keys".thresholds]]
+axis = "x"
+trigger_min = 0.65
+trigger_max = 1.0
+release_min = 0.55
+release_max = 1.0
+actions = [{ action = "keyboard", target = "key_right" }]
+
+[analog_controls."Trigger Left Click"]
+input_type = "axis"
+description = "Left-click when the trigger is pulled"
+
+[[analog_controls."Trigger Left Click".thresholds]]
+axis = "x"
+trigger_min = 0.5
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [{ action = "mouse", target = "btn_left" }]
+
+[analog_controls."Trigger Right Click"]
+input_type = "axis"
+description = "Right-click when the trigger is pulled"
+
+[[analog_controls."Trigger Right Click".thresholds]]
+axis = "x"
+trigger_min = 0.5
+trigger_max = 1.0
+release_min = 0.45
+release_max = 1.0
+actions = [{ action = "mouse", target = "btn_right" }]

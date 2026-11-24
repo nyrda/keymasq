@@ -231,7 +231,9 @@ def _setup_content(window) -> None:
     content_overlay.set_child(content_box)
     content_overlay.add_overlay(window._recording_overlay)
 
-    toolbar.set_content(content_overlay)
+    window.toast_overlay = _runtime.Adw.ToastOverlay()
+    window.toast_overlay.set_child(content_overlay)
+    toolbar.set_content(window.toast_overlay)
 
     window.status_bar = _runtime.Gtk.Box(
         orientation=_runtime.Gtk.Orientation.HORIZONTAL, spacing=12

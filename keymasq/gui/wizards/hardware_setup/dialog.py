@@ -26,6 +26,7 @@ from keymasq.gui.wizards.hardware_setup.state import (
 )
 from keymasq.gui.wizards.hardware_setup.types import EvdevDeviceSelection
 from keymasq.session.hardware import HardwareManager
+from keymasq.session.hardware_presets import HardwarePreset
 
 
 class HardwareSetupDialog(
@@ -62,6 +63,8 @@ class HardwareSetupDialog(
         self._navigation = WizardNavigation(select_evdev_only=select_evdev_only)
         self._discovery_state = DiscoverySelection(show_raw=raw_evdev_only)
         self._template_state = TemplateSelection()
+        self._hardware_presets: list[HardwarePreset] = []
+        self._matching_hardware_presets: list[HardwarePreset] = []
 
         self._setup_escape_close()
         self._setup_ui()
@@ -240,6 +243,26 @@ class HardwareSetupDialog(
         self.mode_combo.connect("notify::selected", self._on_mode_changed)
         self.mode_row.append(self.mode_combo)
         box.append(self.mode_row)
+
+        self.hardware_preset_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        hardware_preset_label = Gtk.Label(label="Hardware preset:")
+        hardware_preset_label.set_halign(Gtk.Align.START)
+        self.hardware_preset_row.append(hardware_preset_label)
+        self.hardware_preset_model = Gtk.StringList()
+        self.hardware_preset_combo = Gtk.DropDown(model=self.hardware_preset_model)
+        self.hardware_preset_combo.set_tooltip_text(
+            "A hardware preset names this model's controls and corrects how its axes are grouped."
+        )
+        self.hardware_preset_combo.connect("notify::selected", self._on_hardware_preset_changed)
+        self.hardware_preset_row.append(self.hardware_preset_combo)
+        self.hardware_preset_row.set_visible(False)
+        box.append(self.hardware_preset_row)
+        self.hardware_preset_info = Gtk.Label()
+        self.hardware_preset_info.add_css_class("dim-label")
+        self.hardware_preset_info.set_wrap(True)
+        self.hardware_preset_info.set_halign(Gtk.Align.START)
+        self.hardware_preset_info.set_visible(False)
+        box.append(self.hardware_preset_info)
 
         def add_mode_info_label(label: str) -> Gtk.Label:
             info_label = Gtk.Label(label=label)

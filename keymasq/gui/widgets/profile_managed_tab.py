@@ -127,6 +127,7 @@ class ProfileManagedTab(
         self.settings_btn.set_tooltip_text("Profile settings")
         self.settings_btn.connect("clicked", self._on_profile_settings_clicked)
         btn_group.append(self.settings_btn)
+        self._append_profile_toolbar_buttons(btn_group)
         profile_box.append(btn_group)
 
         self.status_label = Gtk.Label()
@@ -157,6 +158,9 @@ class ProfileManagedTab(
         self.append(active_profile_box)
         self._update_active_profiles_summary()
         self._setup_profile_settings()
+
+    def _append_profile_toolbar_buttons(self, btn_group: Gtk.Box) -> None:
+        _ = btn_group
 
     def _append_profile_settings_groups(self, container: Gtk.Box) -> None:
         _ = container

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added hardware presets: per-model TOML files that **Add New Device** uses to
+  name a device's controls and group its axes correctly. The bundled
+  **Steam Deck** preset sets up both trackpads with the vertical axis
+  corrected and the two analog triggers as separate axes.
+- Added an **Invert** switch per stick axis to **Edit Analog Input**, which
+  reverses the axis for every mapping that uses it.
+- Added an **Apply preset** button on the device tab profile toolbar to preview
+  and apply matching TOML profile presets to the selected profile and device,
+  including the bundled **Desktop mouse** gamepad preset. Applying fills only
+  unbound and passthrough controls and reuses existing saved analog controls.
+
 ## 0.21.1 - 2026-10-30
 
 ### Added

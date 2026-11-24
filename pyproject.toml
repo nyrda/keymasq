@@ -77,7 +77,7 @@ where = ["."]
 include = ["keymasq*"]
 
 [tool.setuptools.package-data]
-keymasq = ["gui/style.css", "gui/assets/*.svg"]
+keymasq = ["gui/style.css", "gui/assets/*.svg", "presets/*.toml", "hardware_presets/*.toml"]
 
 [tool.ruff]
 line-length = 100

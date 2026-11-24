@@ -110,7 +110,10 @@ class AnalogControlManager:
     def _load_analog_control(self, path: Path) -> AnalogControlConfig | None:
         with open(path, "rb") as f:
             data = cast(TomlDict, tomllib.load(f))
+        return self.parse_analog_control(data, default_name=path.stem)
 
+    @classmethod
+    def parse_analog_control(cls, data: TomlDict, *, default_name: str) -> AnalogControlConfig:
         mouse_data = _as_toml_dict(data.get("mouse_motion")) or {}
         gamepad_data = _as_toml_dict(data.get("gamepad_output")) or {}
         thresholds: list[AnalogActionThreshold] = []
@@ -120,10 +123,10 @@ class AnalogControlManager:
                 threshold_data = _as_toml_dict(item)
                 if threshold_data is None:
                     continue
-                thresholds.append(self._parse_threshold(threshold_data))
+                thresholds.append(cls._parse_threshold(threshold_data))
 
         config = AnalogControlConfig(
-            name=_toml_str(data, "name", path.stem) or path.stem,
+            name=_toml_str(data, "name", default_name) or default_name,
             description=_toml_str(data, "description"),
             input_type=_toml_str(data, "input_type", "stick") or "stick",
             mouse_motion=AnalogMouseMotionConfig(
@@ -191,7 +194,8 @@ class AnalogControlManager:
         validate_analog_control_config(config)
         return config
 
-    def _parse_threshold(self, data: TomlDict) -> AnalogActionThreshold:
+    @classmethod
+    def _parse_threshold(cls, data: TomlDict) -> AnalogActionThreshold:
         actions: list[MappingAction] = []
         raw_actions = data.get("actions")
         if isinstance(raw_actions, list):
@@ -199,7 +203,7 @@ class AnalogControlManager:
                 action_data = _as_toml_dict(raw_action)
                 if action_data is None:
                     raise ValueError("analog threshold actions must be TOML tables")
-                actions.append(self._parse_mapping_action(action_data))
+                actions.append(cls._parse_mapping_action(action_data))
         return AnalogActionThreshold(
             axis=str(data.get("axis", "") or ""),
             trigger_min=coerce_float(data.get("trigger_min"), 0.0),
@@ -209,7 +213,8 @@ class AnalogControlManager:
             actions=actions,
         )
 
-    def _parse_mapping_action(self, action_data: TomlDict) -> MappingAction:
+    @staticmethod
+    def _parse_mapping_action(action_data: TomlDict) -> MappingAction:
         action_type, normalized_action_data = mapping_action_type_from_toml(
             action_data,
             unknown_action="raise",

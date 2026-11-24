@@ -32,6 +32,7 @@ class AnalogInputEditDialog(Adw.Dialog):
         self._detected: dict[str, object] = {}
         self._runtime: dict[str, object] = {}
         self.axis_entries: list[dict[str, Gtk.Entry]] = []
+        self.invert_switches: list[Gtk.Switch] = []
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for side in ("top", "bottom", "start", "end"):
             getattr(box, f"set_margin_{side}")(16)
@@ -51,9 +52,21 @@ class AnalogInputEditDialog(Adw.Dialog):
         box.append(hint)
         neutral_field = "center" if analog.type == "stick" else "rest"
         for axis in analog.axes:
-            label = Gtk.Label(label=f"{axis.role.upper()} · {axis.evdev}", xalign=0)
+            heading = Gtk.Box(spacing=8)
+            label = Gtk.Label(label=f"{axis.role.upper()} · {axis.evdev}", xalign=0, hexpand=True)
             label.add_css_class("heading")
-            box.append(label)
+            heading.append(label)
+            # The daemon applies invert to stick axes only.
+            if analog.type == "stick":
+                heading.append(Gtk.Label(label="Invert"))
+                invert = Gtk.Switch(active=axis.invert, valign=Gtk.Align.CENTER)
+                invert.set_tooltip_text("Reverse this axis for every mapping that uses it")
+                invert.update_property(
+                    [Gtk.AccessibleProperty.LABEL], [f"Invert {axis.role.upper()} axis"]
+                )
+                self.invert_switches.append(invert)
+                heading.append(invert)
+            box.append(heading)
             grid = Gtk.Grid(column_spacing=12, row_spacing=6)
             entries = {}
             for col, (field, title) in enumerate(
@@ -220,6 +233,11 @@ class AnalogInputEditDialog(Adw.Dialog):
                 self._edited_axis(axis, entries)
                 for axis, entries in zip(self._analog.axes, self.axis_entries, strict=True)
             ]
+            if self.invert_switches:
+                axes = [
+                    replace(axis, invert=invert.get_active())
+                    for axis, invert in zip(axes, self.invert_switches, strict=True)
+                ]
             edited = replace(self._analog, label=label, axes=axes)
             if not self._on_save(edited):
                 raise ValueError(

@@ -86,6 +86,7 @@ ICON_NAMES = (
     "system-search-symbolic",
     "tools.keymasq.keymasq",
     "user-trash-symbolic",
+    "view-list-symbolic",
     "view-refresh-symbolic",
     "view-restore-symbolic",
     "view-reveal-symbolic",

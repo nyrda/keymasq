@@ -123,6 +123,19 @@ and the hardware then has no pointer source.
   for generic axes), `evdev`, optional `evdev_code`, and optional learned
   calibration fields: `minimum`, `maximum`, `center`, `rest`, and `invert`
 
+`invert` reverses a stick axis before any analog control reads it. It has no
+effect on `type = "axis"` inputs.
+
+Hardware presets (`~/.config/keymasq/hardware_presets/<preset_id>.toml`, also
+bundled and under `<XDG_DATA_DIRS>/keymasq/hardware_presets`) are per-model
+layout files that Add New Device applies once to the detected controls. They
+are not read at runtime. To fix an existing device, edit its hardware file.
+Format: `[preset]` with required `hardware = ["vvvv:pppp"]` and optional
+`name`, `description`, `device_types`; `[buttons.<evdev>]` with `label`;
+`[[analogs]]` with `id`, `label`, `type`, and `axes` entries of `role`,
+`evdev`, optional `invert`, `minimum`, `maximum`, `center`, `rest`.
+Reference: https://keymasq.tools/docs/latest/hardware-presets/
+
 `[[hardware.layout.motion_sensors]]` entries:
 
 - `id`: source ID used in profile mappings

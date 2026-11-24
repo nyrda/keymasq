@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -10,12 +11,24 @@ from keymasq.common.model.hardware import (
     HardwareConfig,
 )
 from keymasq.common.model.motion import MotionSensorDefinition
+from keymasq.session.hardware_presets import apply_hardware_preset
 
 from . import templates
+
+log = logging.getLogger("keymasq.gui.hardware_setup")
 
 
 class PersistenceMixin:
     def _persist_config(self: Any, config: HardwareConfig) -> None:
+        hardware_preset = self._selected_hardware_preset()
+        if hardware_preset is not None:
+            unavailable = apply_hardware_preset(hardware_preset, config)
+            if unavailable:
+                log.info(
+                    "Hardware preset %s: controls not found on this device: %s",
+                    hardware_preset.preset_id,
+                    ", ".join(unavailable),
+                )
         if self._template_state.current == "gamepad":
             config.default_output = self.controller_output.output_id
         masking = getattr(self, "masking", None)
@@ -28,6 +41,7 @@ class PersistenceMixin:
             self.back_btn.set_visible(False)
             self.next_btn.set_label("Done")
             self.mode_row.set_sensitive(False)
+            self.hardware_preset_row.set_sensitive(False)
             self.controller_output.set_sensitive(False)
             self.describe_title.set_label("Hardware saved")
             self.describe_subtitle.set_label("Check masking below before closing.")

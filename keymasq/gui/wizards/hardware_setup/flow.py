@@ -15,6 +15,7 @@ from keymasq.common.devices import capability_names_from_capabilities
 from keymasq.common.model.core import DeviceType
 from keymasq.common.native_sources import is_native_backend
 from keymasq.gui.session_client import GuiTaskResult
+from keymasq.session.hardware_presets import HardwarePreset, load_hardware_presets
 
 from . import discovery, rows
 from .identity import (
@@ -46,11 +47,18 @@ class DiscoveryMixin:
         loading_label.set_margin_bottom(8)
         loading_row.set_child(loading_label)
         self.device_list.append(loading_row)
-        self._run_gui_task(
-            self._collect_detected_devices,
-            self._on_detected_devices_ready,
-            on_done=self._on_detected_devices_done,
-        )
+        hardware_presets: list[HardwarePreset] = []
+
+        def collect() -> dict[str, DetectedDevice]:
+            if not self._select_evdev_only:
+                hardware_presets.extend(load_hardware_presets())
+            return self._collect_detected_devices()
+
+        def ready(result: GuiTaskResult[dict[str, DetectedDevice]]) -> bool:
+            self._hardware_presets = hardware_presets
+            return self._on_detected_devices_ready(result)
+
+        self._run_gui_task(collect, ready, on_done=self._on_detected_devices_done)
 
     def _collect_detected_devices(self: Any) -> dict[str, DetectedDevice]:
         detected_devices: dict[str, DetectedDevice] = {}

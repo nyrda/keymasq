@@ -60,6 +60,33 @@ window_width = 840
 window_height = 1040
 
 [[shot]]
+name = "keymasq_apply_preset_button"
+target = "profile_toolbar"
+device = "045e:02a1"
+profile = "Desktop"
+window_width = 640
+crop_padding = 12
+crop_padding_bottom = 6
+
+[[shot]]
+name = "keymasq_apply_preset_list"
+target = "apply_preset_dialog"
+device = "045e:02a1"
+profile = "Desktop"
+dialog_width = 600
+dialog_height = 220
+
+[[shot]]
+name = "keymasq_apply_preset_preview"
+target = "apply_preset_dialog"
+device = "045e:02a1"
+profile = "Desktop"
+preset = "gamepad-desktop-mouse"
+window_height = 1400
+dialog_width = 600
+dialog_height = 1400
+
+[[shot]]
 name = "keymasq_map_capslock"
 target = "key_selector"
 device = "35ef:0021"

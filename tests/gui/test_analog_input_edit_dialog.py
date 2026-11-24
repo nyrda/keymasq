@@ -42,6 +42,27 @@ def make_dialog(analog, saved):
     )
 
 
+def test_invert_switch_reverses_only_the_toggled_stick_axis():
+    saved = []
+    dialog = make_dialog(make_analog("stick"), saved)
+    assert [switch.get_active() for switch in dialog.invert_switches] == [True, True]
+
+    dialog.invert_switches[1].set_active(False)
+    dialog.save_button.emit("clicked")
+
+    assert [(axis.role, axis.invert) for axis in saved[0].axes] == [("x", True), ("y", False)]
+
+
+def test_single_axis_input_has_no_invert_switch_and_keeps_its_saved_value():
+    saved = []
+    dialog = make_dialog(make_analog("axis"), saved)
+
+    assert dialog.invert_switches == []
+    dialog.save_button.emit("clicked")
+
+    assert saved[0].axes[0].invert is True
+
+
 @pytest.mark.parametrize("kind,neutral_field", [("stick", "center"), ("axis", "rest")])
 def test_edit_calibration_preserves_source_and_identity(kind, neutral_field):
     analog = make_analog(kind)

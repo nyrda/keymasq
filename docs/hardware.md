@@ -239,7 +239,8 @@ already has that ID, it keeps its mappings and the hardware has no Pointer Movem
 - `source`: optional event device `id`
 - `axes`: axis definitions with `role`, `evdev`, optional `evdev_code`, and
   optional calibration fields. `invert = true` reverses a stick axis for every
-  mapping that uses it.
+  mapping that uses it. The same setting is the **Invert** switch in
+  [Edit Analog Input](gamepad.md#editing-an-existing-analog-input).
 
 `[[hardware.input_sources]]`
 

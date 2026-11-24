@@ -455,6 +455,41 @@ def test_apply_saves_embedded_analog_controls(temp_config_dir, tmp_path, monkeyp
     assert window.toasts == ["Applied 'Desktop & Mouse': 3 mappings filled"]
 
 
+def test_closing_the_dialog_while_applying_writes_no_mappings(
+    temp_config_dir, tmp_path, monkeypatch
+):
+    preset_dir = tmp_path / "presets"
+    _write_preset(preset_dir, "desktop", DESKTOP_PRESET_TOML)
+    monkeypatch.setattr(preset_dialog_module, "load_presets", lambda: load_presets([preset_dir]))
+    _pending, flush_next = _install_deferred_gui_task(monkeypatch)
+    presented = _capture_presented_dialogs(monkeypatch)
+
+    device = _gamepad()
+    profile_manager = ProfileManager()
+    profile_manager.save_profile(ProfileConfig(name="Desk"))
+    window = _ToastWindow()
+    tab = DeviceTab(device=device, profile_manager=profile_manager, main_window=window)
+    monkeypatch.setattr(tab, "_notify_session_reload_async", lambda: None)
+
+    button = _find_button_by_tooltip(tab, "Apply preset")
+    assert button is not None
+    button.emit("clicked")
+    dialog = presented[0]
+    flush_next()
+    _action_rows(dialog)[0].emit("activated")
+    apply_btn = _find_button_by_label(dialog._nav_view.get_visible_page(), "Apply Preset")
+    assert apply_btn is not None
+    apply_btn.emit("clicked")
+
+    dialog.emit("closed")
+    flush_next()
+
+    saved = ProfileManager().get_profile("Desk")
+    assert saved is not None
+    assert saved.config.get_layer(device.hardware_id) is None
+    assert window.toasts == []
+
+
 def test_dialog_reports_load_and_apply_errors(temp_config_dir, tmp_path, monkeypatch):
     def fail_load():
         raise OSError("disk unavailable")

@@ -154,6 +154,24 @@ axes = [{ role = "x", evdev = "abs_hat0x" }, { role = "y", evdev = "abs_hat0y" }
     assert _layout(config) == before
 
 
+def test_an_override_that_contradicts_the_device_range_skips_the_whole_input(tmp_path):
+    config = _detected()
+    before = _layout(config)
+    preset = _preset(
+        tmp_path,
+        """
+[[analogs]]
+id = "left_stick"
+type = "stick"
+axes = [{ role = "x", evdev = "abs_x", minimum = 300 }, { role = "y", evdev = "abs_y" }]
+""",
+    )
+
+    assert apply_hardware_preset(preset, config) == ["left_stick"]
+    assert _layout(config) == before
+    assert config.analog_inputs[0].axes[0].minimum == -100
+
+
 def test_a_range_override_moves_the_center_and_an_explicit_center_wins(tmp_path):
     config = _detected()
     preset = _preset(
@@ -191,6 +209,9 @@ axes = [
         HEADER + _analog("pad", "axis", 'role="x", evdev="btn_a"'),
         HEADER + _analog("pad", "axis", 'role="x", evdev="abs_z", invert=true'),
         HEADER + _analog("pad", "axis", 'role="x", evdev="abs_z", minimum=5, maximum=5'),
+        HEADER + _analog("pad", "axis", 'role="x", evdev="abs_z", maximum=5, rest=9'),
+        HEADER + "device_types = [true]\n" + RELABEL,
+        HEADER + 'device_types = [""]\n' + RELABEL,
         HEADER
         + _analog("one", "axis", 'role="x", evdev="abs_z"')
         + _analog("two", "axis", 'role="x", evdev="abs_z"'),
@@ -241,6 +262,15 @@ def test_every_bundled_hardware_preset_loads():
         sorted(p.preset_id for p in load_hardware_presets([paths.BUNDLED_HARDWARE_PRESETS_DIR]))
         == bundled
     )
+
+
+def test_an_empty_xdg_data_dirs_falls_back_to_the_default_data_dirs(monkeypatch):
+    monkeypatch.setenv("XDG_DATA_DIRS", "")
+
+    assert paths.hardware_preset_search_dirs()[1:3] == [
+        Path("/usr/share/keymasq/hardware_presets"),
+        Path("/usr/local/share/keymasq/hardware_presets"),
+    ]
 
 
 def test_search_order_is_bundled_then_data_dirs_then_user_config(monkeypatch):

@@ -14,7 +14,12 @@ from keymasq.common.model.hardware import (
 )
 from keymasq.common.model.profiles import ProfileConfig
 from keymasq.session.analog_controls import AnalogControlManager
-from keymasq.session.presets import apply_preset, load_presets, presets_for_hardware
+from keymasq.session.presets import (
+    apply_preset,
+    load_presets,
+    presets_for_hardware,
+    write_preset_mappings,
+)
 from keymasq.session.profile.manager import ProfileManager
 
 DESKTOP_PRESET = """
@@ -156,6 +161,28 @@ def test_apply_skips_a_stick_when_the_saved_control_of_that_name_is_for_an_axis(
     assert "right_stick" not in saved.config.device_layers[hardware.hardware_id].mappings
 
 
+def test_a_mapping_is_not_written_when_its_analog_control_was_never_saved(
+    temp_config_dir, tmp_path
+):
+    hardware = _gamepad()
+
+    plan = write_preset_mappings(
+        _desktop_preset(tmp_path),
+        ProfileConfig(name="Desk"),
+        hardware,
+        {},
+        profile_manager=ProfileManager(),
+    )
+
+    assert "right_stick" in plan.unavailable
+    saved = ProfileManager().get_profile("Desk")
+    assert saved is not None
+    assert set(saved.config.device_layers[hardware.hardware_id].mappings) == {
+        "btn_south",
+        "btn_east",
+    }
+
+
 def test_a_failed_profile_save_leaves_the_profile_mappings_unchanged(
     temp_config_dir, tmp_path, monkeypatch
 ):
@@ -208,6 +235,8 @@ def test_later_search_directories_override_earlier_ones_by_file_name(tmp_path):
         '[mapping.btn_south]\naction = "macro"\nmacro_name = "Farm"\n',
         '[mapping.motion_1]\naction = "motion_control"\nmotion_control_name = "Gyro"\n',
         '[mapping.btn_south]\naction = "no_such_action"\n',
+        '[mapping.btn_south]\naciton = "keyboard"\ntarget = "key_enter"\n',
+        "[preset]\ndevice_types = [42]\n" + MINIMAL_MAPPING,
         '[mapping.right_stick]\naction = "analog_control"\n',
         '[preset]\nname = "Empty"\n',
         "this is not toml",

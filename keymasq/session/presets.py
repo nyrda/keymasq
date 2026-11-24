@@ -79,7 +79,13 @@ def _string_tuple(value: object, context: str) -> tuple[str, ...]:
         return ()
     if not isinstance(value, list):
         raise ValueError(f"{context} must be a list of strings")
-    return tuple(str(item).strip().lower() for item in cast(list[object], value) if str(item))
+    items = [
+        item.strip().lower() if isinstance(item, str) else ""
+        for item in cast(list[object], value)
+    ]
+    if not all(items):
+        raise ValueError(f"{context} must be a list of non-empty strings")
+    return tuple(items)
 
 
 def preset_from_toml(data: TomlDict, *, preset_id: str, path: Path) -> ProfilePreset:
@@ -99,6 +105,8 @@ def preset_from_toml(data: TomlDict, *, preset_id: str, path: Path) -> ProfilePr
     mappings: dict[str, MappingAction] = {}
     for source_id, action_data in _table(data.get("mapping"), "mapping").items():
         action_table = _table(action_data, f"mapping '{source_id}'")
+        if "action" not in action_table:
+            raise ValueError(f"mapping '{source_id}': action is missing")
         try:
             action_type, _ = mapping_action_type_from_toml(action_table, unknown_action="raise")
         except ValueError as exc:
@@ -182,6 +190,8 @@ def plan_preset(
     hardware: HardwareConfig,
     layer: DeviceProfileLayer | None,
     saved_analog_controls: Mapping[str, AnalogControlConfig],
+    *,
+    require_saved_analog_controls: bool = False,
 ) -> PresetPlan:
     plan = PresetPlan()
     control_types = _control_types(hardware)
@@ -202,7 +212,9 @@ def plan_preset(
         resolved = True
         for control_name in _analog_control_names(action):
             saved = saved_analog_controls.get(control_name)
-            control = saved or preset.analog_controls.get(control_name)
+            control = saved
+            if control is None and not require_saved_analog_controls:
+                control = preset.analog_controls.get(control_name)
             if control is None or control.input_type != control_type:
                 resolved = False
                 break
@@ -241,7 +253,13 @@ def write_preset_mappings(
 ) -> PresetPlan:
     hardware_id = hardware.hardware_id
     existing_layer = profile.get_layer(hardware_id)
-    plan = plan_preset(preset, hardware, existing_layer, saved_analog_controls)
+    plan = plan_preset(
+        preset,
+        hardware,
+        existing_layer,
+        saved_analog_controls,
+        require_saved_analog_controls=True,
+    )
     if not plan.mappings:
         return plan
 

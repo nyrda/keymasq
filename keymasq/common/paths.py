@@ -88,7 +88,7 @@ def ensure_config_dirs() -> None:
 def _layered_search_dirs(bundled_dir: Path, name: str, user_dir: Path) -> list[Path]:
     data_dirs = [
         Path(entry)
-        for entry in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":")
+        for entry in (os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")
         if entry.startswith("/")
     ]
     return [

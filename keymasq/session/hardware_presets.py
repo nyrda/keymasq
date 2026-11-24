@@ -76,11 +76,31 @@ def _string_tuple(value: object, context: str) -> tuple[str, ...]:
         return ()
     if not isinstance(value, list):
         raise ValueError(f"{context} must be a list of strings")
-    return tuple(str(item).strip().lower() for item in cast(list[object], value) if str(item))
+    items = [
+        item.strip().lower() if isinstance(item, str) else "" for item in cast(list[object], value)
+    ]
+    if not all(items):
+        raise ValueError(f"{context} must be a list of non-empty strings")
+    return tuple(items)
 
 
 def _text(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _calibration_is_consistent(
+    minimum: int | None,
+    maximum: int | None,
+    center: int | None,
+    rest: int | None,
+) -> bool:
+    if minimum is not None and maximum is not None and minimum >= maximum:
+        return False
+    return all(
+        (minimum is None or neutral >= minimum) and (maximum is None or neutral <= maximum)
+        for neutral in (center, rest)
+        if neutral is not None
+    )
 
 
 def _axis_from_toml(data: TomlDict, *, analog_type: str, context: str) -> PresetAxis:
@@ -94,9 +114,8 @@ def _axis_from_toml(data: TomlDict, *, analog_type: str, context: str) -> Preset
         if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
             raise ValueError(f"{context}: {name} must be a whole number")
         calibration[name] = value
-    minimum, maximum = calibration["minimum"], calibration["maximum"]
-    if minimum is not None and maximum is not None and minimum >= maximum:
-        raise ValueError(f"{context}: minimum must be less than maximum")
+    if not _calibration_is_consistent(**calibration):
+        raise ValueError(f"{context}: minimum, maximum, center and rest contradict each other")
     invert = data.get("invert", False)
     if not isinstance(invert, bool):
         raise ValueError(f"{context}: invert must be true or false")
@@ -293,6 +312,17 @@ def apply_hardware_preset(preset: HardwarePreset, config: HardwareConfig) -> lis
         if definition.id in used_ids:
             unavailable.append(definition.id)
             continue
+
+        axes = [
+            _preset_axis(preset_axis, detected, donor, definition.type)
+            for preset_axis, (donor, detected) in zip(definition.axes, located, strict=True)
+        ]
+        if not all(
+            _calibration_is_consistent(axis.minimum, axis.maximum, axis.center, axis.rest)
+            for axis in axes
+        ):
+            unavailable.append(definition.id)
+            continue
         used_ids.add(definition.id)
 
         claimed = {id(axis) for _, axis in located}
@@ -302,10 +332,7 @@ def apply_hardware_preset(preset: HardwarePreset, config: HardwareConfig) -> lis
                 label=definition.label,
                 type=definition.type,
                 source=located[0][0].source,
-                axes=[
-                    _preset_axis(preset_axis, detected, donor, definition.type)
-                    for preset_axis, (donor, detected) in zip(definition.axes, located, strict=True)
-                ],
+                axes=axes,
             )
         ]
         for donor in donors:

@@ -382,6 +382,8 @@ class ApplyPresetDialog(Adw.Dialog):
         def on_done(result: GuiTaskResult[dict[str, AnalogControlConfig]]) -> bool:
             self._applying = False
             self.set_can_close(True)
+            if self._closed:
+                return False
             if result.error is not None or result.value is None:
                 show_error(str(result.error) if result.error is not None else "Unknown error")
                 return False
@@ -392,8 +394,7 @@ class ApplyPresetDialog(Adw.Dialog):
             except (OSError, ValueError) as exc:
                 show_error(str(exc))
                 return False
-            if not self._closed:
-                self.close()
+            self.close()
             self._on_applied(preset, applied_plan)
             return False
 

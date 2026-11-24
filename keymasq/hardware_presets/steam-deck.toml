@@ -34,6 +34,19 @@ label = "L5"
 [buttons.btn_gripr2]
 label = "R5"
 
+# Older kernels report the back grips as trigger-happy buttons.
+[buttons.btn_trigger_happy1]
+label = "L4"
+
+[buttons.btn_trigger_happy2]
+label = "R4"
+
+[buttons.btn_trigger_happy3]
+label = "L5"
+
+[buttons.btn_trigger_happy4]
+label = "R5"
+
 [buttons.btn_select]
 label = "View"
 

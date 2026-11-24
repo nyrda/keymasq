@@ -11,7 +11,15 @@ freely, with no ongoing link to the preset file.
 
 Keymasq ships with a bundled **Desktop mouse** preset
 (`gamepad-desktop-mouse.toml`) that turns a game controller into a desktop
-pointer, scroll wheel, click, arrow-key, and basic key layout.
+pointer, scroll wheel, click, arrow-key, and basic key layout. On a controller
+with a right trackpad, such as the Steam Deck set up with its
+[hardware preset](hardware-presets.md), the trackpad moves the pointer like a
+laptop touchpad.
+
+A preset lists more controls than any single controller has. The D-pad, for
+example, appears as buttons and as a hat, because controllers report it one way
+or the other. The preview shows the controls your device lacks under
+**Unavailable**, which is expected.
 
 ## Applying a preset in the GUI
 

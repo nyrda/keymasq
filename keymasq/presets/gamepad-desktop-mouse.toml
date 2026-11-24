@@ -19,6 +19,10 @@ analog_control_name = "Trigger Left Click"
 action = "analog_control"
 analog_control_name = "Trigger Right Click"
 
+[mapping.right_trackpad]
+action = "analog_control"
+analog_control_name = "Touchpad Mouse"
+
 [mapping.hat_0]
 action = "analog_control"
 analog_control_name = "Arrow Keys"
@@ -64,6 +68,17 @@ enabled = true
 speed = 1000.0
 deadzone = 0.18
 response_curve = 2.0
+
+[analog_controls."Touchpad Mouse"]
+input_type = "stick"
+description = "Slide a finger on the trackpad to move the pointer"
+
+[analog_controls."Touchpad Mouse".mouse_motion]
+enabled = true
+mode = "area"
+area_input_style = "touchpad"
+area_radius_x = 400.0
+area_radius_y = 400.0
 
 [analog_controls."Scroll Wheel"]
 input_type = "stick"

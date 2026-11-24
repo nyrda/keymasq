@@ -7,6 +7,7 @@ from keymasq.common.model.actions import MappingAction
 from keymasq.common.model.analog import AnalogControlConfig, AnalogMouseMotionConfig
 from keymasq.common.model.core import ActionType, DeviceType
 from keymasq.common.model.hardware import (
+    AnalogAxisDefinition,
     AnalogInputDefinition,
     ButtonDefinition,
     EvdevDevice,
@@ -14,6 +15,7 @@ from keymasq.common.model.hardware import (
 )
 from keymasq.common.model.profiles import ProfileConfig
 from keymasq.session.analog_controls import AnalogControlManager
+from keymasq.session.hardware_presets import apply_hardware_preset, load_hardware_presets
 from keymasq.session.presets import (
     apply_preset,
     load_presets,
@@ -257,6 +259,56 @@ def test_every_bundled_preset_loads():
 
     assert bundled
     assert sorted(p.preset_id for p in load_presets([paths.BUNDLED_PRESETS_DIR])) == bundled
+
+
+def test_bundled_desktop_preset_fills_the_controls_of_the_bundled_steam_deck_layout(
+    temp_config_dir,
+):
+    hardware = HardwareConfig(
+        "28de",
+        "1205",
+        "Steam Deck",
+        [EvdevDevice("/dev/input/event0", DeviceType.GAMEPAD, "pad")],
+        [ButtonDefinition(id="btn_south", label="A", evdev="btn_south", source="pad")],
+        analog_inputs=[
+            AnalogInputDefinition(
+                id=f"hat_{index}",
+                label=f"Hat {index + 1}",
+                type="stick",
+                source="pad",
+                axes=[
+                    AnalogAxisDefinition("x", f"abs_hat{index}x", minimum=low, maximum=32767),
+                    AnalogAxisDefinition("y", f"abs_hat{index}y", minimum=low, maximum=32767),
+                ],
+            )
+            for index, low in enumerate((-32767, -32767, 0))
+        ],
+    )
+    deck_layout = load_hardware_presets([paths.BUNDLED_HARDWARE_PRESETS_DIR])[0]
+    apply_hardware_preset(deck_layout, hardware)
+    desktop = next(
+        preset
+        for preset in load_presets([paths.BUNDLED_PRESETS_DIR])
+        if preset.preset_id == "gamepad-desktop-mouse"
+    )
+
+    plan = _apply(desktop, ProfileConfig(name="Desk"), hardware)
+
+    assert {
+        source: action.analog_control_name
+        for source, action in plan.mappings.items()
+        if action.action_type == ActionType.ANALOG_CONTROL
+    } == {
+        "right_trackpad": "Touchpad Mouse",
+        "left_trigger": "Trigger Right Click",
+        "right_trigger": "Trigger Left Click",
+    }
+    touchpad = AnalogControlManager().get_analog_control("Touchpad Mouse")
+    assert touchpad is not None
+    assert (touchpad.mouse_motion.mode, touchpad.mouse_motion.area_input_style) == (
+        "area",
+        "touchpad",
+    )
 
 
 def test_presets_are_offered_by_device_type_and_model_with_model_specific_first(tmp_path):

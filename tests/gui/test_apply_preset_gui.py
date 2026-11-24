@@ -351,8 +351,8 @@ def test_preview_shows_fill_kept_unavailable_and_writes_only_on_confirm(
     assert "B Button" in preview_text
     assert "Right Stick" in preview_text
     assert "A Button" in preview_text
-    assert "btn_mode" in preview_text
-    assert "Left Trigger" in preview_text
+    assert "Not present on this device\nGuide" in preview_text
+    assert "Incompatible action for this control\nLeft Trigger" in preview_text
 
     saved_before = ProfileManager().get_profile("Desk")
     assert saved_before is not None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Callable
 
 import gi
@@ -10,6 +11,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.common.controller_capabilities import controller_control_label
 from keymasq.common.model.analog import AnalogControlConfig
 from keymasq.common.model.hardware import HardwareConfig
 from keymasq.common.model.profiles import DeviceProfileLayer
@@ -56,8 +58,11 @@ def _hardware_control_labels(hardware: HardwareConfig) -> dict[str, str]:
     return labels
 
 
-def preset_control_label(hardware: HardwareConfig, source_id: str) -> str:
-    return _hardware_control_labels(hardware).get(source_id, source_id)
+def _missing_control_label(source_id: str) -> str:
+    hat = re.fullmatch(r"hat_(\d+)", source_id)
+    if hat is not None:
+        return f"Hat {int(hat.group(1)) + 1}"
+    return controller_control_label(source_id)
 
 
 def empty_plan_summary(plan: PresetPlan) -> str:
@@ -297,15 +302,17 @@ class ApplyPresetDialog(Adw.Dialog):
                 title=f"Unavailable ({len(plan.unavailable)})",
                 description="This device lacks these controls or cannot use the preset action.",
             )
+            reasons: dict[str, list[str]] = {}
             for source_id in plan.unavailable:
-                subtitle = (
+                label = control_labels.get(source_id)
+                reason = (
                     "Incompatible action for this control"
-                    if source_id in control_labels
+                    if label is not None
                     else "Not present on this device"
                 )
-                unavailable_group.add(
-                    _action_row(control_labels.get(source_id, source_id), subtitle)
-                )
+                reasons.setdefault(reason, []).append(label or _missing_control_label(source_id))
+            for reason, labels in reasons.items():
+                unavailable_group.add(_action_row(reason, ", ".join(labels)))
             page.add(unavailable_group)
 
         toolbar.set_content(page)

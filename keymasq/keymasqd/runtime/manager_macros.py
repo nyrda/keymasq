@@ -11,6 +11,7 @@ from keymasq.common.coercion import coerce_bool, coerce_float, coerce_int, coerc
 from keymasq.common.ipc import CommandType
 from keymasq.common.model.actions import DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
 from keymasq.common.types import JsonObject
+from keymasq.keymasqd.runtime.action.triggers import source_trigger_id
 from keymasq.keymasqd.runtime.macro import cleanup, controls, playback
 from keymasq.keymasqd.runtime.macro.exceptions import MacroCallError
 from keymasq.keymasqd.runtime.macro.options import (
@@ -48,6 +49,12 @@ class MacroManagerMixin:
     def runtime_input_paused(self) -> bool:
         raise NotImplementedError
 
+    def observe_profile_trigger_start(self, trigger_id: str | None) -> None:
+        raise NotImplementedError
+
+    def observe_profile_trigger_end(self, trigger_id: str | None) -> None:
+        raise NotImplementedError
+
     def macro_keyboard_blocked(self) -> bool:
         return self.macro_state.keyboard_block_count > 0
 
@@ -71,8 +78,20 @@ class MacroManagerMixin:
             # A release must not overtake the first press while its file is loading.
             lock = self.macro_state.trigger_locks.setdefault(source_key, asyncio.Lock())
             async with lock:
+                self._observe_macro_profile_trigger(playback_options)
                 return await self._play_macro_request(playback_options, macro_event_source)
         return await self._play_macro_request(playback_options, macro_event_source)
+
+    def _observe_macro_profile_trigger(self, playback_options: MacroPlaybackOptions) -> None:
+        # Combo and other synthetic triggers are not physical keys, so
+        # while-held profile actions inside the macro need their lifecycle here.
+        trigger_id = source_trigger_id(
+            playback_options.source_device, playback_options.source_button
+        )
+        if int(playback_options.trigger_value) == 1:
+            self.observe_profile_trigger_start(trigger_id)
+        elif int(playback_options.trigger_value) == 0:
+            self.observe_profile_trigger_end(trigger_id)
 
     async def _play_macro_request(
         self,

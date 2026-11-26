@@ -18,6 +18,7 @@ from keymasq.gui.widgets.macro_editor.gaps import (
     build_track_gaps,
 )
 from keymasq.gui.widgets.macro_editor.model import (
+    PROFILE_CONTROL_MODES,
     EditableControl,
     EditableEvent,
     EditableMove,
@@ -589,6 +590,9 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
                 "exec_sync": "Run command",
                 "exec_async": "Run command",
                 "compositor_dispatch": "Compositor action",
+                "profile_enable": "Profile action",
+                "profile_disable": "Profile action",
+                "profile_toggle": "Profile action",
             }.get(item.mode, item.mode.replace("_", " ").capitalize())
         if isinstance(item, dict):
             if int(item.get("type", -1)) == evdev.ecodes.EV_REL:
@@ -1194,6 +1198,16 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
             compositor_btn.connect("clicked", _insert_compositor)
             box.append(compositor_btn)
 
+            profile_btn = Gtk.Button(label=f"Insert Profile Action at {t_label}")
+            profile_btn.add_css_class("flat")
+
+            def _insert_profile(_b, _t=t_us, _p=popover):
+                _p.popdown()
+                self._editor._present_profile_action_dialog(default_t_us=_t)
+
+            profile_btn.connect("clicked", _insert_profile)
+            box.append(profile_btn)
+
         if box.get_first_child():
             box.append(Gtk.Separator())
 
@@ -1276,6 +1290,8 @@ class TimelineWidget(Gtk.DrawingArea, TimelineSelectionMixin):
                 if ev.mode in {"macro_sync", "macro_parallel"}
                 else "Run Command"
                 if ev.mode in {"exec_sync", "exec_parallel", "exec_async"}
+                else f"Profile Action {ev.profile_name}"
+                if ev.mode in PROFILE_CONTROL_MODES
                 else ev.mode.replace("_", " ").title()
             )
             del_control_btn = Gtk.Button(label=f"Delete {label}")

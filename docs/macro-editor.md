@@ -72,7 +72,8 @@ near either edge scrolls while you select or move actions.
 
 With nothing selected, the inspector lists everything that can be added at the
 insertion cursor: **Key**, **Mouse Button**, **Gamepad Button**, **Mouse Move**,
-**Wait**, **Run Command**, **Call Macro**, and **Compositor Action**. Waits,
+**Wait**, **Run Command**, **Call Macro**, **Compositor Action**, and
+**Profile Action**. Waits,
 commands, and compositor actions go in immediately and stay selected so you
 can finish them in the inspector.
 
@@ -84,7 +85,7 @@ click determines the input action in the menu:
 | Keyboard track | **Add Keystroke** |
 | Mouse-button track | **Add Mouse Click** |
 | Gamepad track | **Add Gamepad Button** |
-| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Run Command**, **Call Macro**, or **Insert Compositor Action**. |
+| Movement/control track | **Add Mouse Move**, **Insert Wait**, **Run Command**, **Call Macro**, **Insert Compositor Action**, or **Insert Profile Action**. |
 
 Choose the key, button, or action in the dialog that opens. A key or mouse-button
 action includes its press and release, so you do not need to insert them
@@ -168,6 +169,11 @@ See [Calling macros from macros](macros.md#calling-macros-from-macros).
 
 **Insert Compositor Action** uses the same action picker as normal mappings.
 It is available when the session supports compositor dispatch.
+
+**Profile Action** opens the profile picker from normal mappings. Choose
+Enable, Disable, or Toggle, the profile, and an activation mode. The **P**
+marker remains editable, and **Change Profile Action...** in its properties
+opens the picker again. See [Profile actions](macros.md#profile-actions).
 
 ## Select actions or time
 

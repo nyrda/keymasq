@@ -8,6 +8,7 @@ import evdev
 from keymasq.common.macro_rapidfire import plan_macro_rapidfire
 from keymasq.gui.widgets.macro_editor.gaps import TimelineGap
 from keymasq.gui.widgets.macro_editor.model import (
+    PROFILE_CONTROL_MODES,
     EditableControl,
     EditableEvent,
     EditableMove,
@@ -751,6 +752,9 @@ def _draw_control_markers(cr, state: TimelineRenderState, width: int) -> None:
         elif control.mode == "macro_parallel":
             rgba = (0.25, 0.88, 0.75, 0.95)
             label = "MP"
+        elif control.mode in PROFILE_CONTROL_MODES:
+            rgba = (0.95, 0.80, 0.25, 0.95)
+            label = "P"
         else:
             rgba = (0.65, 0.65, 0.65, 0.95)
             label = "?"

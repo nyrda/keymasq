@@ -15,6 +15,7 @@ from keymasq.common.gamepad_axes import (
 )
 from keymasq.common.macro_rapidfire import plan_macro_rapidfire
 from keymasq.gui.widgets.macro_editor.model import (
+    PROFILE_CONTROL_MODES,
     EditableControl,
     EditableEvent,
     EditableMove,
@@ -549,6 +550,9 @@ class EventPropertiesMixin:
             return
         if isinstance(ev, EditableControl) and ev.mode in {"macro_sync", "macro_parallel"}:
             self._present_macro_call_dialog(control=ev)
+            return
+        if isinstance(ev, EditableControl) and ev.mode in PROFILE_CONTROL_MODES:
+            self._present_profile_action_dialog(control=ev)
             return
         if isinstance(ev, EditableMove):
             self._present_mouse_move_dialog(move=ev)

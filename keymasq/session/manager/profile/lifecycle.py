@@ -176,7 +176,7 @@ async def play_profile_lifecycle_macro(
         result = await manager.client.send_command(
             Command(
                 command=CommandType.MACRO_PLAY_BY_NAME,
-                data={"name": macro_name},
+                data={"name": macro_name, "allow_profile_actions": False},
             )
         )
     except OSError as exc:

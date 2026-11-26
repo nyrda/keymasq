@@ -7,11 +7,29 @@ from collections.abc import Callable
 from typing import Any
 
 from keymasq.common.ipc import CommandType
+from keymasq.common.model.actions import (
+    MappingAction,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
+)
+from keymasq.common.model.core import ActionType
+from keymasq.keymasqd.runtime.action.triggers import (
+    build_action_trigger_payload,
+    source_trigger_id,
+)
 from keymasq.keymasqd.runtime.macro import mouse
 from keymasq.keymasqd.runtime.macro.state import MacroRuntimeDeps
 
 type MacroManager = Any
 type MouseSuppressionAction = Callable[..., None]
+
+PROFILE_CONTROL_ACTIONS = frozenset(
+    {
+        ActionType.PROFILE_ENABLE.value,
+        ActionType.PROFILE_DISABLE.value,
+        ActionType.PROFILE_TOGGLE.value,
+    }
+)
 
 
 def complete_all_macro_exec_waiters(manager: MacroManager, returncode: int) -> None:
@@ -118,6 +136,48 @@ async def run_macro_control_action(
         return 0.0
 
     return 0.0
+
+
+async def run_macro_profile_action(
+    manager: MacroManager,
+    instance_id: int,
+    event: dict[str, object],
+    *,
+    deps: MacroRuntimeDeps,
+) -> None:
+    """Send one profile control event to the session like a mapped profile action."""
+
+    profile_name = deps.str_value_fn(event.get("profile_name"), "").strip()
+    if not profile_name or manager.broadcast_callback is None:
+        return
+    state = manager.macro_state
+    root_meta = state.root_meta(instance_id)
+    if not root_meta.get("allow_profile_actions", True):
+        deps.log.debug("Profile action skipped in profile lifecycle macro: %s", profile_name)
+        return
+    action_type = ActionType(deps.str_value_fn(event.get("macro_action"), ""))
+    deactivation = normalize_profile_deactivation_policy(
+        action_type,
+        parse_profile_deactivation_policy(event.get("deactivation")),
+    )
+    source_available, source_active = state.source_lifecycle(instance_id)
+    if deactivation is not None and deactivation.on_trigger_end:
+        if not (source_available and source_active):
+            return
+    source_device = deps.str_value_fn(root_meta.get("source_device"), "")
+    source_button = deps.str_value_fn(root_meta.get("source_button"), "")
+    payload = build_action_trigger_payload(
+        MappingAction(
+            action_type=action_type,
+            profile_name=profile_name,
+            profile_deactivation=deactivation,
+        ),
+        source_device=source_device,
+        source_button=source_button,
+        trigger_id=(source_trigger_id(source_device, source_button) if source_available else None),
+    )
+    if payload is not None:
+        await manager.broadcast_callback(CommandType.ACTION_TRIGGER, payload)
 
 
 async def _sleep_control_action(

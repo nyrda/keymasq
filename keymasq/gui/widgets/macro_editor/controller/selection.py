@@ -355,6 +355,13 @@ class SelectionControllerMixin:
                 "Adds an action for the running compositor",
                 lambda: self._insert_compositor_action(self._timeline._insertion_us),
             ),
+            (
+                "Profile Action",
+                "Enables, disables, or toggles a profile",
+                lambda: self._present_profile_action_dialog(
+                    default_t_us=self._timeline._insertion_us
+                ),
+            ),
         ]
         for index, (label, tooltip, callback) in enumerate(add_actions):
             button = Gtk.Button(label=label)

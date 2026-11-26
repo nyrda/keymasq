@@ -232,6 +232,10 @@ def _start_macro_instance(
         parent_instance_id=parent_instance_id,
     )
     manager.macro_state.instance_meta[instance_id]["playback_id"] = playback_options.playback_id
+    if parent_instance_id is None:
+        manager.macro_state.instance_meta[instance_id]["allow_profile_actions"] = (
+            playback_options.allow_profile_actions
+        )
     source_available, source_active = manager.macro_state.source_lifecycle(instance_id)
     if (
         normalized_loop_stop_behavior == "pause_run"

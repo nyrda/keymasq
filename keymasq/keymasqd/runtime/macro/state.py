@@ -112,13 +112,18 @@ class MacroRuntimeState:
                     meta["source_released_at_s"] = asyncio.get_running_loop().time()
                 meta["source_lifecycle_active"] = False
 
-    def source_lifecycle(self, instance_id: int) -> tuple[bool, bool]:
-        """Return whether a root has a trigger source and whether it remains held."""
+    def root_meta(self, instance_id: int) -> dict[str, object]:
+        """Return the metadata of the root invocation that owns an instance."""
 
         meta = self.instance_meta.get(instance_id, {})
         raw_root_id = meta.get("root_instance_id")
         root_id = raw_root_id if isinstance(raw_root_id, int) else instance_id
-        root_meta = self.instance_meta.get(root_id, {})
+        return self.instance_meta.get(root_id, {})
+
+    def source_lifecycle(self, instance_id: int) -> tuple[bool, bool]:
+        """Return whether a root has a trigger source and whether it remains held."""
+
+        root_meta = self.root_meta(instance_id)
         return (
             bool(root_meta.get("source_lifecycle_available", False)),
             bool(root_meta.get("source_lifecycle_active", False)),

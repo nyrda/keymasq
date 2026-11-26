@@ -366,6 +366,9 @@ async def _play_iteration(
             else:
                 parallel_tasks.add(child_task)
             continue
+        if action_type in controls.PROFILE_CONTROL_ACTIONS:
+            await wait(controls.run_macro_profile_action(manager, instance_id, event, deps=deps))
+            continue
         if action_type in _PARALLEL_CONTROL_ACTIONS:
             task = asyncio_mod.create_task(
                 control_action_fn(

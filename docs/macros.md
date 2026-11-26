@@ -633,6 +633,32 @@ If a macro tries to call a name already present in
 its active parent chain, Keymasq stops the call tree and logs the attempted
 cycle. This runtime check does not scan or rewrite saved macros.
 
+### Profile actions
+
+A macro can enable, disable, or toggle a profile at a timestamp in its
+timeline. Profile actions offer the same choices as
+[profile actions on mappings](actions.md#profile), including the temporary
+activation modes. Playback continues immediately and does not wait for the
+profile change. See the
+[editor guide](macro-editor.md#waits-commands-and-macro-calls) to add one.
+
+- The trigger is the mapped input that started the top-level macro. Called
+  child macros share it.
+- **While trigger is held** activates the profile until that trigger is
+  released. If the trigger was released before playback reaches the action,
+  nothing happens. Playback without a trigger, such as from the GUI or CLI,
+  skips these actions as well.
+- **Persistent**, **One-shot**, and timeout modes also work without a trigger.
+  Persistent actions write `enabled` to the profile file, as mapping actions do.
+- Profile activation and deactivation macros skip profile actions, including
+  in the macros they call. Otherwise a profile switch could start these macros
+  again in an endless loop.
+- Profiles remap physical input only. A profile enabled by a macro never
+  remaps that macro's own output.
+
+Profile names are resolved when the action plays. Renaming a profile does not
+rewrite macros that use it.
+
 ## Editing macros
 
 Open **Macro Manager** and click a saved macro's row or pencil button to edit

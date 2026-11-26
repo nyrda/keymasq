@@ -17,7 +17,9 @@ from keymasq.gui.widgets.macro_editor.model import (
     EditableEvent,
     EditableMove,
     _apply_mapping_action_to_move,
+    _apply_profile_action_to_control,
     _control_to_compositor_action,
+    _control_to_profile_action,
     _move_to_mapping_action,
     standard_hat_return_event,
 )
@@ -182,6 +184,58 @@ class MacroEditorAddPopoversMixin:
         target.macro_replay_mouse_movement = action.macro_replay_mouse_movement
         target.macro_replay_mouse_clicks = action.macro_replay_mouse_clicks
         target.macro_speed = max(0.01, action.macro_speed)
+        if control is None:
+            self._insert_control_event(target)
+        else:
+            self._refresh_after_control_change(target)
+
+    def _present_profile_action_dialog(
+        self,
+        *,
+        default_t_us: int | None = None,
+        control: EditableControl | None = None,
+    ) -> None:
+        """Select a profile action through the shared profile picker."""
+
+        from keymasq.gui.widgets.key_selector.dialog import KeySelectorDialog
+
+        dialog = KeySelectorDialog(
+            self._parent,
+            "Profile Action",
+            _control_to_profile_action(control) if control is not None else None,
+            allow_passthrough=False,
+            allow_clear_mapping=False,
+            allow_suppress=False,
+            allow_superkey=False,
+            allow_repeat=False,
+            allow_rapidfire=False,
+            allow_tap=False,
+            allowed_tabs={"profile"},
+            initial_tab="profile",
+            dialog_title="Choose Profile Action",
+        )
+        dialog.connect(
+            "key-selected",
+            self._on_profile_action_selected,
+            self._default_insert_time_us(default_t_us),
+            control,
+        )
+        dialog.present(self._parent)
+
+    def _on_profile_action_selected(
+        self,
+        _dialog: Gtk.Widget,
+        action: MappingAction | None,
+        default_t_us: int,
+        control: EditableControl | None,
+    ) -> None:
+        if action is None:
+            return
+        target = control or EditableControl(
+            mode=ActionType.PROFILE_ENABLE.value, t_us=max(0, int(default_t_us))
+        )
+        if not _apply_profile_action_to_control(target, action):
+            return
         if control is None:
             self._insert_control_event(target)
         else:

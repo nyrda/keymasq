@@ -344,6 +344,42 @@ def test_parse_reconstruct_compositor_macro_action() -> None:
     assert rebuilt == raw
 
 
+def test_parse_reconstruct_profile_macro_actions() -> None:
+    def profile_event(t_us: int, action: str, profile: str, **extra: object) -> dict:
+        return {
+            "device_type": "macro",
+            "type": 0,
+            "code": 0,
+            "value": 0,
+            "t_us": t_us,
+            "macro_action": action,
+            "profile_name": profile,
+            **extra,
+        }
+
+    raw = [
+        profile_event(0, "profile_enable", "Nav", deactivation={"on_trigger_end": True}),
+        profile_event(
+            10_000,
+            "profile_toggle",
+            "Aim",
+            deactivation={"after_actions": 1, "timeout_ms": 1500},
+        ),
+        profile_event(20_000, "profile_disable", "Desktop"),
+    ]
+
+    editable, rel_events, passthrough, synthetic_moves, control_events = parse_events(raw)
+    rebuilt = reconstruct_events(editable, rel_events, passthrough, synthetic_moves, control_events)
+
+    assert passthrough == []
+    assert [(control.mode, control.profile_name) for control in control_events] == [
+        ("profile_enable", "Nav"),
+        ("profile_toggle", "Aim"),
+        ("profile_disable", "Desktop"),
+    ]
+    assert rebuilt == raw
+
+
 def test_parse_reconstruct_macro_call_actions() -> None:
     raw = [
         {

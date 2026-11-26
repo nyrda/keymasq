@@ -145,7 +145,21 @@ Semantic macro control events:
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"exec_async","command":"notify-send done"}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_sync","macro_name":"child","loop_mode":"none","loop_count":1,"loop_stop_behavior":"finish_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
 {"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"macro_parallel","macro_name":"child","loop_mode":"hold","loop_count":1,"loop_stop_behavior":"cancel_run","speed":1.0,"replay_mouse_movement":true,"replay_mouse_clicks":true}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"profile_enable","profile_name":"Nav","deactivation":{"on_trigger_end":true}}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"profile_toggle","profile_name":"Aim","deactivation":{"after_actions":1,"timeout_ms":1500}}
+{"device_type":"macro","type":0,"code":0,"value":0,"t_us":0,"macro_action":"profile_disable","profile_name":"Desktop"}
 ```
+
+Profile events (`profile_enable`, `profile_disable`, `profile_toggle`) behave
+like profile mapping actions and take the same optional `deactivation` table
+(`on_trigger_end`, `after_actions`, `timeout_ms`, ignored for disable). Without
+`deactivation` the change is persistent. Playback does not wait for the
+switch. The trigger is the mapped input that started the root macro, shared
+by called children. `on_trigger_end` activates only while that trigger is
+held: the event is skipped when the trigger was already released or the
+playback has no trigger (GUI, CLI). Profile activation and deactivation
+macros, and the children they call, skip all profile events. Profiles never
+remap macro output.
 
 macro_rapidfire pulses a keyboard, mouse, or gamepad button for duration_us.
 Use type=1 and the target code; gamepads can specify output_id. Set

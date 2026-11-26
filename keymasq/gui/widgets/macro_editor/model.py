@@ -16,9 +16,13 @@ from keymasq.common.model.actions import (
     DEFAULT_RAPIDFIRE_HOLD_MS,
     DEFAULT_RAPIDFIRE_WAIT_MS,
     MappingAction,
+    ProfileDeactivationPolicy,
     clamp_rapidfire_hold_ms,
     clamp_rapidfire_wait_ms,
     normalize_natural_mouse_move_curve,
+    normalize_profile_deactivation_policy,
+    parse_profile_deactivation_policy,
+    profile_deactivation_policy_to_dict,
 )
 from keymasq.common.model.core import ActionType
 from keymasq.common.virtual_devices import is_virtual_gamepad_output_id
@@ -119,6 +123,14 @@ def _describe_passthrough_event(ev: MacroEvent) -> tuple[str, str]:
     return type_name, f"Raw {device_type} {type_name} {name} value {value} (code {code})"
 
 
+PROFILE_CONTROL_MODES = frozenset(
+    {
+        ActionType.PROFILE_ENABLE.value,
+        ActionType.PROFILE_DISABLE.value,
+        ActionType.PROFILE_TOGGLE.value,
+    }
+)
+
 _CONTROL_MACRO_ACTIONS = {
     "wait",
     "wait_random",
@@ -128,6 +140,7 @@ _CONTROL_MACRO_ACTIONS = {
     "compositor_dispatch",
     "macro_sync",
     "macro_parallel",
+    *PROFILE_CONTROL_MODES,
 }
 
 # ---------------------------------------------------------------------------
@@ -211,6 +224,8 @@ class EditableControl:
     macro_loop_count: int = 1
     macro_loop_stop_behavior: str = DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
     macro_pause_timeout_s: float = 0.0
+    profile_name: str = ""
+    profile_deactivation: ProfileDeactivationPolicy | None = None
     original_order: int | None = None
 
 
@@ -220,6 +235,41 @@ def _control_to_compositor_action(control: EditableControl) -> MappingAction:
         compositor_id=control.compositor_id or None,
         compositor_dispatcher=control.compositor_dispatcher,
         compositor_args=control.compositor_args,
+    )
+
+
+def _control_to_profile_action(control: EditableControl) -> MappingAction:
+    action_type = ActionType(control.mode)
+    return MappingAction(
+        action_type=action_type,
+        profile_name=control.profile_name,
+        profile_deactivation=normalize_profile_deactivation_policy(
+            action_type, control.profile_deactivation
+        ),
+    )
+
+
+def _apply_profile_action_to_control(control: EditableControl, action: MappingAction) -> bool:
+    if action.action_type.value not in PROFILE_CONTROL_MODES:
+        return False
+    profile_name = str(action.profile_name or action.target or "").strip()
+    if not profile_name:
+        return False
+    control.mode = action.action_type.value
+    control.profile_name = profile_name
+    control.profile_deactivation = normalize_profile_deactivation_policy(
+        action.action_type, action.profile_deactivation
+    )
+    return True
+
+
+def _profile_deactivation_from_event(
+    macro_action: str, ev: MacroEvent
+) -> ProfileDeactivationPolicy | None:
+    if macro_action not in PROFILE_CONTROL_MODES:
+        return None
+    return normalize_profile_deactivation_policy(
+        ActionType(macro_action), parse_profile_deactivation_policy(ev.get("deactivation"))
     )
 
 
@@ -398,6 +448,8 @@ def parse_events(
                         ev.get("loop_stop_behavior", DEFAULT_MACRO_LOOP_STOP_BEHAVIOR)
                         or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
                     ),
+                    profile_name=str(ev.get("profile_name", "") or ""),
+                    profile_deactivation=_profile_deactivation_from_event(macro_action, ev),
                     original_order=original_order,
                 )
             )
@@ -606,6 +658,13 @@ def reconstruct_events(
             control_event["loop_stop_behavior"] = str(
                 control.macro_loop_stop_behavior or DEFAULT_MACRO_LOOP_STOP_BEHAVIOR
             )
+        elif control.mode in PROFILE_CONTROL_MODES:
+            control_event["profile_name"] = str(control.profile_name)
+            deactivation = profile_deactivation_policy_to_dict(
+                _control_to_profile_action(control).profile_deactivation
+            )
+            if deactivation is not None:
+                control_event["deactivation"] = deactivation
         if control.original_order is not None:
             control_event = _with_editor_order(control_event, control.original_order)
         raw.append(control_event)

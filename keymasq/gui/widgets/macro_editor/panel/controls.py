@@ -10,14 +10,17 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk  # pyright: ignore[reportAttributeAccessIssue]
 
+from keymasq.gui.widgets.action_labels import _profile_lifetime_suffix
 from keymasq.gui.widgets.compositor_actions.compositors import COMPOSITOR_ACTION_DEFINITIONS
 from keymasq.gui.widgets.compositor_actions.core import (
     CompositorActionDefinition,
     CompositorActionPreset,
 )
 from keymasq.gui.widgets.macro_editor.model import (
+    PROFILE_CONTROL_MODES,
     EditableControl,
     _control_to_compositor_action,
+    _control_to_profile_action,
     _describe_compositor_control,
 )
 from keymasq.gui.widgets.macro_editor.panel.pause_timeout import PauseTimeoutControl
@@ -174,6 +177,21 @@ def control_editor_state(
             macro_speed=max(0.01, float(control.macro_speed)),
             macro_replay_mouse_movement=bool(control.macro_replay_mouse_movement),
             macro_replay_mouse_clicks=bool(control.macro_replay_mouse_clicks),
+        )
+    if control.mode in PROFILE_CONTROL_MODES:
+        verb = {
+            "profile_enable": "Enable",
+            "profile_disable": "Disable",
+            "profile_toggle": "Toggle",
+        }[control.mode]
+        return replace(
+            base,
+            title="Profile Action",
+            detail=f"{verb}{_profile_lifetime_suffix(_control_to_profile_action(control))}",
+            title_context=control.profile_name or "<missing profile>",
+            mode_label="Profile",
+            change_label="Change Profile Action...",
+            show_change=True,
         )
     return base
 

@@ -651,6 +651,7 @@ async def test_reevaluate_profiles_plays_lifecycle_macros_once_per_transition(
         "gaming_enter",
         "gaming_leave",
     ]
+    assert all(call.args[0].data["allow_profile_actions"] is False for call in sent)
 
 
 @pytest.mark.asyncio
